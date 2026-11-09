@@ -116,7 +116,8 @@ web (Vite + React 19)                     server (Node + tsx)
 | `npm run typecheck` | TypeScript check |
 | `npm test` | Unit tests (brain, graph, providers) + flow, security, P0 and end-to-end smoke suites |
 | `npx tsx server/scripts/smoke.ts` | End-to-end socket smoke test of the whole demo |
-| `npx tsx scripts/qa/capture.ts` | Drive the demo and capture phone screenshots (server must be running) |
-| `npx tsx scripts/qa/gpt-review.ts` | Send source + screenshots to GPT‑6.1 Sol for a structured review |
+| `npm run qa:capture` | Rehearse the whole script against a running server (`BASE`, `TACHI_DIRECTOR_KEY`), print per-step seconds, capture phone screenshots, assert primary actions are above the fold (needs `playwright`) |
+| `npm run qa:review` | Send source + screenshots to GPT‑6.1 Sol (reasoning `xhigh`, background mode) for a structured review → `docs/reviews/` |
+| `npm run design:detect` | impeccable anti-pattern detector over the web source |
 
 Design: achromatic “graphite ink on warm paper” system (see `docs/design-reference.md`), adapted for seniors (20px body, 56px controls).
