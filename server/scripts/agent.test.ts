@@ -53,12 +53,11 @@ async function main() {
   check(!!r1?.meta?.toolsUsed?.includes('알림 등록'), 'reply carries toolsUsed');
   check(ctx.db.reminders.all().some(r => r.text === '혈압약 드시기' && r.createdBy === 'mom'), 'reminder stored');
 
-  const r2 = await ask(mom, SENIOR_ROOM_ID, '내일 일정 뭐야?', 'calendar reply');
-  check(!!r2 && /연세내과/.test(r2.text), `senior calendar answer (${r2?.text})`);
+  const r2 = await ask(mom, SENIOR_ROOM_ID, '경주 불국사 가는 길 알려줘', 'route reply');
+  check(!!r2 && /불국사까지/.test(r2.text) && !!r2.meta?.toolsUsed?.includes('길찾기'), `senior route answer (${r2?.text})`);
 
-  const r3 = await ask(jieun, FAMILY_ROOM_ID, '타치, 엄마 일정 좀 알려줘', 'family calendar reply', m => !!m.meta?.toolsUsed);
-  check(!!r3 && !/정숙|망원시장/.test(r3.text), `family calendar answer hides the private event (${r3?.text})`);
-  check(!!r3 && /바쁨|연세내과/.test(r3.text), 'family calendar answer lists public events / busy time');
+  const r3 = await ask(jieun, FAMILY_ROOM_ID, '타치, 불국사 근처에 가볼 만한 곳 있어?', 'family places reply', m => !!m.meta?.toolsUsed);
+  check(!!r3 && /근처에는/.test(r3.text), `family places answer (${r3?.text})`);
 
   const momBefore = mom.msgs.length;
   const r4 = await ask(jieun, FAMILY_ROOM_ID, '타치, 엄마한테 내일 오후 3시에 병원 가시라고 알려줘', 'family reminder reply', m => !!m.meta?.toolsUsed);

@@ -9,7 +9,6 @@ import type { Memory, PrivacySettings } from '../../shared/types';
 import { openDb, type Db } from '../db';
 import { createGraphStore } from '../graph/index';
 import type { GraphStore } from '../graph/contract';
-import { localCalendar, seedCalendar } from './calendar';
 import { TOOLS, executeTool, toLLMSpecs, toolsFor } from './index';
 import { dueReminders, markDelivered } from './reminders';
 import { estimateRoute, haversineKm, resolvePoint } from './places';
@@ -35,12 +34,11 @@ before(async () => {
   for (const m of [mem('m-pub', '1988년 여름, 해운대 가족 피서', '부산 해운대', 'family'), mem('m-priv', '1976년 가을, 명동성당 결혼식', '서울 명동성당', 'private', { event: '결혼식' })]) {
     db.memories.put(m); await graph.upsertMemory(m);
   }
-  seedCalendar(db, NOW);
 });
 
 function tctx(audience: 'senior' | 'family', callerId = audience === 'senior' ? 'mom' : 'jieun', notices: ToolNotice[] = []): ToolContext {
   return {
-    audience, callerId, seniorId: 'mom', now: () => NOW, db, graph, calendar: localCalendar(db), privacy: () => privacy,
+    audience, callerId, seniorId: 'mom', now: () => NOW, db, graph, privacy: () => privacy,
     memoryVisibleToFamily: id => { const m = db.memories.get(id); return !!m && m.status === 'saved' && m.visibility === 'family' && privacy.memory === 'family'; },
     users: () => USERS, notify: n => notices.push(n),
   };
@@ -90,35 +88,6 @@ test('graph_search: senior sees all, family only public memories; memory categor
     const p = await executeTool('graph_search', { keywords: ['해운대'] }, tctx('family'));
     assert.equal(p.error?.code, 'forbidden');
   } finally { privacy = { ...DEFAULT_PRIVACY }; }
-});
-
-test('calendar_list: own events in full, others\' private events as busy, free slots', async () => {
-  const mine = await executeTool('calendar_list', { range: '이번 주' }, tctx('senior'));
-  const evs = (mine.output!.data as { events: { title: string }[] }).events.map(e => e.title);
-  assert.ok(evs.includes('마포 연세내과 정기 검진') && evs.includes('정숙이와 망원시장 점심'));
-  const fam = await executeTool('calendar_list', { userIds: ['mom'], range: '이번 주' }, tctx('family'));
-  assert.ok(!fam.content.includes('정숙') && !fam.content.includes('망원시장'), 'private event content hidden from family');
-  assert.match(fam.content, /바쁨/);
-  const tomorrow = await executeTool('calendar_list', { range: '내일', userIds: ['mom', 'jieun'], freeSlotMinutes: 60 }, tctx('family'));
-  const d = tomorrow.output!.data as { events: { title: string }[]; freeSlots: { startsAt: string }[] };
-  assert.deepEqual(d.events.map(e => e.title), ['마포 연세내과 정기 검진', '팀 회식']);
-  assert.ok(d.freeSlots.length > 0 && d.freeSlots.every(s => { const h = new Date(s.startsAt).getHours(); return h >= 10 && h < 20; }));
-  assert.equal((await executeTool('calendar_list', { userIds: ['ghost'] }, tctx('family'))).error?.code, 'not_found');
-});
-
-test('calendar_invite: creates an event + notice; refuses past; reports conflicts', async () => {
-  const notices: ToolNotice[] = [];
-  const ok = await executeTool('calendar_invite', { title: '가족 점심', startsAt: '2026-11-15T12:00', attendeeIds: ['mom', 'minjun'], location: '마포' }, tctx('family', 'jieun', notices));
-  assert.ok(ok.ok, ok.content);
-  assert.equal((ok.output!.data as { created: boolean }).created, true);
-  assert.equal(notices.length, 1); assert.equal(notices[0].kind, 'calendar_invite');
-  const ev = db.calendarEvents.all().find(e => e.title === '가족 점심')!;
-  assert.deepEqual([ev.organizerId, ...ev.attendeeIds], ['jieun', 'mom', 'minjun']);
-  const past = await executeTool('calendar_invite', { title: '지난 모임', startsAt: '2026-11-01T12:00', attendeeIds: ['mom'] }, tctx('family'));
-  assert.equal(past.error?.code, 'invalid');
-  const clash = await executeTool('calendar_invite', { title: '겹치는 약속', startsAt: '2026-11-10T10:30', attendeeIds: ['mom'], durationMinutes: 30 }, tctx('family', 'minjun', notices));
-  assert.equal((clash.output!.data as { created: boolean; conflicts: unknown[] }).created, false);
-  assert.equal(notices.length, 1, 'no notice for a refused invite');
 });
 
 test('transit_route / map_search: deterministic senior-friendly estimates from the gazetteer', async () => {

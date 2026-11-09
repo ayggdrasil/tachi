@@ -30,7 +30,7 @@ export interface AgentOutcome {
   /** Korean labels of tools that ran successfully, in order (for the "타치가 확인한 것" line) */
   toolsUsed: string[];
   provenance: AgentProvenance;
-  /** a state-changing tool succeeded (invite sent, reminder set) — the answer must reflect it even if the loop failed */
+  /** a state-changing tool succeeded (reminder set) — the answer must reflect it even if the loop failed */
   mutated: boolean;
 }
 
@@ -174,8 +174,8 @@ export function agentSystemPrompt(p: { audience: 'senior' | 'family'; senior: Us
     `사용자 id: ${roster}.`,
     '일하는 방식: 먼저 무엇을 확인해야 할지 계획하고, 도구로 사실을 확인한 뒤 답하세요. 도구 결과에 없는 사실은 지어내지 마세요.',
     '도구가 오류를 돌려주면 입력을 고쳐 한 번 더 시도하거나, 할 수 없다고 솔직히 말하세요.',
-    '비공개 정보(비공개 일정 내용, 공개하지 않은 추억이나 건강 정보)는 절대 말하지 마세요. 도구가 "바쁨"으로만 준 일정은 바쁘다고만 말하세요.',
-    '일정 초대나 알림 등록처럼 무언가를 바꾸는 도구는 사용자가 분명히 원할 때만 쓰세요.',
+    '비공개 정보(공개하지 않은 추억이나 건강 정보)는 절대 말하지 마세요.',
+    '알림 등록처럼 무언가를 바꾸는 도구는 사용자가 분명히 원할 때만 쓰세요.',
     '마크다운, 목록 기호, 이모지는 쓰지 마세요.',
   ].join('\n');
 }

@@ -97,7 +97,7 @@ export function installGuards(): void {
     }
   };
   const db = ctx.db as unknown as Record<string, Record<string, unknown>>;
-  for (const t of ['users', 'contacts', 'rooms', 'memories', 'trips', 'artifacts', 'polls', 'sessions', 'messages', 'calendarEvents', 'reminders']) {
+  for (const t of ['users', 'contacts', 'rooms', 'memories', 'trips', 'artifacts', 'polls', 'sessions', 'messages', 'reminders']) {
     wrap(db[t], ['put', 'insert', 'update', 'delete'], (_k, a) => a[0]);
   }
   wrap(db.kv, ['set', 'del'], (k, a) => (k === 'set' ? a[1] : undefined));

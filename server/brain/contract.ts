@@ -188,7 +188,7 @@ export interface Brain {
 
   draftGathering(input: GatheringInput): Promise<AIResult<GatheringDraft>>;
   assistArtifact(artifact: Artifact, members: User[]): Promise<AIResult<{ message: string; newTasks: Omit<ArtifactTask, 'id' | 'done'>[] }>>;
-  /** Classify gathering to-dos into actions (calendar invite / booking link / reminder / none), keyed by task id. Optional: callers fall back to the heuristic. */
+  /** Classify gathering to-dos into actions (booking link / reminder / none), keyed by task id. Optional: callers fall back to the heuristic. */
   classifyTasks?(input: TaskClassifyInput): Promise<AIResult<Record<string, TaskClassification>>>;
   /** Free-text availability → slot ids that work for this person. */
   parseAvailability(text: string, slots: Slot[]): Promise<AIResult<string[]>>;

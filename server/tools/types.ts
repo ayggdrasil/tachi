@@ -6,13 +6,6 @@ import type { JSONSchema } from './validate';
 
 export type ToolAudience = 'senior' | 'family';
 
-// ── calendar ────────────────────────────────────────────────────────────────
-// One calendar model and provider for the whole app (todo execution + calendar tools): see server/calendar/.
-export type { CalendarEvent } from '../../shared/types';
-export type { CalendarProvider, CalendarEventInput } from '../calendar/contract';
-import type { CalendarEvent } from '../../shared/types';
-import type { CalendarProvider } from '../calendar/contract';
-
 // ── reminders ───────────────────────────────────────────────────────────────
 export interface Reminder {
   id: string;
@@ -31,7 +24,6 @@ export interface Reminder {
 // ── execution ───────────────────────────────────────────────────────────────
 /** Side effects a tool asks the orchestrator to surface (system notes etc.). Tools never talk to sockets directly. */
 export type ToolNotice =
-  | { kind: 'calendar_invite'; event: CalendarEvent }
   | { kind: 'reminder_created'; reminder: Reminder };
 
 export interface ToolContext {
@@ -41,7 +33,6 @@ export interface ToolContext {
   now: () => Date;
   db: Db;
   graph: GraphStore;
-  calendar: CalendarProvider;
   privacy: () => PrivacySettings;
   /** live check of the per-memory visibility rule (status saved + family visibility + memory category public) */
   memoryVisibleToFamily: (memoryId: string) => boolean;
@@ -68,7 +59,7 @@ export interface Tool<A = Record<string, unknown>> {
   description: string;
   inputSchema: JSONSchema;
   audiences: ToolAudience[];
-  /** creates or changes state (invites, reminders) */
+  /** creates or changes state (reminders) */
   mutates?: boolean;
   execute(args: A, ctx: ToolContext): Promise<ToolOutput> | ToolOutput;
 }

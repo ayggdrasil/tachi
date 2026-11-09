@@ -97,27 +97,6 @@ export function parseWhen(text: string, now: Date): Date | undefined {
   return d;
 }
 
-/** A date range named in the text: 오늘 / 내일 / 이번 주 / 다음 주 / 주말 / X요일; default = the next 7 days. */
-export function parseRange(text: string, now: Date): { from: Date; to: Date; label: string } {
-  const today = startOfDay(now);
-  if (/주말/.test(text)) {
-    const toSat = (6 - today.getDay() + 7) % 7;
-    const sat = addDays(today, /다음\s*주|담주/.test(text) ? toSat + 7 : toSat);
-    return { from: sat, to: addDays(sat, 2), label: `${dateLabel(sat)}~${dateLabel(addDays(sat, 1))} 주말` };
-  }
-  if (/다음\s*주|담주/.test(text) && !/요일/.test(text)) {
-    const mon = addDays(today, ((8 - today.getDay()) % 7) || 7);
-    return { from: mon, to: addDays(mon, 7), label: '다음 주' };
-  }
-  if (/이번\s*주/.test(text) && !/요일/.test(text)) {
-    const toMon = ((8 - today.getDay()) % 7) || 7;
-    return { from: now, to: addDays(today, toMon), label: '이번 주' };
-  }
-  const day = parseDay(text, now);
-  if (day) return { from: day.getTime() === today.getTime() ? now : day, to: addDays(day, 1), label: day.getTime() === today.getTime() ? '오늘' : dateLabel(day) };
-  return { from: now, to: addDays(today, 8), label: '앞으로 일주일' };
-}
-
 /** '11월 10일(화) 오전 8:00' */
 export function whenLabel(d: Date): string {
   const h = d.getHours();

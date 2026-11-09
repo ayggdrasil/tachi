@@ -195,7 +195,7 @@ export const tachi = {
     getSocket().emit('artifact:task', { artifactId, op, ...opts });
   },
   assistArtifact(artifactId: ID) { getSocket().emit('artifact:assist', { artifactId }); },
-  /** Run a to-do's action (invite / booking link / reminder). Resolves with the server's answer (or a timeout) so buttons can recover. */
+  /** Run a to-do's action (booking link / reminder). Resolves with the server's answer (or a timeout) so buttons can recover. */
   executeTask(artifactId: ID, taskId: ID, kind?: TaskActionKind): Promise<{ ok: boolean; error?: string; message?: string }> {
     return new Promise(resolve => {
       (getSocket().timeout(20000) as unknown as { emit: (ev: 'artifact:task:execute', p: unknown, cb: (err: Error | null, r?: { ok: boolean; error?: string; message?: string }) => void) => void })

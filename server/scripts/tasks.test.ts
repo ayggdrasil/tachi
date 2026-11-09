@@ -1,26 +1,23 @@
-// To-do execution & tracking: classification, booking links, calendar invites (.ics), reminders, quick replies,
+// To-do execution & tracking: classification, booking links, due dates from the confirmed slot, reminders, quick replies,
 // follow-up escalation on the demo clock, and the report mention.   npx tsx server/scripts/tasks.test.ts
 import '../util/env';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { io as connect, type Socket } from 'socket.io-client';
-import { FAMILY_ROOM_ID, SENIOR_ROOM_ID, TASK_FOLLOWUP } from '../../shared/constants';
-import type { Artifact, ArtifactTask, Bootstrap, ClientToServerEvents, Message, ServerToClientEvents, TaskCardPayload } from '../../shared/types';
+import { FAMILY_ROOM_ID, SENIOR_ROOM_ID, TASK_DUE, TASK_FOLLOWUP } from '../../shared/constants';
+import type { Artifact, ArtifactTask, Bootstrap, ClientToServerEvents, Message, ServerToClientEvents, TaskActionKind, TaskCardPayload } from '../../shared/types';
 import { classifyTask, openTasksLine } from '../brain/heuristics/tasks';
 import { buildBookingLinks, korailUrl, stationFor } from '../data/booking';
 import { placeById } from '../data/places';
-import { buildIcs, icsEscape, icsFold } from '../calendar/ics';
-import { createLocalCalendar } from '../calendar/local';
 import { createBrain } from '../brain/index';
 import { createApp } from '../orchestrator/app';
 import { now, patchDemo } from '../orchestrator/core';
 import { createGathering } from '../orchestrator/artifacts';
 import { startScheduling, submitAvailability } from '../orchestrator/scheduling';
-import { executeTask, firstFollowUpAt, normalizeTasks, openTasksForReport, runFollowUps, sendInvites } from '../orchestrator/tasks';
+import { defaultDue, executeTask, firstFollowUpAt, normalizeTasks, openTasksForReport, runFollowUps } from '../orchestrator/tasks';
 import { handleAction } from '../orchestrator/messages';
 import { postReport, stopTicker } from '../orchestrator/proactive';
-import type { CalendarEvent } from '../../shared/types';
 
 type Client = { id: string; sock: Socket<ServerToClientEvents, ClientToServerEvents>; boot: Bootstrap; msgs: Message[] };
 let failures = 0;
@@ -50,7 +47,7 @@ function pureTests(): void {
   const lodging = classifyTask('숙소·식당 예약 (계단 적고 앉아서 먹는 곳)');
   check(lodging.kind === 'booking_link' && lodging.category === 'lodging', '숙소·식당 예약 → booking_link/lodging');
   check(classifyTask('보문호수 근처 한정식 식당 예약').category === 'restaurant', '한정식 식당 예약 → restaurant');
-  check(classifyTask('가족 캘린더에 일정 공유').kind === 'calendar_invite', '캘린더 일정 공유 → calendar_invite');
+  for (const t of ['가족들에게 일정 공유', '초대장 보내기', '참석 확인 돌리기']) check(classifyTask(t).kind === 'reminder', `${t} → reminder (the owner does it)`);
   check(classifyTask('생신 케이크·꽃 준비').kind === 'reminder', '케이크·꽃 준비 → reminder');
   check(classifyTask('메모: 어머님 무릎').kind === 'none', '메모 → none');
   check(classifyTask('렌터카 예약').category === 'car', '렌터카 예약 → car');
@@ -69,39 +66,6 @@ function pureTests(): void {
   check(stay.query === '부산 숙소', `lodging falls back to the artifact place (${stay.query})`);
   check(korailUrl('서울', '부산').includes('txtGoStart=%EC%84%9C%EC%9A%B8'), 'korailUrl encodes the departure');
 
-  console.log('ics');
-  check(icsEscape('a,b;c\\d\ne') === 'a\\,b\\;c\\\\d\\ne', 'TEXT escaping (comma, semicolon, backslash, newline)');
-  const long = `SUMMARY:${'가'.repeat(60)}`;
-  const folded = icsFold(long);
-  check(folded.split('\r\n').every(l => new TextEncoder().encode(l).length <= 75) && folded.split('\r\n').slice(1).every(l => l.startsWith(' '))
-    && folded.replace(/\r\n /g, '') === long, 'lines fold at 75 octets without splitting Hangul');
-  const ev: CalendarEvent = {
-    id: 'cal-test1234', uid: 'cal-test1234@tachi.local', artifactId: 'art-1', title: '어머니 생신 · 경주 가족 여행', description: '첫째 날, 불국사\n둘째 날; 보문호수',
-    location: '경주 일대', startsAt: '2026-11-22T03:00:00.000Z', endsAt: '2026-11-22T06:00:00.000Z', organizerId: 'tachi', attendeeIds: ['mom', 'jieun'],
-    sequence: 1, status: 'confirmed', provider: 'local', createdAt: '2026-11-09T00:00:00.000Z', updatedAt: '2026-11-09T00:00:00.000Z',
-  };
-  const ics = buildIcs([ev], { people: id => ({ id, name: id === 'mom' ? '김순자' : id === 'tachi' ? '타치' : '김지은' }), stamp: new Date('2026-11-09T00:00:00Z') });
-  check(ics.startsWith('BEGIN:VCALENDAR\r\nVERSION:2.0\r\n') && ics.endsWith('END:VCALENDAR\r\n') && !/[^\r]\n/.test(ics), 'VCALENDAR envelope with CRLF line endings');
-  check(ics.includes('DTSTART:20261122T030000Z') && ics.includes('DTEND:20261122T060000Z') && ics.includes('UID:cal-test1234@tachi.local'), 'UTC DTSTART/DTEND + UID');
-  check(ics.includes('SEQUENCE:1') && ics.includes('BEGIN:VALARM') && ics.includes('TRIGGER:-PT1440M'), 'SEQUENCE + one-day VALARM');
-  const unfolded = ics.replace(/\r\n /g, '');
-  check(unfolded.includes('ATTENDEE;CN="김순자";ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION:mailto:mom@family.tachi.local'), 'ATTENDEE with CN');
-  check(unfolded.includes('DESCRIPTION:첫째 날\\, 불국사\\n둘째 날\\; 보문호수'), 'DESCRIPTION escaped');
-}
-
-async function calendarStoreTests(): Promise<void> {
-  console.log('local calendar store');
-  const mem = new Map<string, CalendarEvent>();
-  const cal = createLocalCalendar(() => ({ get: id => mem.get(id), all: () => [...mem.values()], put: e => { mem.set(e.id, e); return e; } }));
-  const e = await cal.create({ title: 't', startsAt: '2026-11-22T03:00:00.000Z', endsAt: '2026-11-22T06:00:00.000Z', organizerId: 'tachi', attendeeIds: ['jieun', 'jieun', 'mom'] });
-  check(/^cal-[A-Za-z0-9_-]{16}$/.test(e.id) && e.sequence === 0 && e.attendeeIds.length === 2, 'create: unguessable id, sequence 0, deduped attendees');
-  const same = await cal.update(e.id, { title: 't' });
-  check(same?.sequence === 0, 'update with no change keeps the sequence');
-  const moved = await cal.update(e.id, { startsAt: '2026-11-29T03:00:00.000Z', endsAt: '2026-11-29T06:00:00.000Z' });
-  check(moved?.sequence === 1, 'moving the event bumps SEQUENCE');
-  check((await cal.list({ attendeeId: 'mom' })).length === 1 && (await cal.list({ attendeeId: 'harin' })).length === 0, 'list by attendee');
-  check((await cal.list({ from: '2026-12-01T00:00:00.000Z' })).length === 0, 'list by range');
-  check((await cal.cancel(e.id))?.status === 'cancelled', 'cancel');
 }
 
 async function brainTests(): Promise<void> {
@@ -149,31 +113,20 @@ async function flowTests(): Promise<void> {
   check(rbk.ok && task(/숙소/).done && task(/숙소/).status === 'done' && /예약 완료/.test(task(/숙소/).result ?? ''), '예약 완료 marks the task done');
   check(!task(/숙소/).nextFollowUpAt, 'done task has no follow-up scheduled');
 
-  console.log('calendar invite on confirmation');
-  const rNo = await sendInvites(art(), 'jieun', { manual: true });
-  check(!rNo.ok && /확정/.test(rNo.message ?? ''), 'invite before the date is confirmed is refused politely');
-  t0 = Date.now() - 5;
+  console.log('confirmed date re-plans due dates');
+  const cardsBefore = new Set([FAMILY_ROOM_ID, SENIOR_ROOM_ID].flatMap(r => cards(r, 0).map(m => m.id)));
   await startScheduling(FAMILY_ROOM_ID, { id: 'jieun' }, { artifactId: a0.id });
   const poll = ctx.db.polls.all().filter(p => p.status === 'open').at(-1)!;
   for (const id of poll.participantIds) await submitAvailability(poll.id, id, ['slot-2']);
-  const inv = await waitFor('invite card', () => cards(FAMILY_ROOM_ID, t0).find(m => (m.payload as TaskCardPayload).stage === 'invite'));
-  const ip = inv?.payload as TaskCardPayload | undefined;
-  check(art().dateStatus === 'confirmed' && !!ip?.event && ip.event.attendeeIds.length === poll.participantIds.length, `invite card in the family room for ${ip?.event?.attendeeIds.length} members`);
-  const gatheringEvents = () => ctx.db.calendarEvents.all().filter(e => e.artifactId); // the store also holds the demo-week seed
-  const evs = gatheringEvents();
-  check(evs.length === 1 && evs[0].artifactId === a0.id && evs[0].startsAt === poll.slots[2].startsAt, 'one local calendar event at the confirmed slot');
-  check(cards(SENIOR_ROOM_ID, t0).some(m => (m.payload as TaskCardPayload).stage === 'invite' && /달력/.test(m.text)), "mom's own room gets the invite");
+  await waitFor('confirmed', () => art().dateStatus === 'confirmed');
+  const slotAt = Date.parse(poll.slots[2].startsAt);
+  check(art().dateStatus === 'confirmed' && art().slot?.startsAt === poll.slots[2].startsAt, 'unanimous answers confirm the gathering slot');
+  const openNow = art().tasks.filter(t => !t.done);
+  check(openNow.length > 0 && openNow.every(t => Math.abs(Date.parse(t.dueAt!) - Date.parse(defaultDue(t, art()))) < 5000), 'open tasks get due dates derived from the confirmed slot');
+  const ktxDue = Date.parse(task(/KTX/).dueAt!);
+  check(Math.abs(ktxDue - Math.max(slotAt - TASK_DUE.bookingLeadDays * 86400000, now().getTime() + 2 * 3600000)) < 5000, 'booking task is due a few days before the gathering');
+  check(![FAMILY_ROOM_ID, SENIOR_ROOM_ID].some(r => cards(r, 0).some(m => !cardsBefore.has(m.id))), 'confirmation posts no task cards');
   const jSide = poll.sideRoomIds.jieun;
-  check(cards(jSide, t0).some(m => (m.payload as TaskCardPayload).stage === 'invite'), "jieun's side room gets the invite");
-  const res = await fetch(`${url}${ip!.icsUrl}`);
-  const body = await res.text();
-  check(res.status === 200 && /text\/calendar/.test(res.headers.get('content-type') ?? '') && body.includes('BEGIN:VEVENT') && body.replace(/\r\n /g, '').includes(`SUMMARY:${icsEscape(art().title)}`), 'GET .ics serves the event');
-  check((await fetch(`${url}/api/calendar/cal-doesnotexist00.ics`)).status === 404, 'unknown .ics → 404');
-  const nInv = cards(FAMILY_ROOM_ID, t0).length;
-  await sendInvites(art(), 'tachi');
-  check(cards(FAMILY_ROOM_ID, t0).length === nInv, 'automatic invite is idempotent (no duplicate card)');
-  const rRe = await sendInvites(art(), 'jieun', { manual: true });
-  check(rRe.ok && cards(FAMILY_ROOM_ID, t0).length === nInv + 1 && gatheringEvents().length === 1, 'manual re-send posts again but reuses the event');
 
   console.log('assignee reminder + quick replies');
   const cake = task(/케이크/);
@@ -272,6 +225,11 @@ async function flowTests(): Promise<void> {
   const forced = await new Promise<{ ok: boolean }>(r => jieun.sock.emit('artifact:task:execute', { artifactId: a0.id, taskId: added!.id, kind: 'reminder' }, x => r(x)));
   check(forced.ok && art().tasks.find(t => t.id === added!.id)?.action?.classifiedBy === 'user' && art().tasks.find(t => t.id === added!.id)?.action?.kind === 'reminder', 'kind override is remembered as the user choice');
 
+  // a stored kind this version no longer has is classified again
+  const legacy = JSON.parse(JSON.stringify(art())) as Artifact;
+  const lt0 = legacy.tasks.find(t => !t.done)!;
+  lt0.text = '초대장 보내기'; lt0.action = { kind: 'legacy_kind' as TaskActionKind };
+  check(normalizeTasks(legacy).tasks.find(t => t.id === lt0.id)?.action?.kind === 'reminder', 'unknown stored action kind is re-classified');
   // normalization is idempotent
   const snap = JSON.stringify(art());
   check(JSON.stringify(normalizeTasks(JSON.parse(snap) as Artifact)) === snap, 'normalizeTasks is idempotent');
@@ -285,7 +243,6 @@ async function flowTests(): Promise<void> {
 
 async function main() {
   pureTests();
-  await calendarStoreTests();
   await brainTests();
   await flowTests();
   console.log(failures ? `\nTASKS FAILED (${failures}, ${passes} passed)` : `\nTASKS OK (${passes} checks)`);

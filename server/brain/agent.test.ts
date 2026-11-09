@@ -8,7 +8,6 @@ import { DEFAULT_PRIVACY, USERS } from '../../shared/constants';
 import { openDb, type Db } from '../db';
 import { createGraphStore } from '../graph/index';
 import type { GraphStore } from '../graph/contract';
-import { localCalendar, seedCalendar } from '../tools/calendar';
 import { toolsFor, type ToolContext } from '../tools';
 import { agentSystemPrompt, runAgentLoop, type AgentTurnFn } from './agent';
 import { createBrain } from './index';
@@ -23,10 +22,9 @@ let db: Db; let graph: GraphStore;
 before(async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tachi-agent-'));
   db = openDb(dir); graph = createGraphStore({ dataDir: dir }); await graph.init();
-  seedCalendar(db, NOW);
 });
 const tctx = (audience: 'senior' | 'family' = 'senior'): ToolContext => ({
-  audience, callerId: audience === 'senior' ? 'mom' : 'jieun', seniorId: 'mom', now: () => NOW, db, graph, calendar: localCalendar(db),
+  audience, callerId: audience === 'senior' ? 'mom' : 'jieun', seniorId: 'mom', now: () => NOW, db, graph,
   privacy: () => DEFAULT_PRIVACY, memoryVisibleToFamily: () => false, users: () => USERS,
 });
 const text = (t: string): LLMToolResponse => ({ text: t, toolCalls: [], stop: 'end' });
@@ -118,13 +116,12 @@ test('deadline: a slow provider is aborted and reported', async () => {
   assert.ok(Date.now() - t0 < 2000);
 });
 
-test('planner: deterministic plans for reminders / calendar / routes only', () => {
+test('planner: deterministic plans for reminders / routes only', () => {
   assert.equal(reminderText('내일 아침 8시에 혈압약 먹으라고 알려줘'), '혈압약 드시기');
   assert.equal(reminderText('타치, 엄마한테 3시에 병원 가시라고 알려줘'), '병원 가기');
   assert.equal(planOffline('내일 아침 8시에 혈압약 먹으라고 알려줘', 'senior', NOW)?.[0].name, 'reminder_create');
-  assert.deepEqual(planOffline('내일 일정 뭐야?', 'senior', NOW), [{ name: 'calendar_list', input: { userIds: ['mom'], range: '내일' } }]);
-  assert.equal(planOffline('경주 불국사 가는 길 알려줘', 'senior', NOW)?.[0].name, 'transit_route');
-  for (const t of ['타치, 엄마 혈압 알려줘', '불국사', '타치, 모임 시간 좀 잡아줘', '엄마 안부 좀 알려줘', '응, 애들한테 보내줘', '좋아, 다시 가보고 싶네']) assert.equal(planOffline(t, 'family', NOW), null, t);
+  assert.deepEqual(planOffline('경주 불국사 가는 길 알려줘', 'senior', NOW), [{ name: 'transit_route', input: { to: '불국사', from: '집' } }]);
+  for (const t of ['내일 일정 뭐야?', '타치, 엄마 일정 좀 알려줘', '타치, 엄마 혈압 알려줘', '불국사', '타치, 모임 시간 좀 잡아줘', '엄마 안부 좀 알려줘', '응, 애들한테 보내줘', '좋아, 다시 가보고 싶네']) assert.equal(planOffline(t, 'family', NOW), null, t);
   assert.match(agentSystemPrompt({ audience: 'family', senior: USERS[0], asker: USERS[1], users: USERS, now: NOW }), /2026-11-09\(월\) 14:10/);
 });
 
@@ -136,10 +133,10 @@ const input = (goal: string, allowOffline: boolean) => ({ goal, audience: 'senio
 
 test('brain.runAgent offline (demo brain): planner executes tools and composes the answer', async () => {
   const brain = createBrain(); brain.setActiveModel('demo');
-  const r = await brain.runAgent!(input('내일 일정 뭐야?', true));
+  const r = await brain.runAgent!(input('경주 불국사 가는 길 알려줘', true));
   assert.equal(r.value.ok, true); assert.equal(r.source, 'heuristic'); assert.equal(r.fallback, false);
-  assert.match(r.value.answer!, /마포 연세내과 정기 검진/);
-  assert.deepEqual(r.value.toolsUsed, ['캘린더']);
+  assert.match(r.value.answer!, /불국사까지/);
+  assert.deepEqual(r.value.toolsUsed, ['길찾기']);
   const none = await brain.runAgent!(input('불국사', false));
   assert.equal(none.value.ok, false); assert.equal(none.value.reason, 'offline');
 });
@@ -148,22 +145,22 @@ test('brain.runAgent live: mocked Anthropic tool loop succeeds; failures fall ba
   process.env.ANTHROPIC_API_KEY = 'test'; process.env.TACHI_ANTHROPIC_BASE_URL = 'http://mock.local';
   const brain = createBrain(); brain.setActiveModel('claude-haiku');
   const script = [
-    anthropicReply([{ type: 'tool_use', id: 'tu1', name: 'calendar_list', input: { range: '내일' } }], 'tool_use'),
-    anthropicReply([{ type: 'text', text: '내일 10시 반에 병원 검진이 있어요.' }]),
-    anthropicReply([{ type: 'text', text: '{"verified":true,"answer":"어머님, 내일 오전 10시 반에 연세내과 검진이 있어요."}' }]),
+    anthropicReply([{ type: 'tool_use', id: 'tu1', name: 'transit_route', input: { to: '불국사' } }], 'tool_use'),
+    anthropicReply([{ type: 'text', text: '불국사까지 KTX로 2시간 반쯤 걸려요.' }]),
+    anthropicReply([{ type: 'text', text: '{"verified":true,"answer":"어머님, 불국사까지 KTX와 택시로 2시간 반쯤 걸려요."}' }]),
   ];
   const bodies: Record<string, unknown>[] = [];
   globalThis.fetch = (async (_u: unknown, init: RequestInit) => { bodies.push(JSON.parse(String(init.body))); return script.shift() ?? new Response('x', { status: 500 }); }) as typeof fetch;
-  const ok = await brain.runAgent!(input('내일 일정 뭐야?', true));
+  const ok = await brain.runAgent!(input('경주 불국사 가는 길 알려줘', true));
   assert.equal(ok.value.ok, true); assert.equal(ok.source, 'llm'); assert.equal(ok.model, 'Claude Haiku 5.5');
-  assert.match(ok.value.answer!, /연세내과/);
+  assert.match(ok.value.answer!, /불국사/);
   assert.equal(bodies.length, 3);
   const msgs = bodies[1].messages as { role: string; content: { type: string; tool_use_id?: string }[] }[];
   assert.equal(msgs.at(-1)!.content[0].type, 'tool_result'); assert.equal(msgs.at(-1)!.content[0].tool_use_id, 'tu1');
 
   // provider down + planner-shaped request → offline planner answers
   globalThis.fetch = (async () => new Response('down', { status: 503 })) as typeof fetch;
-  const fb = await brain.runAgent!(input('내일 일정 뭐야?', true));
+  const fb = await brain.runAgent!(input('경주 불국사 가는 길 알려줘', true));
   assert.equal(fb.value.ok, true); assert.equal(fb.source, 'heuristic'); assert.equal(fb.fallback, true);
   // provider down + no planner → not ok (orchestrator runs the state machine)
   resetCircuit();

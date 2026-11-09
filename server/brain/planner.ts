@@ -9,11 +9,8 @@ export interface PlannedCall { name: string; input: Record<string, unknown> }
 
 const REMIND_RE = /리마인더|알림\s*(?:좀\s*)?(?:해|설정|맞춰|등록|보내)|알려\s*(?:줘|주|드려|달)|깨워\s*줘|잊지\s*않게|챙겨\s*(?:줘|드려)/;
 const REMIND_LIST_RE = /(?:리마인더|알림).{0,8}(?:뭐|목록|있|확인|보여)/;
-const CAL_RE = /일정|스케줄|약속|캘린더|달력/;
-const CAL_Q_RE = /뭐|무슨|있|언제|알려|확인|어때|보여|비어|한가|[?？]/;
 const ROUTE_RE = /가는\s*길|어떻게\s*가|가려면|교통편?|얼마나\s*걸려|길\s*(?:좀\s*)?알려/;
 const NEAR_RE = /(?:근처|주변).{0,10}(?:어디|뭐|추천|가볼|볼\s*만|구경)/;
-const PERSON_IDS: [RegExp, string][] = [[/지은|큰딸/, 'jieun'], [/민준|아들/, 'minjun'], [/수연|며느리/, 'suyeon'], [/하린|손녀/, 'harin']];
 
 /** What the senior should be reminded of, in a short noun phrase: '내일 아침 8시에 혈압약 먹으라고 알려줘' → '혈압약 드시기'. */
 export function reminderText(text: string): string {
@@ -49,12 +46,6 @@ export function planOffline(text: string, audience: ToolAudience, now: Date): Pl
     }
   }
   if (REMIND_LIST_RE.test(t)) return [{ name: 'reminder_list', input: {} }];
-  if (CAL_RE.test(t) && CAL_Q_RE.test(t) && !/잡아|정해|맞춰|조율/.test(t)) {
-    const ids = PERSON_IDS.filter(([re]) => re.test(t)).map(([, id]) => id);
-    const userIds = ids.length && !/엄마|어머|할머니|나\b|내\s/.test(t) ? ids : ['mom', ...ids];
-    const range = (t.match(/(?:이번\s*|다음\s*)?주말|오늘|내일|모레|글피|이번\s*주|다음\s*주|(?:다음\s*주\s*)?[일월화수목금토]요일|\d{1,2}\s*월\s*\d{1,2}\s*일/g) ?? []).join(' ');
-    return [{ name: 'calendar_list', input: { userIds: [...new Set(userIds)], range } }];
-  }
   const place = resolvePlace(t)?.place;
   if (ROUTE_RE.test(t) && place) return [{ name: 'transit_route', input: { to: place.name, from: '집' } }];
   if (NEAR_RE.test(t) && place) return [{ name: 'map_search', input: { near: place.name, limit: 3 } }];
@@ -63,10 +54,10 @@ export function planOffline(text: string, audience: ToolAudience, now: Date): Pl
 }
 
 type J = Record<string, unknown>;
-const honor = (audience: ToolAudience) => (audience === 'senior' ? '' : '어머님 ');
 
 /** Warm deterministic answer from tool results (offline brain, or after a live failure that already changed state). */
 export function composeFromSteps(steps: AgentStep[], audience: ToolAudience): string | undefined {
+  void audience;
   const lines: string[] = [];
   for (const s of steps) {
     if (s.kind !== 'tool' || !s.run) continue;
@@ -86,21 +77,6 @@ export function composeFromSteps(steps: AgentStep[], audience: ToolAudience): st
         lines.push(rs.length ? `등록된 알림은 ${rs.slice(0, 3).map(r => `${r.when} '${r.text}'`).join(', ')}${rs.length > 3 ? ` 외 ${rs.length - 3}건` : ''}이에요.` : '지금 등록된 알림은 없어요.');
         break;
       }
-      case 'calendar_list': {
-        const evs = d.events as J[];
-        const users = (d.users as J[]).map(u => u.name as string);
-        const label = (d.range as J).label as string;
-        const whose = audience === 'senior' && users.length === 1 && users[0] === '어머니' ? '' : users.length === 1 && users[0] === '어머니' ? honor(audience) : `${users.join('·')} `;
-        if (!evs.length) lines.push(`${label} ${whose}일정은 비어 있어요.`);
-        const oneDay = label === '오늘' || /^\d+월 \d+일\([^)]\)$/.test(label);
-        const when = (e: J) => (oneDay ? String(e.when).replace(/^\d+월 \d+일\([^)]\)\s*/, '') : String(e.when));
-        if (evs.length) lines.push(`${label} ${whose}일정은 ${evs.slice(0, 3).map(e => `${when(e)} ${e.title}${e.location && !e.private && !String(e.title).includes(String(e.location)) ? `(${e.location})` : ''}`).join(', ')}${evs.length > 3 ? ` 외 ${evs.length - 3}건` : ''}이에요.`);
-        break;
-      }
-      case 'calendar_invite':
-        if (d.created) { const e = d.event as J; lines.push(`${e.when} '${e.title}' 일정을 ${(d.invited as string[]).join('·')}에게 초대로 보냈어요.`); }
-        else lines.push('그 시간에는 이미 일정이 있어서 초대를 보내지 않았어요.');
-        break;
       case 'transit_route':
         lines.push(`${d.from}에서 ${d.to}까지 ${d.modeLabel}로 ${d.durationLabel} 걸려요.${(d.seniorNotes as string[])[0] ? ` ${(d.seniorNotes as string[])[0]}` : ''}`);
         break;

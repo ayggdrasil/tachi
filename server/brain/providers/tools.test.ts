@@ -8,25 +8,25 @@ import type { AgentMessage, LLMToolSpec } from './types';
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; _resetAnthropicFlags(); delete process.env.TACHI_ANTHROPIC_BASE_URL; });
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status });
-const spec: LLMToolSpec = { name: 'calendar_list', description: '일정 조회 / list events', inputSchema: { type: 'object', properties: { range: { type: 'string' } } } };
+const spec: LLMToolSpec = { name: 'transit_route', description: '길찾기 / route estimate', inputSchema: { type: 'object', properties: { to: { type: 'string' } } } };
 const convo: AgentMessage[] = [
-  { role: 'user', text: '내일 일정 뭐야?' },
-  { role: 'assistant', text: '확인해 볼게요.', toolCalls: [{ id: 'tu_1', name: 'calendar_list', input: { range: '내일' } }, { id: 'tu_2', name: 'reminder_list', input: {} }] },
-  { role: 'tool', results: [{ callId: 'tu_1', name: 'calendar_list', content: '{"events":[]}' }, { callId: 'tu_2', name: 'reminder_list', content: '{"error":"x"}', isError: true }] },
+  { role: 'user', text: '불국사 가는 길 알려줘' },
+  { role: 'assistant', text: '확인해 볼게요.', toolCalls: [{ id: 'tu_1', name: 'transit_route', input: { to: '불국사' } }, { id: 'tu_2', name: 'reminder_list', input: {} }] },
+  { role: 'tool', results: [{ callId: 'tu_1', name: 'transit_route', content: '{"minutes":150}' }, { callId: 'tu_2', name: 'reminder_list', content: '{"error":"x"}', isError: true }] },
   { role: 'user', text: '[검증 단계]' },
 ];
 
 test('anthropic tools + messages mapping', () => {
-  assert.deepEqual(toAnthropicTools([spec]), [{ name: 'calendar_list', description: spec.description, input_schema: spec.inputSchema }]);
+  assert.deepEqual(toAnthropicTools([spec]), [{ name: 'transit_route', description: spec.description, input_schema: spec.inputSchema }]);
   const m = toAnthropicMessages(convo);
   assert.equal(m.length, 3, 'tool results and the following user text are merged into one user turn');
   assert.deepEqual(m[1], { role: 'assistant', content: [
     { type: 'text', text: '확인해 볼게요.' },
-    { type: 'tool_use', id: 'tu_1', name: 'calendar_list', input: { range: '내일' } },
+    { type: 'tool_use', id: 'tu_1', name: 'transit_route', input: { to: '불국사' } },
     { type: 'tool_use', id: 'tu_2', name: 'reminder_list', input: {} },
   ] });
   assert.deepEqual(m[2].content, [
-    { type: 'tool_result', tool_use_id: 'tu_1', content: '{"events":[]}' },
+    { type: 'tool_result', tool_use_id: 'tu_1', content: '{"minutes":150}' },
     { type: 'tool_result', tool_use_id: 'tu_2', content: '{"error":"x"}', is_error: true },
     { type: 'text', text: '[검증 단계]' },
   ]);
@@ -59,14 +59,14 @@ test('anthropic tool turn request: tools, tool_choice auto, effort low, no sampl
 });
 
 test('openai tools + messages mapping', () => {
-  assert.deepEqual(toOpenAITools([spec]), [{ type: 'function', function: { name: 'calendar_list', description: spec.description, parameters: spec.inputSchema } }]);
+  assert.deepEqual(toOpenAITools([spec]), [{ type: 'function', function: { name: 'transit_route', description: spec.description, parameters: spec.inputSchema } }]);
   const m = toOpenAIMessages('sys', convo);
   assert.deepEqual(m[0], { role: 'system', content: 'sys' });
   assert.deepEqual(m[2], { role: 'assistant', content: '확인해 볼게요.', tool_calls: [
-    { id: 'tu_1', type: 'function', function: { name: 'calendar_list', arguments: '{"range":"내일"}' } },
+    { id: 'tu_1', type: 'function', function: { name: 'transit_route', arguments: '{"to":"불국사"}' } },
     { id: 'tu_2', type: 'function', function: { name: 'reminder_list', arguments: '{}' } },
   ] });
-  assert.deepEqual(m[3], { role: 'tool', tool_call_id: 'tu_1', content: '{"events":[]}' });
+  assert.deepEqual(m[3], { role: 'tool', tool_call_id: 'tu_1', content: '{"minutes":150}' });
   assert.deepEqual(m[4], { role: 'tool', tool_call_id: 'tu_2', content: 'ERROR: {"error":"x"}' });
   assert.deepEqual(m[5], { role: 'user', content: '[검증 단계]' });
 });

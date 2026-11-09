@@ -1,4 +1,4 @@
-import { AlertCircle, Bell, CalendarPlus, Check, Circle, ExternalLink, Loader } from 'lucide-react';
+import { AlertCircle, Bell, Check, Circle, ExternalLink, Loader } from 'lucide-react';
 import type { TaskCardPayload, TaskStatus } from '../../../../shared/types';
 import { TASK_STATUS_LABEL, dateLabel, koreanTime } from '../../../../shared/constants';
 import { useTachi } from '../../lib/store';
@@ -26,41 +26,18 @@ export function dueLabel(iso?: string): string {
 }
 
 const STAGE_KICKER: Record<TaskCardPayload['stage'], string> = {
-  invite: '캘린더 초대', booking: '예약 링크', reminder: '할 일 알림', nudge: '다시 한 번 알림', escalate: '아직 남은 할 일', done: '할 일 완료',
+  booking: '예약 링크', reminder: '할 일 알림', nudge: '다시 한 번 알림', escalate: '아직 남은 할 일', done: '할 일 완료',
 };
 
-export function TaskCard({ message, variant }: CardProps) {
+export function TaskCard({ message }: CardProps) {
   const p = message.payload as TaskCardPayload;
   const users = useTachi(s => s.users);
-  const senior = variant === 'senior';
   const assignee = p.assigneeId ? users[p.assigneeId] : undefined;
 
   if (p.stage === 'done') {
     return (
       <article className="cd cd-compact cd-task-done" aria-label={STAGE_KICKER.done}>
         <p className="cd-row"><Check size={16} strokeWidth={2} aria-hidden /><span>{message.text}</span></p>
-      </article>
-    );
-  }
-
-  if (p.stage === 'invite' && p.event) {
-    const ev = p.event;
-    return (
-      <article className="cd cd-invite" aria-label={`${STAGE_KICKER.invite}: ${ev.title}`}>
-        <p className="cd-cap-top cd-kicker"><CalendarPlus size={14} strokeWidth={1.5} aria-hidden />{STAGE_KICKER.invite}</p>
-        <h3 className="cd-title">{ev.title}</h3>
-        <p className="cd-bigdate">{ev.label}</p>
-        {ev.location && <p className="cd-meta">{ev.location}</p>}
-        {!senior && ev.attendeeIds.length > 0 && (
-          <div className="cd-avs" aria-label={`초대한 가족 ${ev.attendeeIds.length}명`}>
-            {ev.attendeeIds.map(id => <Avatar key={id} user={users[id]} size={24} />)}
-          </div>
-        )}
-        {p.icsUrl && (
-          <a className={`btn ${senior ? '' : 'btn-primary'} cd-ics`} href={p.icsUrl} download>
-            <CalendarPlus size={16} strokeWidth={1.5} aria-hidden />캘린더에 추가 (.ics)
-          </a>
-        )}
       </article>
     );
   }

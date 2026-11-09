@@ -1,4 +1,4 @@
-// Gathering to-dos as real actions (calendar invite / booking link / assignee reminder) + polite follow-up tracking.
+// Gathering to-dos as real actions (booking link / assignee reminder) + polite follow-up tracking.
 import {
   DIRECTOR_ID, FAMILY_ROOM_ID, SENIOR_ID, SENIOR_ROOM_ID, TACHI_ID, TASK_DUE, TASK_FOLLOWUP, dateLabel, koreanTime, pad2,
 } from '../../shared/constants';
@@ -7,12 +7,11 @@ import type {
 } from '../../shared/types';
 import { ctx } from './ctx';
 import {
-  emitRoomTo, getUser, isMember, isStale, joinRoomSockets, later, markActionDone, now, post, tachiSay,
+  emitRoomTo, getUser, isMember, isStale, joinRoomSockets, later, markActionDone, now, tachiSay,
 } from './core';
 import { emitArtifact } from './artifacts';
-import { calendar } from '../calendar';
 import { buildBookingLinks } from '../data/booking';
-import { classifyTask } from '../brain/heuristics/tasks';
+import { TASK_KINDS, classifyTask } from '../brain/heuristics/tasks';
 import { nowIso, uid, warn } from '../util/misc';
 
 const MIN = 60_000;
@@ -47,14 +46,15 @@ export function firstFollowUpAt(t: ArtifactTask, at: Date = now()): string {
   return new Date(Math.min(soon, byDue)).toISOString();
 }
 
-/** Tasks that the follow-up scheduler chases: open, owned, and something a person has to do (Tachi sends invites itself). */
+/** Tasks that the follow-up scheduler chases: open, owned, and something a person has to do. */
 export const followable = (t: ArtifactTask): boolean =>
-  isOpen(t) && !!t.assigneeId && t.action?.kind !== 'calendar_invite' && t.action?.kind !== 'none';
+  isOpen(t) && !!t.assigneeId && t.action?.kind !== 'none';
 
 /** Fill in action / status / due / next follow-up for every task (idempotent; never downgrades a user's choice). */
 export function normalizeTasks(a: Artifact, at: Date = now()): Artifact {
   for (const t of a.tasks) {
-    if (!t.action) t.action = { ...classifyTask(t.text), classifiedBy: 'heuristic' };
+    // unclassified, or a kind this version no longer has → classify again
+    if (!t.action || !TASK_KINDS.includes(t.action.kind)) t.action = { ...classifyTask(t.text), classifiedBy: 'heuristic' };
     if (t.done) t.status = 'done';
     else if (!t.status || t.status === 'done') t.status = 'todo';
     if (!t.dueAt && isOpen(t) && t.action.kind !== 'none') t.dueAt = defaultDue(t, a, at);
@@ -144,9 +144,6 @@ export function taskRoomFor(userId: ID, title: string): Room {
   emitRoomTo(room);
   return room;
 }
-
-const existingPersonalRoom = (userId: ID): ID | undefined => (userId === SENIOR_ID ? SENIOR_ROOM_ID
-  : ctx.db.rooms.all().find(r => r.type === 'side' && r.memberIds.includes(userId) && r.memberIds.length === 2)?.id);
 
 /** Close the buttons of every earlier card about this task (one answer settles them all). */
 function settleCards(taskId: ID): void {
@@ -242,65 +239,8 @@ export async function shareBooking(a: Artifact, t: ArtifactTask, by: ID): Promis
   return { ok: true };
 }
 
-const inviteKey = (artifactId: ID) => `invite-sent:${artifactId}`;
-
-/**
- * Calendar invites for a confirmed gathering: local calendar entry (provider interface), downloadable .ics, a card in the family
- * room and one in each member's own room. Automatic sends are idempotent per event version; manual sends always post.
- */
-export async function sendInvites(a: Artifact, by: ID, opts: { manual?: boolean; taskId?: ID } = {}): Promise<TaskResult> {
-  if (!a.slot || a.dateStatus !== 'confirmed') return { ok: false, error: 'not confirmed', message: '날짜가 확정되면 초대를 보낼 수 있어요.' };
-  const room = ctx.db.rooms.get(a.roomId);
-  if (!room) return { ok: false, error: 'room missing' };
-  const attendees = room.memberIds.filter(id => id !== TACHI_ID && getUser(id));
-  const startsAt = a.slot.startsAt;
-  const endsAt = new Date(Date.parse(startsAt) + TASK_DUE.eventHours * 60 * MIN).toISOString();
-  const description = [a.purpose, a.agenda.length ? `일정: ${a.agenda.join(' · ')}` : '', '타치가 보낸 가족 모임 초대예요.'].filter(Boolean).join('\n');
-  const cal = calendar();
-  const existing = (await cal.list({ artifactId: a.id })).find(e => e.status === 'confirmed');
-  const input = { artifactId: a.id, title: a.title, description, location: a.place || undefined, startsAt, endsAt, organizerId: TACHI_ID, attendeeIds: attendees };
-  const ev = existing ? (await cal.update(existing.id, input))! : await cal.create(input);
-  if (isStale()) return { ok: false, error: 'stale' };
-  const sent = ctx.db.kv.get<{ eventId: ID; sequence: number }>(inviteKey(a.id));
-  const already = !!sent && sent.eventId === ev.id && sent.sequence === ev.sequence;
-  const icsUrl = `/api/calendar/${ev.id}.ics`;
-
-  const fresh = ctx.db.artifacts.get(a.id) ?? a;
-  for (const t of fresh.tasks) {
-    const isInvite = t.action?.kind === 'calendar_invite' || t.id === opts.taskId;
-    if (!isInvite) continue;
-    t.action = { ...(t.action ?? { kind: 'calendar_invite' }), kind: 'calendar_invite', eventId: ev.id };
-    t.link = icsUrl;
-    t.executedAt = nowIso();
-    t.result = `초대 ${attendees.length}명에게 보냄`;
-    record(t, { kind: 'invite', by, note: `캘린더 초대 · ${a.slot.label}` });
-    if (isOpen(t)) completeTask(t, by, t.result);
-  }
-  save(fresh, by);
-  if (already && !opts.manual) return { ok: true, message: '이미 초대를 보냈어요.' };
-  ctx.db.kv.set(inviteKey(a.id), { eventId: ev.id, sequence: ev.sequence });
-
-  const event: TaskCardPayload['event'] = { id: ev.id, title: ev.title, startsAt, endsAt, label: a.slot.label, location: ev.location, attendeeIds: attendees };
-  const base: TaskCardPayload = { type: 'task_card', artifactId: a.id, taskId: opts.taskId, action: 'calendar_invite', stage: 'invite', title: a.title, event, icsUrl };
-  const changed = !!sent && sent.eventId === ev.id && sent.sequence !== ev.sequence;
-  await tachiSay(a.roomId, {
-    kind: 'task_card',
-    text: `${changed ? '바뀐 일정으로 ' : ''}${a.slot.label} ‘${a.title}’ 초대장을 가족 ${attendees.length}명에게 보냈어요. 캘린더에 추가해 두세요.`,
-    payload: base,
-  });
-  for (const id of attendees) {
-    const rid = existingPersonalRoom(id);
-    if (!rid || rid === a.roomId) continue;
-    const text = id === SENIOR_ID
-      ? `어머님, ${a.slot.label}에 가족 모임이 있어요. 달력에 적어 두었어요.`
-      : `${name(id)}님, ‘${a.title}’ 초대장이에요. ${a.slot.label} · 캘린더에 추가해 주세요.`;
-    post(rid, { senderId: TACHI_ID, kind: 'task_card', text, payload: base });
-  }
-  return { ok: true };
-}
-
-/** Confirmed gathering date (schedule_result / '이 시간으로 확정'): re-derive due dates and send the invites automatically. */
-export async function onGatheringConfirmed(artifactId: ID): Promise<void> {
+/** Confirmed gathering date (schedule_result / '이 시간으로 확정'): re-derive the open tasks' due dates from the new slot. */
+export function replanTaskDueDates(artifactId: ID): void {
   try {
     const a = ctx.db.artifacts.get(artifactId);
     if (!a || !a.slot) return;
@@ -309,8 +249,7 @@ export async function onGatheringConfirmed(artifactId: ID): Promise<void> {
       if ((t.followUpLevel ?? 0) === 0) delete t.nextFollowUpAt; // re-planned from the new due date
     }
     save(a);
-    await sendInvites(ctx.db.artifacts.get(artifactId)!, TACHI_ID);
-  } catch (e) { warn('auto invite failed:', e); }
+  } catch (e) { warn('due-date replan failed:', e); }
 }
 
 /** Run a task's action now (socket artifact:task:execute). `kind` overrides the classified action (remembered as the user's choice). */
@@ -322,13 +261,12 @@ export async function executeTask(userId: ID, artifactId: ID, taskId: ID, kind?:
   if (!t) return { ok: false, error: 'unknown task' };
   normalizeTasks(a);
   const by = userId === DIRECTOR_ID ? TACHI_ID : userId;
-  if (kind && ['calendar_invite', 'booking_link', 'reminder', 'none'].includes(kind) && kind !== t.action?.kind) {
+  if (kind && TASK_KINDS.includes(kind) && kind !== t.action?.kind) {
     const h = classifyTask(t.text);
     t.action = { ...(kind === h.kind ? h : {}), kind, classifiedBy: 'user' };
     save(a, by);
   }
   switch (t.action?.kind) {
-    case 'calendar_invite': return sendInvites(a, by, { manual: true, taskId: t.id });
     case 'booking_link': return shareBooking(a, t, by);
     case 'reminder': return remindAssignee(a, t, by);
     default: return { ok: false, error: 'no action', message: '타치가 대신 할 수 있는 일이 없어요.' };

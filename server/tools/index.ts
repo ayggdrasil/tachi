@@ -1,6 +1,5 @@
 // Tool registry + guarded executor (validation, audience check, timeout, error capture).
 import type { LLMToolSpec } from '../brain/providers/types';
-import { calendarInvite, calendarList } from './calendar';
 import { graphSearch } from './graph';
 import { mapSearch, transitRoute } from './places';
 import { reminderCreate, reminderList } from './reminders';
@@ -8,7 +7,7 @@ import type { AnyTool, ToolAudience, ToolContext, ToolOutput } from './types';
 import { ToolError } from './types';
 import { validate } from './validate';
 
-export const TOOLS: AnyTool[] = [graphSearch, calendarList, calendarInvite, transitRoute, mapSearch, reminderCreate, reminderList];
+export const TOOLS: AnyTool[] = [graphSearch, transitRoute, mapSearch, reminderCreate, reminderList];
 const byName = new Map(TOOLS.map(t => [t.name, t]));
 
 export const getTool = (name: string): AnyTool | undefined => byName.get(name);

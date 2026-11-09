@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Plus, Sparkles, CalendarClock, X, CalendarPlus, ExternalLink, Bell, Loader2 } from 'lucide-react';
+import { Check, Plus, Sparkles, CalendarClock, X, ExternalLink, Bell, Loader2 } from 'lucide-react';
 import type { Artifact, ArtifactTask, User } from '../../../../shared/types';
 import { TaskStatusChip, dueLabel } from '../../components/cards/TaskCards';
 import { useTachi, tachi } from '../../lib/store';
@@ -237,7 +237,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 const FOLLOW_KIND: Record<string, string> = {
-  reminder: '알림', nudge: '다시 알림', escalate: '가족방에 알림', manual: '리마인드', reply: '답장', invite: '초대', booking: '예약 링크', status: '상태 변경',
+  reminder: '알림', nudge: '다시 알림', escalate: '가족방에 알림', manual: '리마인드', reply: '답장', booking: '예약 링크', status: '상태 변경',
 };
 
 function lastFollowUp(t: ArtifactTask): string | null {
@@ -255,16 +255,14 @@ function TaskRow({ artifact, task: t, users, members }: { artifact: Artifact; ta
   const as = t.assigneeId ? users[t.assigneeId] : undefined;
   const kind = t.action?.kind ?? 'none';
   const open = !t.done;
-  const confirmed = artifact.dateStatus === 'confirmed';
-  const action = kind === 'calendar_invite' ? { label: t.executedAt ? '초대 다시 보내기' : '초대 보내기', Icon: CalendarPlus, disabled: !confirmed, why: confirmed ? '' : '날짜가 확정되면 보낼 수 있어요' }
-    : kind === 'booking_link' ? { label: '예약 링크', Icon: ExternalLink, disabled: false, why: '' }
+  const action = kind === 'booking_link' ? { label: '예약 링크', Icon: ExternalLink, disabled: false, why: '' }
     : kind === 'reminder' ? { label: '리마인드', Icon: Bell, disabled: !t.assigneeId, why: t.assigneeId ? '' : '담당자를 먼저 정해 주세요' }
     : null;
   const run = () => {
     setBusy(true);
     tachi.executeTask(artifact.id, t.id).then(r => {
       setBusy(false);
-      setNote(r.ok ? (kind === 'calendar_invite' ? '초대를 보냈어요' : kind === 'booking_link' ? '가족방에 링크를 올렸어요' : '담당자에게 알렸어요') : (r.message ?? '보내지 못했어요. 다시 눌러 주세요.'));
+      setNote(r.ok ? (kind === 'booking_link' ? '가족방에 링크를 올렸어요' : '담당자에게 알렸어요') : (r.message ?? '보내지 못했어요. 다시 눌러 주세요.'));
     });
   };
   const last = lastFollowUp(t);
@@ -294,8 +292,8 @@ function TaskRow({ artifact, task: t, users, members }: { artifact: Artifact; ta
         {open && t.dueAt && <span className="caption muted">{dueLabel(t.dueAt)}까지</span>}
         {last && <span className="caption faint">· {last}</span>}
         {t.link && (
-          <a className="ap-link caption" href={t.link} {...(t.link.startsWith('/api/') ? { download: true } : { target: '_blank', rel: 'noopener noreferrer' })}>
-            {t.link.startsWith('/api/') ? '.ics 받기' : '링크 열기'}<span className="sr-only"> · {t.text}</span>
+          <a className="ap-link caption" href={t.link} target="_blank" rel="noopener noreferrer">
+            링크 열기<span className="sr-only"> · {t.text}</span>
           </a>
         )}
         {open && action && (

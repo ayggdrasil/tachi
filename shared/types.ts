@@ -58,7 +58,7 @@ export type MessageKind =
   | 'schedule_progress'
   | 'schedule_result'
   | 'system'
-  | 'task_card';          // todo execution: calendar invite / booking link / assignee reminder / follow-up
+  | 'task_card';          // todo execution: booking link / assignee reminder / follow-up
 
 export interface CardAction {
   id: string;             // action id sent back with socket `action`, e.g. 'share_memory'
@@ -87,7 +87,7 @@ export interface MessageMeta {
   /** resources the answer actually mentioned */
   memoryIdsUsed?: ID[];
   tripIdsUsed?: ID[];
-  /** Korean labels of the tools Tachi checked for this answer (agent loop / offline planner), e.g. ['캘린더', '길찾기'] */
+  /** Korean labels of the tools Tachi checked for this answer (agent loop / offline planner), e.g. ['알림 등록', '길찾기'] */
   toolsUsed?: string[];
 }
 
@@ -331,11 +331,11 @@ export interface ArtifactTask {
   /** kept in sync with `done` (done ⇔ status === 'done') */
   status?: TaskStatus;
   dueAt?: ISODate;
-  /** last time the action was executed (invite sent / booking link shared / reminder sent) */
+  /** last time the action was executed (booking link shared / reminder sent) */
   executedAt?: ISODate;
-  /** short human-readable outcome: '초대 4명에게 보냄', '예약 완료 · 수연' */
+  /** short human-readable outcome: '예약 완료 · 수연' */
   result?: string;
-  /** primary link produced by the action (.ics download or booking deep link) */
+  /** primary link produced by the action (booking deep link) */
   link?: string;
   /** reminder / nudge / escalation / reply history, oldest first */
   followUps?: TaskFollowUp[];
@@ -347,7 +347,7 @@ export interface ArtifactTask {
   completedAt?: ISODate;
 }
 
-export type TaskActionKind = 'calendar_invite' | 'booking_link' | 'reminder' | 'none';
+export type TaskActionKind = 'booking_link' | 'reminder' | 'none';
 export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'blocked';
 export type BookingCategory = 'restaurant' | 'lodging' | 'train' | 'car' | 'other';
 
@@ -359,8 +359,6 @@ export interface TaskAction {
   /** search phrase used for booking links, e.g. '경주 불국사 한정식' */
   query?: string;
   links?: BookingLink[];
-  /** local calendar event created for this task / gathering */
-  eventId?: ID;
   /** who decided the kind: the offline rules, the LLM, or a family member */
   classifiedBy?: 'heuristic' | 'llm' | 'user';
 }
@@ -368,7 +366,7 @@ export interface TaskAction {
 export interface TaskFollowUp {
   id: ID;
   at: ISODate;
-  kind: 'reminder' | 'nudge' | 'escalate' | 'manual' | 'reply' | 'invite' | 'booking' | 'status';
+  kind: 'reminder' | 'nudge' | 'escalate' | 'manual' | 'reply' | 'booking' | 'status';
   /** 'auto' for the scheduler, otherwise the user who triggered it */
   by: ID | 'auto';
   level?: number;
@@ -382,44 +380,14 @@ export interface TaskCardPayload {
   artifactId: ID;
   taskId?: ID;
   action: TaskActionKind;
-  /** 'invite' | 'booking' | 'reminder' | 'nudge' | 'escalate' | 'done' */
-  stage: 'invite' | 'booking' | 'reminder' | 'nudge' | 'escalate' | 'done';
+  /** 'booking' | 'reminder' | 'nudge' | 'escalate' | 'done' */
+  stage: 'booking' | 'reminder' | 'nudge' | 'escalate' | 'done';
   title: string;
   taskText?: string;
   assigneeId?: ID;
   status?: TaskStatus;
   dueAt?: ISODate;
   links?: BookingLink[];
-  event?: { id: ID; title: string; startsAt: ISODate; endsAt: ISODate; label: string; location?: string; attendeeIds: ID[] };
-  icsUrl?: string;
-}
-
-/** A local calendar entry (the calendar provider interface can later be backed by Google Calendar). */
-export interface CalendarEvent {
-  id: ID;
-  /** stable iCalendar UID */
-  uid: string;
-  artifactId?: ID;
-  title: string;
-  description: string;
-  location?: string;
-  startsAt: ISODate;
-  endsAt: ISODate;
-  organizerId: ID;
-  attendeeIds: ID[];
-  /** iCalendar SEQUENCE: bumps whenever the time / place changes */
-  sequence: number;
-  status: 'confirmed' | 'cancelled';
-  provider: 'local' | string;
-  createdAt: ISODate;
-  updatedAt: ISODate;
-  /** 'private' events are shown to other people as busy time only (no title / place / note); absent = family-visible */
-  visibility?: 'family' | 'private';
-  /** owner-only note (never shown to other viewers) */
-  note?: string;
-  /** where the event came from: demo seed, a Tachi tool call, todo execution, the user, or an external calendar */
-  source?: 'seed' | 'tachi' | 'task' | 'user' | 'external';
-  createdBy?: ID;
 }
 
 export interface Artifact {
@@ -523,7 +491,7 @@ export interface ClientToServerEvents {
   'artifact:update': (p: { artifactId: ID; patch: ArtifactPatch }) => void;
   'artifact:task': (p: { artifactId: ID; op: 'add' | 'toggle' | 'assign' | 'remove'; taskId?: ID; text?: string; assigneeId?: ID }) => void;
   'artifact:assist': (p: { artifactId: ID }) => void;          // ask Tachi to suggest tasks / ideas
-  /** run a task's action now: send calendar invites / share a booking link / remind the assignee (kind overrides the classified one) */
+  /** run a task's action now: share a booking link / remind the assignee (kind overrides the classified one) */
   'artifact:task:execute': (p: { artifactId: ID; taskId: ID; kind?: TaskActionKind }, ack?: (r: { ok: boolean; error?: string; message?: string }) => void) => void;
   /** set a task's status explicitly (todo / in_progress / done / blocked) */
   'artifact:task:status': (p: { artifactId: ID; taskId: ID; status: TaskStatus }) => void;

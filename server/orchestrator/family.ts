@@ -37,7 +37,7 @@ export async function handleFamilyInput(room: Room, userId: string, text: string
   if (!asker) return;
   const ai = await ctx.brain.classifyFamilyIntent(text, asker);
   const intent = ai.value;
-  // agent loop for tool-shaped questions (calendar, routes, reminders, memories); kin-only, privacy enforced in the tools.
+  // agent loop for tool-shaped questions (routes, reminders, memories); kin-only, privacy enforced in the tools.
   // Falls back to the state machine below on any failure.
   if ((intent.type === 'ask_tachi' || (intent.type === 'none' && /타치|엄마|어머|할머니/.test(text))) && kinMayAsk(room, asker)) {
     const m = await tryAgent(room, 'family', asker, text);

@@ -162,9 +162,8 @@ export type { PrivacyCategory };
 export function taskClassifyPrompt(input: { tasks: { id: string; text: string }[]; title?: string; place?: string }) {
   return {
     system: `가족 모임 할 일 목록을 보고, 타치가 각 할 일에 할 수 있는 행동을 고르세요.
-- calendar_invite: 가족 캘린더에 일정 등록·초대장 보내기
 - booking_link: 식당·숙소·KTX·렌터카 등 예약이 필요한 일 (category: restaurant | lodging | train | car | other, query: 지도 검색용 짧은 명사 예 "한정식", "한옥 숙소")
-- reminder: 담당자가 직접 해야 하는 준비 (케이크, 선물, 약 챙기기 등) → 담당자에게 알림
+- reminder: 담당자가 직접 해야 하는 준비 (케이크, 선물, 약 챙기기, 일정 공유·초대장 보내기·참석 확인 등) → 담당자에게 알림
 - none: 행동이 필요 없는 메모
 ${JSON_ONLY}
 스키마: {"tasks":[{"id":"task-1","kind":"booking_link","category":"lodging","query":"한옥 숙소"}]}`,

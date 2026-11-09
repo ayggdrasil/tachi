@@ -85,8 +85,8 @@ export const DAILY_REPORT_TIME = '21:00';
  */
 export const TASK_FOLLOWUP = { firstAfterMin: 120, repeatAfterMin: 240, escalateAfterMin: 240, snoozeMin: 180, dueLeadMin: 1440, maxLevel: 3 } as const;
 
-/** Default lengths used when Tachi derives a due time / calendar entry from a confirmed gathering slot. */
-export const TASK_DUE = { bookingLeadDays: 3, otherLeadDays: 1, undatedDays: 3, eventHours: 3 } as const;
+/** Default lead times used when Tachi derives a task's due time from a confirmed gathering slot. */
+export const TASK_DUE = { bookingLeadDays: 3, otherLeadDays: 1, undatedDays: 3 } as const;
 
 export const TASK_STATUS_LABEL: Record<'todo' | 'in_progress' | 'done' | 'blocked', string> = {
   todo: '할 일', in_progress: '진행 중', done: '완료', blocked: '도움 필요',
