@@ -112,9 +112,13 @@ async function main() {
   script = () => ({ turn: { reply: 'Saved.', quickReplies: [], actions: [{ type: 'save_memory', memory: { title: 'Spring 1984, shopping at Namdaemun Market', story: 'In spring 1984 Youngsu and I walked through Namdaemun Market.', summary: 'dup', people: [], emotions: [], tags: [] } }] } });
   t0 = Date.now();
   say('anything');
-  await waitFor('dup turn', () => since(t0).find(m => m.senderId === 'tachi' && m.text === 'Saved.'));
+  const dupReply = await waitFor('dup turn', () => since(t0).find(m => m.senderId === 'tachi' && m.kind === 'text'));
   await sleep(300);
   check(ctx.db.memories.all().length === before, 'duplicate save_memory is ignored');
+  // 6b) a save on the very first message of a new story is held back: Tachi keeps listening and the story becomes a draft
+  check(!!dupReply && dupReply.text !== 'Saved.' && /tell me a little more/i.test(dupReply.text), 'first-message save is deferred: Tachi asks for more');
+  check(!!ctx.db.kv.get(`agent-draft:${SENIOR_ROOM_ID}`), 'deferred save is kept as a draft');
+  ctx.db.kv.del(`agent-draft:${SENIOR_ROOM_ID}`);
 
   // 7) fallback result → the offline heuristic pipeline answers instead (unchanged behavior)
   script = () => ({ turn: { reply: 'FALLBACK TEXT', quickReplies: [], actions: [] }, fallback: true });

@@ -12,6 +12,12 @@ An AI companion that turns a senior's old photos and stories into a living memor
 - 👨‍👩‍👧 **Family rooms.** Create rooms, invite from a (virtual) phonebook, ask Tachi about mom's public health info, turn a gathering idea into a **collaborative artifact**, and let Tachi **coordinate the date in side chats** with each member.
 - 🔁 **Swappable LLMs.** Claude Sonnet 5.5 · Claude Haiku 5.5 · ChatGPT Terra · ChatGPT Luna — switch live; an offline **demo brain** keeps everything working without keys.
 - 🤖 **Demo-ready.** AI family bots chime in with 1–2 lines; a Director console runs the 90-second script; real phones can join over LAN.
+- 🧠 **LLM-driven 1:1 with the senior.** With a live model, the senior's own chat is a real conversation: Tachi answers questions about memories it doesn't have yet, asks one gentle question at a time, and **pushes the new memory into the DB + graph once the story is complete** (never on the first sentence; private until she agrees to share).
+- 🌏 **English by default, Korean on demand.** Switch in the Director or senior settings, or add `?lang=ko`.
+- 🗂 **Room switcher + 1:1 chats.** Jump between rooms from a menu; tap any family member (or their name in a chat) to open a person-to-person side chat. AI-bot relatives answer in character.
+- 🗺 **Trip story cards.** When the senior shares a trip, the family room gets a travel-story card (the memory it grew from, highlights and the date); the day-by-day plan unfolds on tap.
+
+**Live demo:** <https://sb-4ytb6h9dessx.vercel.run> (Director console: `/demo?key=…`, ask the team for the key).
 
 ## Quick start
 
@@ -43,7 +49,53 @@ TACHI_MODEL_GPT_LUNA=gpt-6-luna
 
 Claude requests use `output_config.effort: "low"` for short, fast replies (Sonnet 5.5 also opts into server-side refusal fallback); OpenAI requests use `reasoning_effort: "low"`.
 
+**No `.env` access (e.g. the hosted demo)?** Open the Director console → **Model → API key**, choose OpenAI or Anthropic, paste a key and press **Connect**. The key is kept in server memory only (never stored, logged or sent to other clients) and disappears on restart; **Remove** switches back to the demo brain.
+
 Without keys Tachi runs on the deterministic **demo brain** (the UI marks those replies as 오프라인 응답). If a live call fails or times out mid-demo, that single reply falls back automatically.
+
+### GBrain memory mirror (optional)
+
+[GBrain](https://github.com/garrytan/gbrain) can sit next to Tachi as a **second memory store with deep recall**. Kùzu stays the primary graph (live graph, Cypher proof, every demo step); GBrain gets a write-through copy and answers only when the graph finds nothing by name:
+
+- **Write-through.** Every saved memory becomes a page `tachi/memories/<id>`; people, places, eras, events, emotions and topics become pages under `tachi/people/`, `tachi/places/`, …, joined by typed links (`attended` for people in a memory, `mentions` + the Tachi relation as context for the rest, `relates_to` for family). Writes are queued in the background and never slow down or fail a Tachi flow.
+- **Deep recall.** “차가운 바다 기억나?” has no graph node by that name, so Tachi asks GBrain (`query`, memory pages only), maps the hit back to its own memory and shows the usual recall card, marked **GBrain 깊은 회상** with the GBrain query in place of the Cypher. With a live model, the LLM senior agent gets the same fallback when it gathers candidate memories for a turn.
+- **Reset.** Demo reset soft-deletes everything under `tachi/` (restorable for 72 h in GBrain) and the re-seed is mirrored again.
+
+GBrain needs [Bun](https://bun.sh) ≥ 1.4.4 and runs as its own process. Use a **dedicated brain** for Tachi (not the one your coding agent uses), and create the token before starting the server (a running PGLite server locks the brain):
+
+```bash
+bun install -g github:garrytan/gbrain#stable
+```
+
+```bash
+GBRAIN_HOME=~/tachi-brain gbrain init --pglite --no-embedding
+```
+
+```bash
+GBRAIN_HOME=~/tachi-brain gbrain auth create tachi --scopes read,write
+```
+
+```bash
+GBRAIN_HOME=~/tachi-brain gbrain serve --http --port 3131
+```
+
+Then add to `.env`:
+
+```bash
+TACHI_GBRAIN_URL=http://127.0.0.1:3131/mcp
+TACHI_GBRAIN_TOKEN=gbrain_...           # from `gbrain auth create`
+# optional
+TACHI_GBRAIN_PREFIX=tachi               # page subtree Tachi owns (reset deletes only this)
+TACHI_GBRAIN_TIMEOUT_MS=3000            # deep-recall deadline; on any error recall just says it hasn't heard that story
+```
+
+`npm run gbrain:check` verifies a running brain end to end (mirror, typed links, graph recall vs. GBrain recall, cleanup) under a throwaway prefix. `/api/status` reports `memoryMirror` health (state + queued writes; error details only in the server log). If an existing database is started with GBrain for the first time, its memories are copied over once.
+
+Things to know:
+
+- **Privacy stays in Tachi.** GBrain has no notion of 가족 공개 / 나만 보기, so Tachi never hands it the decision: only the server holds the token, pages carry no visibility flag and no photo URL (uploaded photos are capability URLs), health data is never mirrored, and every GBrain hit is re-checked against Tachi's own memories before it is shown. Deep recall is used only in the senior's own room.
+- **Data leaving the machine.** A keyless brain (`--no-embedding`) keeps everything local. If you configure embedding, reranking or synthesis providers in GBrain, they receive memory text.
+- **Korean search.** Without embeddings GBrain matches Korean by keyword (its CJK path; no particle stemming), so it adds recall over summaries and full story text. Real meaning-based recall (“바닷가” → 해운대) needs an embedding provider in GBrain.
 
 ## The 90-second demo
 
@@ -112,6 +164,7 @@ web (Vite + React 19)                     server (Node + tsx)
 - `shared/types.ts` — single contract for domain types and socket events.
 - `server/brain/` — Anthropic Messages API & OpenAI Chat Completions via `fetch`, runtime model switching, Korean prompts, offline heuristics with identical return types.
 - `server/graph/` — Kùzu schema `Memory, Person, Place, Era, Event, Emotion, Topic` with `APPEARS_IN, TAKEN_AT, IN_ERA, ABOUT, EVOKES, MENTIONS, FAMILY_OF`; in-memory fallback if the native module can't load.
+- `server/graph/gbrain.ts` — optional GBrain mirror: MCP client for `gbrain serve --http`, Memory → pages + typed links, background write queue, deep recall (see [GBrain memory mirror](#gbrain-memory-mirror-optional)).
 - Privacy is enforced where context is assembled (family Q&A, reports, bootstrap, socket fan-out).
 
 ## Scripts
@@ -124,6 +177,7 @@ web (Vite + React 19)                     server (Node + tsx)
 | `npm run typecheck` | TypeScript check |
 | `npm test` | Unit tests (brain, graph, providers) + flow, security, P0 and end-to-end smoke suites |
 | `npx tsx server/scripts/smoke.ts` | End-to-end socket smoke test of the whole demo |
+| `npm run gbrain:check` | Live check of the optional GBrain mirror against a running `gbrain serve --http` (needs `TACHI_GBRAIN_URL` / `TACHI_GBRAIN_TOKEN`) |
 | `npm run qa:capture` | Rehearse the whole script against a running server (`BASE`, `TACHI_DIRECTOR_KEY`), print per-step seconds, capture phone screenshots, assert primary actions are above the fold (needs `playwright`) |
 | `npm run qa:review` | Send source + screenshots to GPT‑6.1 Sol (reasoning `xhigh`, background mode) for a structured review → `docs/reviews/` |
 | `npm run design:detect` | impeccable anti-pattern detector over the web source |
