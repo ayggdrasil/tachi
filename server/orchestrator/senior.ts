@@ -4,7 +4,7 @@ import path from 'node:path';
 import { FAMILY_ROOM_ID, SENIOR_ID, SENIOR_ROOM_ID, TACHI_ID } from '../../shared/constants';
 import { st } from '../i18n';
 import type {
-  CardAction, HealthSummary, ID, Memory, MemoryCardPayload, Message, PrivacyCategory, Room, Trip,
+  CardAction, HealthSummary, ID, ItineraryPayload, Memory, MemoryCardPayload, Message, PrivacyCategory, Room, Trip,
 } from '../../shared/types';
 import type { InterviewState, SeniorObservation } from '../brain/contract';
 import { assessBloodPressure } from '../brain/heuristics/health';
@@ -421,7 +421,10 @@ export async function skipShare(roomId: ID, memoryId: ID, opts: { quiet?: boolea
 async function doRecall(room: Room, text: string, keywords: string[]): Promise<void> {
   clearProactiveMemory();
   const kws = keywords.length ? keywords : text.split(/[\s,.!?]+/).filter(w => w.length > 1);
-  const hits = (await ctx.graph.search(kws.length ? kws : [text], { limit: 5 })).filter(h => ctx.db.memories.get(h.memoryId)?.status === 'saved');
+  const saved = (h: { memoryId: ID }) => ctx.db.memories.get(h.memoryId)?.status === 'saved';
+  let hits = (await ctx.graph.search(kws.length ? kws : [text], { limit: 5 })).filter(saved);
+  // nothing in the graph by name: ask the optional GBrain mirror (free-text / semantic recall); [] when it is off
+  if (!hits.length) hits = (await withTyping(room.id, () => ctx.graph.deepRecall(text, { limit: 3 }))).filter(saved);
   const best = hits[0];
   const mem = best && ctx.db.memories.get(best.memoryId);
   if (!best || !mem) {
@@ -434,7 +437,7 @@ async function doRecall(room: Room, text: string, keywords: string[]): Promise<v
     .map(h => ({ memoryId: h.memoryId, title: ctx.db.memories.get(h.memoryId)!.title }));
   await tachiSay(room.id, {
     kind: 'recall_card', text: ai.value,
-    payload: { type: 'recall_card', memoryId: mem.id, memory: mem, matched: best.matched, path: best.path, cypher: best.cypher, alternatives },
+    payload: { type: 'recall_card', memoryId: mem.id, memory: mem, matched: best.matched, path: best.path, cypher: best.cypher, alternatives, via: best.via ?? 'graph' },
     meta: memMeta(mem.id),
   }, ai);
   logSeniorSession('memory', st('senior.sess.recall'), st('senior.sess.recallSummary', { title: mem.title }), mem.id);
@@ -575,6 +578,21 @@ export async function declineTrip(roomId: ID, tripId: ID, opts: { quiet?: boolea
   if (!opts.quiet) await tachiSay(roomId, { text: st('senior.trip.declined'), meta: tripMeta(tripId, trip?.memoryId) });
 }
 
+/** Family-room version of the itinerary: lead with the memory it grew from, its highlights and the date (trip.com-style story card). */
+function familyTripCard(trip: Trip): ItineraryPayload {
+  const it = trip.itinerary!;
+  const mem = trip.memoryId ? ctx.db.memories.get(trip.memoryId) : undefined;
+  const memOk = !trip.memoryId || memoryVisibleToFamily(mem);
+  return {
+    ...it,
+    story: {
+      ...(memOk && trip.memoryId ? { memoryId: trip.memoryId } : {}),
+      reason: memOk ? trip.suggestion.reason : '',
+      highlights: (trip.suggestion.highlights ?? []).slice(0, 4),
+    },
+  };
+}
+
 async function shareTrip(roomId: ID, tripId: ID, card: Message): Promise<void> {
   const trip = ctx.db.trips.get(tripId);
   if (!trip?.itinerary) throw new Error('itinerary missing');
@@ -587,7 +605,7 @@ async function shareTrip(roomId: ID, tripId: ID, card: Message): Promise<void> {
   let m: Message;
   try {
     m = await tachiSay(FAMILY_ROOM_ID, {
-      kind: 'itinerary', text: st('senior.trip.familyText', { destination: trip.itinerary.destination }), payload: trip.itinerary,
+      kind: 'itinerary', text: st('senior.trip.familyText', { destination: trip.itinerary.destination }), payload: familyTripCard(trip),
       meta: tripMeta(tripId, trip.memoryId),
     });
   } catch (e) {

@@ -143,7 +143,7 @@ export function RecallCard({ message, variant }: CardProps) {
         </div>
       )}
       {!senior && p.cypher && (
-        <details className="cd-tech"><summary>{t('card.techInfo')}</summary><code className="mono cd-cypher">{p.cypher}</code></details>
+        <details className="cd-tech"><summary>{t(p.via === 'gbrain' ? 'card.techInfoGbrain' : 'card.techInfo')}</summary><code className="mono cd-cypher">{p.cypher}</code></details>
       )}
       {p.alternatives.length > 0 && (
         <div className="cd-alt">

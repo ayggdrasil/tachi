@@ -13,7 +13,8 @@
     "demo": "npm run build && npm run start",
     "reset": "tsx server/scripts/reset.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "tsx --test server/brain/brain.en.test.ts server/brain/brain.test.ts server/graph/graph.test.ts server/brain/providers/anthropic.test.ts server/brain/providers/tools.test.ts server/brain/toolLoop.test.ts server/tools/tools.test.ts && TACHI_LOCALE=ko tsx server/scripts/flows.test.ts && TACHI_LOCALE=ko tsx server/scripts/security.test.ts && TACHI_LOCALE=ko tsx server/scripts/privacy3.test.ts && TACHI_LOCALE=ko tsx server/scripts/round4.test.ts && TACHI_LOCALE=ko tsx server/scripts/p0.test.ts && TACHI_LOCALE=ko tsx server/scripts/tasks.test.ts && TACHI_LOCALE=ko tsx server/scripts/toolloop.test.ts && TACHI_LOCALE=ko tsx server/scripts/smoke.ts && tsx server/scripts/en.test.ts && tsx server/scripts/agent.test.ts",
+    "test": "tsx --test server/brain/brain.en.test.ts server/brain/brain.test.ts server/graph/graph.test.ts server/graph/gbrain.test.ts server/brain/providers/anthropic.test.ts server/brain/providers/tools.test.ts server/brain/toolLoop.test.ts server/tools/tools.test.ts && TACHI_LOCALE=ko tsx server/scripts/flows.test.ts && TACHI_LOCALE=ko tsx server/scripts/security.test.ts && TACHI_LOCALE=ko tsx server/scripts/privacy3.test.ts && TACHI_LOCALE=ko tsx server/scripts/round4.test.ts && TACHI_LOCALE=ko tsx server/scripts/p0.test.ts && TACHI_LOCALE=ko tsx server/scripts/tasks.test.ts && TACHI_LOCALE=ko tsx server/scripts/toolloop.test.ts && TACHI_LOCALE=ko tsx server/scripts/smoke.ts && tsx server/scripts/en.test.ts && tsx server/scripts/agent.test.ts",
+    "gbrain:check": "tsx server/scripts/gbrain-live.ts",
     "qa:capture": "tsx scripts/qa/capture.ts",
     "qa:review": "tsx scripts/qa/gpt-review.ts",
     "design:detect": "npx -y impeccable@4.8.1 detect web/src"

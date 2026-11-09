@@ -397,7 +397,7 @@ export default function DirectorConsole() {
                 <MemoryGraph nodes={nodes} edges={edges} highlightIds={fresh} labelMode={graphBelow ? 'focus' : 'all'} height={graphBelow ? Math.max(100, graphBoxH - 8) : Math.max(160, graphBoxH - 56 - (recall ? 150 : 0))} interactive />
                 {recall ? (
                   <div className="dc-recall" aria-label={t('dir.recallBasis')}>
-                    <div className="dc-recall-h"><b>{t('dir.recallBasis')}</b><span className="caption muted"> · {recall.memory?.title}</span></div>
+                    <div className="dc-recall-h"><b>{t('dir.recallBasis')}</b><span className="caption muted"> · {recall.via === 'gbrain' ? `${t('dir.viaGbrain')} · ` : ''}{recall.memory?.title}</span></div>
                     <div className="dc-chips">
                       <span className="caption faint">{t('dir.keywords')}</span>
                       {recall.matched.map(k => <span key={k} className="dc-chip">{k}</span>)}

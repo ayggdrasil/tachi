@@ -113,6 +113,23 @@ async function main() {
   for (let i = 0; i < 2; i++) mom.sock.emit('action', { roomId: SENIOR_ROOM_ID, messageId: itin.id, actionId: 'share_trip' }, () => undefined);
   await sleep(1200);
   check(nShare() === before + 1, `F20: share_trip twice -> one family itinerary (${nShare() - before})`);
+  // family-room trip = travel-story card: memory + highlights + date up front, the day plan stays folded
+  const famItin = [...jieun.msgs].reverse().find(m => m.roomId === FAMILY_ROOM_ID && m.kind === 'itinerary');
+  const story = famItin?.payload?.type === 'itinerary' ? famItin.payload.story : undefined;
+  check(!!story && story.highlights.length > 0 && !!story.memoryId && !!story.reason, 'family itinerary is a story card (memory, highlights, reason)');
+  check(famItin?.payload?.type === 'itinerary' && famItin.payload.days.length > 0, 'story card still carries the day plan for "View itinerary"');
+  if (story?.memoryId && famItin) {
+    mom.sock.emit('memory:visibility', { memoryId: story.memoryId, visibility: 'private' });
+    await sleep(800);
+    const jp = await client(url, 'jieun');
+    const projected = (jp.boot.messages[FAMILY_ROOM_ID] ?? []).find(m => m.id === famItin.id);
+    const ps = projected?.payload?.type === 'itinerary' ? projected.payload.story : undefined;
+    check(!!ps && !ps.memoryId && !ps.reason && ps.highlights.length > 0, 'memory made private -> story card keeps the trip but drops the memory part');
+    jp.sock.close();
+    mom.sock.emit('memory:visibility', { memoryId: story.memoryId, visibility: 'family' });
+    await sleep(800);
+  }
+  check(!find(mom, SENIOR_ROOM_ID, 'itinerary', 0)?.payload || !(find(mom, SENIOR_ROOM_ID, 'itinerary', 0)!.payload as { story?: unknown }).story, "the senior's own itinerary stays a plain plan card");
 
   // blood pressure
   const low = await turn('혈압 80에 50이야', 'bp low');

@@ -149,6 +149,7 @@ export interface RecallCardPayload {
   path: GraphPath;              // e.g. 불국사 ←TAKEN_AT− 기억 −APPEARS_IN← 박영수
   cypher?: string;              // the query shown small under the card
   alternatives: { memoryId: ID; title: string }[];
+  via?: 'graph' | 'gbrain';     // 'gbrain': found by the optional GBrain deep-recall mirror (no graph path; cypher holds the gbrain query)
 }
 
 export interface TripStop {
@@ -178,6 +179,9 @@ export interface ItineraryPayload {
   dateLabel?: string;           // '날짜 미정' or '11월 22일(일)'
   days: { label: string; stops: TripStop[] }[];
   tips: string[];               // accessibility & health tips
+  /** Set when the senior shares the trip to the family room: a travel-story card (memory + highlights + date);
+   *  the day-by-day plan stays folded behind "View itinerary". memoryId/reason are dropped for viewers who can't see the memory. */
+  story?: { memoryId?: ID; reason: string; highlights: string[] };
 }
 
 export interface HealthCardPayload {
