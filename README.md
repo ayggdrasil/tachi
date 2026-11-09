@@ -3,6 +3,51 @@
 **어르신의 기억을 지키고, 가족을 다시 잇는 AI 동반자.**
 An AI companion that turns a senior's old photos and stories into a living memory graph — and brings the family back around those memories.
 
+<a id="for-judges"></a>
+## 심사위원 안내 · For judges
+
+### 한국어: 내 API 키로 실제 LLM 써 보기 (3분)
+
+준비물: [Node.js](https://nodejs.org) 20.12 이상. Anthropic 또는 OpenAI API 키가 있으면 실제 LLM으로, 없으면 오프라인 데모로 동작합니다.
+
+```bash
+git clone https://github.com/ayggdrasil/tachi.git && cd tachi
+```
+
+```bash
+npm install
+```
+
+```bash
+npm run demo
+```
+
+1. 브라우저에서 <http://localhost:4100/?lang=ko> 를 엽니다. `?lang=ko`를 빼면 영어로 동작해요.
+2. 맨 위 **AI 모델** 카드에서 **Anthropic (Claude)** 또는 **OpenAI (ChatGPT)** 를 고르고, API 키를 붙여넣고 **연결**을 누릅니다. `sk-ant-`로 시작하는 키를 붙여넣으면 Anthropic이 자동으로 선택돼요.
+3. 타치가 아주 짧은 시험 요청을 한 번 보냅니다. 성공하면 카드에 **✓ 모델 이름 · 응답 시간**이 뜨고, 그 뒤 모든 대화는 실제 LLM이 답해요. 키가 틀렸거나, 크레딧이 없거나, 계정이 모델을 쓸 수 없으면 그 자리에서 이유를 알려주고 원래 상태를 그대로 둬요.
+4. 써 보기: **어머니 김순자**로 들어가 말을 걸거나 옛 사진을 올려 보세요. 가족 쪽 화면은 **딸 김지은**, 90초 데모 시나리오는 **디렉터**에서 볼 수 있어요.
+
+- **이 컴퓨터에 기억하기**(기본으로 켜짐): 키를 프로젝트 폴더의 `.env`에 저장해서 서버를 재시작해도 유지돼요. `.env`는 git에 올라가지 않고 본인 계정만 읽을 수 있어요. 키는 고른 제공사로만 전송돼요. **연결 해제**를 누르면 지워져요.
+- 키가 없으면 오프라인 **데모 브레인**으로 모든 화면이 동작해요. 정해진 답만 하고, 답변에 ‘기본 응답’ 표시가 붙어요. 키 발급: [console.anthropic.com](https://console.anthropic.com/settings/keys) · [platform.openai.com](https://platform.openai.com/api-keys)
+- 키 카드는 서버를 실행한 컴퓨터의 브라우저에서만 보여요. 같은 Wi-Fi의 휴대폰, 터널, 다른 웹사이트에서는 키를 보거나 바꿀 수 없어요.
+- 파일로 넣고 싶다면 프로젝트 폴더에 `.env` 파일을 만들어 `ANTHROPIC_API_KEY=...` 또는 `OPENAI_API_KEY=...` 를 적고 `npm run demo`를 다시 실행해도 돼요.
+
+### English: use a real LLM with your own API key (3 minutes)
+
+Needs [Node.js](https://nodejs.org) 20.12 or newer. With an Anthropic or OpenAI API key Tachi runs on a real LLM; without one it runs the offline demo.
+
+Run the same three commands as above (`git clone …`, `npm install`, `npm run demo`), then:
+
+1. Open <http://localhost:4100>. The first card is **AI model**.
+2. Pick **Anthropic (Claude)** or **OpenAI (ChatGPT)**, paste your API key, press **Connect**. Pasting a key that starts with `sk-ant-` picks Anthropic automatically.
+3. Tachi sends one tiny test request. On success the card shows **✓ model · latency**, and every chat after that is answered by the real model. A wrong key, an account without credit or a model the account can't use is reported right there, and the app stays on what was working.
+4. Try it: sign in as **Mom** (the senior app) and chat or share an old photo. The family side is the **daughter**; the 90-second scripted demo runs in **Director**.
+
+- **Remember on this computer** (on by default) saves the key to `.env` in the project folder, so it survives restarts. `.env` is git-ignored and owner-only, and the key is only ever sent to the provider you picked. **Disconnect** removes it again.
+- No key? Everything still runs on the offline **demo brain** (scripted replies, marked “Basic reply”). Get a key at [console.anthropic.com](https://console.anthropic.com/settings/keys) or [platform.openai.com](https://platform.openai.com/api-keys).
+- The key card only appears in a browser on the machine running the server. Phones on the same Wi-Fi, tunnels and other websites can't read or change the key.
+- Prefer a file? Create `.env` in the project folder with `ANTHROPIC_API_KEY=...` or `OPENAI_API_KEY=...` and run `npm run demo` again.
+
 - 📷 → 💬 → 🕸 **Photo interview → memory graph.** The senior shares an old photo; Tachi asks short, warm questions (언제? 어디? 누구와? 기억나는 일?) and stores place, era, people, event, emotions and keywords in an embedded **Kùzu graph DB**.
 - 🔎 **Keyword recall.** Later, one word (“불국사”) is enough — Tachi walks the graph and brings the memory back with the photo and the matching path (Cypher shown).
 - 🔒 **Privacy by category.** 건강 / 추억 / 일상 / 기분 / 여행 — each 가족 공개 or 나만 보기, enforced in server code (not just the prompt).
@@ -19,32 +64,6 @@ An AI companion that turns a senior's old photos and stories into a living memor
 
 **Live demo:** <https://sb-4ytb6h9dessx.vercel.run> (Director console: `/demo?key=…`, ask the team for the key).
 
-## For judges: run it with your own LLM key (3 minutes)
-
-Needs [Node.js](https://nodejs.org) 20.12 or newer.
-
-```bash
-git clone https://github.com/ayggdrasil/tachi.git && cd tachi
-```
-
-```bash
-npm install
-```
-
-```bash
-npm run demo
-```
-
-1. Open <http://localhost:4100>. The first card is **AI model**.
-2. Pick **Anthropic (Claude)** or **OpenAI (ChatGPT)**, paste your API key, press **Connect**. (Pasting a key that starts with `sk-ant-` picks Anthropic automatically.)
-3. Tachi sends one tiny test request. On success the card shows **✓ model · latency**, and every chat after that is answered by the real model. A wrong key, an account without credit or a model the account can't use is reported right there, and the app stays on what was working.
-
-**Remember on this computer** (on by default) saves the key to `.env` in the project folder, so it survives restarts. `.env` is git-ignored and owner-only, and the key is only ever sent to the provider you picked. **Disconnect** removes it again.
-
-No key? Everything still runs on the offline **demo brain** (scripted replies, marked 오프라인 응답 / “Offline reply”). Get a key at [console.anthropic.com](https://console.anthropic.com/settings/keys) or [platform.openai.com](https://platform.openai.com/api-keys).
-
-The key card only appears in a browser on the machine running the server. Phones on the same Wi-Fi, tunnels and other websites can't read or change the key.
-
 ## Quick start
 
 ```bash
@@ -60,7 +79,7 @@ Development with hot reload: `npm run dev` → <http://localhost:5173>.
 
 ### Real LLMs (optional)
 
-Easiest: paste a key in the **AI model** card on <http://localhost:4100> (see [For judges](#for-judges-run-it-with-your-own-llm-key-3-minutes)). Or create `.env` in the project root yourself:
+Easiest: paste a key in the **AI model** card on <http://localhost:4100> (see [For judges](#for-judges)). Or create `.env` in the project root yourself:
 
 ```bash
 ANTHROPIC_API_KEY=sk-ant-...
@@ -77,7 +96,7 @@ Claude requests use `output_config.effort: "low"` for short, fast replies (Sonne
 
 **No `.env` access (e.g. the hosted demo)?** Open the Director console → **Model → API key**, choose OpenAI or Anthropic, paste a key and press **Connect**. The key is tested first; a rejected key never replaces a working one. By default it is kept in server memory only (never logged or sent to other clients) and disappears on restart. Tick **Save on this server (.env)** to keep it across restarts. **Remove** forgets it (memory and `.env`) and switches back to the demo brain.
 
-Without keys Tachi runs on the deterministic **demo brain** (the UI marks those replies as 오프라인 응답). If a live call fails or times out mid-demo, that single reply falls back automatically.
+Without keys Tachi runs on the deterministic **demo brain** (the UI marks those replies as “Basic reply” (기본 응답)). If a live call fails or times out mid-demo, that single reply falls back automatically.
 
 ### GBrain memory mirror (optional)
 
@@ -152,7 +171,7 @@ Rail extras: model switch with live health check (✓ latency / ✕), 먼저 말
 - `npm install` and `npm run demo` **before** you go on stage (first build ~10 s). Restart after every `git pull`.
 - Keys in `.env` (Node ≥ 20.12 loads it natively; older Node uses a built-in parser with a warning).
 - Rehearse once with the real model you'll present on; the Director's model row shows ✓ + latency after a health check.
-- Slow venue Wi-Fi? `TACHI_LLM_TIMEOUT_MS=5000` (default 7000) — any reply that misses the deadline is answered by the offline brain and labelled 오프라인 응답; after two failures the provider is skipped for a minute.
+- Slow venue Wi-Fi? `TACHI_LLM_TIMEOUT_MS=5000` (default 7000) — any reply that misses the deadline is answered by the offline brain and labelled “Basic reply”; after two failures the provider is skipped for a minute.
 - Native graph module trouble on an unusual machine? `TACHI_GRAPH_ENGINE=memory` uses the in-memory graph (the Director shows “메모리 그래프 (대체 모드)”).
 - Optional access control: `TACHI_DIRECTOR_KEY=...` (fixed Director key), `TACHI_SENIOR_KEY=...` (open the senior app with `?key=`). Without a senior key the persona picker is open — fine for a demo, not for real users.
 - `TACHI_LOG_TIMING=1` prints one line per Tachi reply (`model`, `source`, `ms`) for rehearsal timing.
