@@ -160,7 +160,7 @@ export function MessageList({ roomId, variant, onOpenArtifact, onOpenRoom, empty
                         {m.text}
                       </div>
                     )}
-                    {m.kind === 'text' && isTachi && !!m.meta?.toolsUsed?.length && <div className="ml-checked">타치가 확인한 것 · {m.meta.toolsUsed.join(' · ')}</div>}
+                    {m.kind === 'text' && isTachi && !!m.meta?.toolsUsed?.length && <div className="ml-checked">{t('ml.checked', { tools: m.meta.toolsUsed.join(' · ') })}</div>}
                     {m.kind === 'text' && senior && isTachi && <div className="ml-tools"><SpeakButton text={m.text} /></div>}
                     {m.kind !== 'text' && TEXT_ABOVE.has(m.kind) && m.text && (
                       <div className="ml-text ml-tachi">{m.text}</div>

@@ -47,17 +47,21 @@ export function SystemLine({ message }: CardProps) {
 }
 
 function OpenTasks({ tasks, line }: { tasks: NonNullable<ReportPayload['openTasks']>; line?: string }) {
+  const tr = useT();
   const users = useTachi(s => s.users);
   return (
-    <section className="cd-opentasks" aria-label="남은 할 일">
-      <p className="cd-cap-top">{line || `남은 할 일 ${tasks.length}개`}</p>
+    <section className="cd-opentasks" aria-label={tr('task.openTasks')}>
+      <p className="cd-cap-top">{line || tr('task.openCount', { n: tasks.length })}</p>
       <ul>
         {tasks.map(t => (
           <li key={t.taskId}>
             <TaskStatusChip status={t.status} compact />
-            <span>{t.text}</span>
-            {t.assigneeId && users[t.assigneeId] && <span className="cd-meta">· {users[t.assigneeId].shortName}</span>}
-            {t.followUpCount > 0 && <span className="cd-meta">· 알림 {t.followUpCount}번</span>}
+            {/* one text column so a long task wraps beside the chip, with owner / reminders inline after it */}
+            <span className="cd-ot-body">
+              {t.text}
+              {t.assigneeId && users[t.assigneeId] && <span className="cd-meta"> · {users[t.assigneeId].shortName}</span>}
+              {t.followUpCount > 0 && <span className="cd-meta"> · {tr('task.reminded', { n: t.followUpCount })}</span>}
+            </span>
           </li>
         ))}
       </ul>

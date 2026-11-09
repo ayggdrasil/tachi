@@ -3,7 +3,8 @@ import { Check, Plus, Sparkles, CalendarClock, X, ExternalLink, Bell, Loader2 } 
 import type { Artifact, ArtifactTask, User } from '../../../../shared/types';
 import { TaskStatusChip, dueLabel } from '../../components/cards/TaskCards';
 import { useTachi, tachi } from '../../lib/store';
-import { useT, type Vars } from '../../lib/i18n';
+import { useLocale, useT, type Vars } from '../../lib/i18n';
+import { dateLabelL, timeLabelL } from '../../../../shared/constants';
 import { Avatar } from '../../components/common/Avatar';
 import './ArtifactPanel.css';
 
@@ -239,64 +240,65 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-const FOLLOW_KIND: Record<string, string> = {
-  reminder: '알림', nudge: '다시 알림', escalate: '가족방에 알림', manual: '리마인드', reply: '답장', booking: '예약 링크', status: '상태 변경',
-};
+const FOLLOW_KINDS = new Set(['reminder', 'nudge', 'escalate', 'manual', 'reply', 'booking', 'status']);
 
-function lastFollowUp(t: ArtifactTask): string | null {
+/** 'Reminded · Tue, Nov 10 2:05 PM' — the latest follow-up step in the active language. */
+function lastFollowUp(t: ArtifactTask, tr: T, locale: 'en' | 'ko'): string | null {
   const f = [...(t.followUps ?? [])].reverse().find(x => x.kind !== 'status');
   if (!f) return null;
   const d = new Date(f.at);
-  return `${FOLLOW_KIND[f.kind] ?? f.kind} · ${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return `${FOLLOW_KINDS.has(f.kind) ? tr(`ap.follow.${f.kind}`) : f.kind} · ${dateLabelL(d, locale)} ${timeLabelL(d, locale)}`;
 }
 
 /** One to-do: checkbox, text, owner, then status / due / last follow-up and the action Tachi can run for it. */
 function TaskRow({ artifact, task: t, users, members }: { artifact: Artifact; task: ArtifactTask; users: Record<string, User>; members: User[] }) {
+  const tr = useT();
+  const locale = useLocale();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   useEffect(() => { if (note) { const x = window.setTimeout(() => setNote(null), 4000); return () => window.clearTimeout(x); } }, [note]);
   const as = t.assigneeId ? users[t.assigneeId] : undefined;
   const kind = t.action?.kind ?? 'none';
   const open = !t.done;
-  const action = kind === 'booking_link' ? { label: '예약 링크', Icon: ExternalLink, disabled: false, why: '' }
-    : kind === 'reminder' ? { label: '리마인드', Icon: Bell, disabled: !t.assigneeId, why: t.assigneeId ? '' : '담당자를 먼저 정해 주세요' }
+  const action = kind === 'booking_link' ? { label: tr('ap.act.booking'), Icon: ExternalLink, disabled: false, why: '' }
+    : kind === 'reminder' ? { label: tr('ap.act.remind'), Icon: Bell, disabled: !t.assigneeId, why: t.assigneeId ? '' : tr('ap.act.needOwner') }
     : null;
   const run = () => {
     setBusy(true);
     tachi.executeTask(artifact.id, t.id).then(r => {
       setBusy(false);
-      setNote(r.ok ? (kind === 'booking_link' ? '가족방에 링크를 올렸어요' : '담당자에게 알렸어요') : (r.message ?? '보내지 못했어요. 다시 눌러 주세요.'));
+      setNote(r.ok ? tr(kind === 'booking_link' ? 'ap.act.sharedLinks' : 'ap.act.reminded') : (r.message ?? tr('ap.act.failed')));
     });
   };
-  const last = lastFollowUp(t);
-  const why = action?.disabled ? `${t.text}-why` : undefined;
+  const last = lastFollowUp(t, tr, locale);
+  const why = action?.disabled ? `why-${t.id}` : undefined;
   return (
     <li className="ap-task">
       <div className="ap-task-main">
         <label className="ap-check-hit">
-          <input type="checkbox" className="ap-check" checked={t.done} aria-label={`${t.text} 완료`}
+          <input type="checkbox" className="ap-check" checked={t.done} aria-label={tr('ap.taskDone', { text: t.text })}
             onChange={() => tachi.artifactTask(artifact.id, 'toggle', { taskId: t.id })} />
         </label>
         <span className={`ap-task-text ${t.done ? 'is-done' : ''}`}>{t.text}</span>
         <span className="ap-assign">
           {as ? <Avatar user={as} size={22} /> : <span className="ap-noassign" aria-hidden />}
-          <select className="ap-select" aria-label={`${t.text} 담당자`} value={t.assigneeId ?? ''}
+          <select className="ap-select" aria-label={tr('ap.assignee', { text: t.text })} value={t.assigneeId ?? ''}
             onChange={e => tachi.artifactTask(artifact.id, 'assign', { taskId: t.id, assigneeId: e.target.value })}>
-            <option value="">담당 미정</option>
+            <option value="">{tr('ap.unassigned')}</option>
             {members.map(m => <option key={m.id} value={m.id}>{m.shortName}</option>)}
           </select>
         </span>
-        <button className="btn btn-icon ap-rm" aria-label={`${t.text} 삭제`} onClick={() => tachi.artifactTask(artifact.id, 'remove', { taskId: t.id })}>
+        <button className="btn btn-icon ap-rm" aria-label={tr('ap.taskRemove', { text: t.text })} onClick={() => tachi.artifactTask(artifact.id, 'remove', { taskId: t.id })}>
           <X size={14} strokeWidth={1.5} />
         </button>
       </div>
       <div className="ap-task-meta">
         <TaskStatusChip status={t.status ?? (t.done ? 'done' : 'todo')} />
-        {open && t.dueAt && <span className="caption muted">{dueLabel(t.dueAt)}까지</span>}
+        {open && t.dueAt && <span className="caption muted">{tr('ap.due', { due: dueLabel(t.dueAt, locale) })}</span>}
         {last && <span className="caption faint">· {last}</span>}
         {t.link && (
           <a className="ap-link caption" href={t.link} target="_blank" rel="noopener noreferrer">
-            링크 열기<span className="sr-only"> · {t.text}</span>
+            {tr('ap.openLink')}<span className="sr-only"> · {t.text}</span>
           </a>
         )}
         {open && action && (

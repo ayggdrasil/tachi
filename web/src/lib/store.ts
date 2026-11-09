@@ -193,7 +193,7 @@ export const tachi = {
       // optional-ack events aren't typed for .timeout(); the server always acks `action`
       (getSocket().timeout(20000) as unknown as { emit: (ev: 'action', p: unknown, cb: (err: Error | null, r?: { ok: boolean; error?: string }) => void) => void })
         .emit('action', { roomId, messageId, actionId, data }, (err, r) => {
-        resolve(err ? { ok: false, error: '응답이 늦어요' } : (r ?? { ok: true }));
+        resolve(err ? { ok: false, error: 'timeout' } : (r ?? { ok: true }));
       });
     });
   },
@@ -217,7 +217,7 @@ export const tachi = {
   executeTask(artifactId: ID, taskId: ID, kind?: TaskActionKind): Promise<{ ok: boolean; error?: string; message?: string }> {
     return new Promise(resolve => {
       (getSocket().timeout(20000) as unknown as { emit: (ev: 'artifact:task:execute', p: unknown, cb: (err: Error | null, r?: { ok: boolean; error?: string; message?: string }) => void) => void })
-        .emit('artifact:task:execute', { artifactId, taskId, kind }, (err, r) => resolve(err ? { ok: false, error: '응답이 늦어요' } : (r ?? { ok: true })));
+        .emit('artifact:task:execute', { artifactId, taskId, kind }, (err, r) => resolve(err ? { ok: false, error: 'timeout' } : (r ?? { ok: true })));
     });
   },
   setTaskStatus(artifactId: ID, taskId: ID, status: TaskStatus) { getSocket().emit('artifact:task:status', { artifactId, taskId, status }); },

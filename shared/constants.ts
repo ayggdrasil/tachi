@@ -88,9 +88,6 @@ export const TASK_FOLLOWUP = { firstAfterMin: 120, repeatAfterMin: 240, escalate
 /** Default lead times used when Tachi derives a task's due time from a confirmed gathering slot. */
 export const TASK_DUE = { bookingLeadDays: 3, otherLeadDays: 1, undatedDays: 3 } as const;
 
-export const TASK_STATUS_LABEL: Record<'todo' | 'in_progress' | 'done' | 'blocked', string> = {
-  todo: '할 일', in_progress: '진행 중', done: '완료', blocked: '도움 필요',
-};
 
 /** Deterministic bot availability preferences by slot index (see buildCandidateSlots). Intersection → index 2. */
 export const BOT_SLOT_PREFS: Record<string, number[]> = {
