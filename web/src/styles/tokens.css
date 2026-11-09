@@ -1,0 +1,89 @@
+/* Tachi design tokens — refero "ChatGPT · graphite ink on warm paper", adapted for seniors.
+   Achromatic by conviction: meaning comes from weight, position and shape, never hue.
+   Elevation = 1px hairline, never shadow. System fonts only. */
+:root {
+  /* Colors */
+  --color-sidebar-mist: #f9f9f9;
+  --color-pure-white: #ffffff;
+  --color-graphite-ink: #0d0d0d;
+  --color-mid-ash: #5d5d5d;
+  --color-hollow: #8f8f8f;
+  --color-hairline: #0000001a;
+  --color-hairline-strong: #00000026;
+  --color-hover-veil: #0000000d;
+  --color-press-veil: #00000014;
+  --color-ink-press: #000000;
+  --color-deep-charcoal: #00000080;
+  --color-edge-gray: #e6e6e6;
+  --color-user-bubble: #f4f4f4;
+
+  /* Semantic aliases */
+  --bg: var(--color-pure-white);
+  --bg-chrome: var(--color-sidebar-mist);
+  --surface: var(--color-pure-white);
+  --text: var(--color-graphite-ink);
+  --text-2: var(--color-mid-ash);
+  --text-3: var(--color-hollow);
+  --border: var(--color-hairline);
+  --border-strong: var(--color-hairline-strong);
+  --hover: var(--color-hover-veil);
+  --press: var(--color-press-veil);
+  --inverse-bg: var(--color-graphite-ink);
+  --inverse-text: var(--color-pure-white);
+  --scrim: var(--color-deep-charcoal);
+  --focus-ring: 0 0 0 2px var(--color-pure-white), 0 0 0 4px var(--color-graphite-ink);
+
+  /* Typography */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Segoe UI", "Malgun Gothic", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --text-caption: 14px;   --leading-caption: 1.43;
+  --text-body: 16px;      --leading-body: 1.5;
+  --text-heading: 24px;   --leading-heading: 1.33;
+  --text-small: 13px;
+  --text-micro: 12px;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  /* Senior scale (used under .senior) */
+  --senior-body: 20px;    --senior-leading: 1.55;
+  --senior-caption: 17px;
+  --senior-heading: 24px;
+  --senior-control: 56px;
+  --senior-chip: 48px;
+
+  /* Spacing (6/8/10/12/16/20/24 rhythm) */
+  --space-2: 2px;
+  --space-4: 4px;
+  --space-6: 6px;
+  --space-8: 8px;
+  --space-10: 10px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-20: 20px;
+  --space-24: 24px;
+  --space-32: 32px;
+  --space-48: 48px;
+
+  /* Layout */
+  --page-max-width: 1200px;
+  --thread-max-width: 768px;
+  --sidebar-width: 268px;
+  --header-height: 52px;
+  --section-gap: 24px;
+  --card-padding: 16px;
+  --element-gap: 6px;
+
+  /* Radii */
+  --radius-sm: 6px;
+  --radius-lg: 10px;      /* buttons, nav, cards */
+  --radius-2xl: 16px;     /* links, large media */
+  --radius-pill: 999px;   /* chips only */
+  --radius-badge: 0px;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur-med: 220ms;
+  --dur-slow: 420ms;
+}
