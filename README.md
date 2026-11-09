@@ -41,27 +41,43 @@ TACHI_MODEL_GPT_TERRA=gpt-6.1-terra
 TACHI_MODEL_GPT_LUNA=gpt-6-luna
 ```
 
+Claude requests use `output_config.effort: "low"` for short, fast replies (Sonnet 5.5 also opts into server-side refusal fallback); OpenAI requests use `reasoning_effort: "low"`.
+
 Without keys Tachi runs on the deterministic **demo brain** (the UI marks those replies as 오프라인 응답). If a live call fails or times out mid-demo, that single reply falls back automatically.
 
 ## The 90-second demo
 
-Director console: <http://localhost:4100/demo>. Left rail = scenario, stage = two phones (어머니 · 시니어 앱, 딸 지은 · 가족방).
-Press **→** or **Space** to run the next step (← back, R rewind). “자동 진행” runs the whole script hands-free.
+Start the server (`npm run demo`) — the banner prints the **Director URL with its key** (e.g. `http://localhost:4100/demo?key=x7Kp2a`). The key is generated at boot unless you set `TACHI_DIRECTOR_KEY`; opening `/` on the presenter laptop also offers the Director link. The stage shows two phones (어머니 · 시니어 앱, 딸 지은 · 가족방) and a third slot that switches automatically between the memory-graph proof panel and 민준's side chat.
+
+Press **처음부터 재생** (resets the demo), then **자동 진행** — or step manually with **→ / Space**. Each step waits for its real result before advancing; offline the whole script takes ≈ 65–70 s.
 
 | # | Step | What to point out |
 |---|---|---|
-| 1 | 타치가 먼저 말 걸기 | Proactive greeting from a past memory (해운대 1988) |
-| 2 | 옛 사진 올리기 | Photo → interview starts |
-| 3–5 | 답: 언제·어디 / 누구와 / 기억나는 일 | One question at a time → memory card + graph nodes appear (Kùzu) |
-| 6 | 가족에게 공유 | Emotional summary arrives in the family room; bots react |
-| 7 | 키워드로 회상 | “불국사” alone brings the memory back (graph path + Cypher) |
-| 8 | 여행 제안 수락 | Trip from the memory → itinerary → “가족과 함께 가기” |
-| 9 | 가족: 건강 질문 | Answers only from what mom made public |
-| 10 | 가족: 모임 제안 | Gathering artifact everyone can edit |
-| 11 | 가족: 시간 잡기 | Side chats with each member → date confirmed |
-| 12 | 오늘의 리포트 | “오늘 09:00, 14:10에 어머님과 대화했어요” |
+| 1 | 타치가 먼저 말 걸기 (09:00) | Proactive greeting from a past memory (해운대 1988) |
+| 2 | 옛 사진 올리기 (14:10) | Photo → interview starts |
+| 3–5 | 답: 언제·어디 / 누구와 / 기억나는 일 | One question at a time → memory card + new graph nodes (Kùzu) |
+| 6 | 가족에게 공유 | Consent first — emotional summary lands in the family room; bots react |
+| 7 | 가족: 하린 초대 | Invite from the virtual phonebook; 하린 joins and greets |
+| 8 | 키워드로 회상 (14:20) | “불국사” alone brings the memory back (graph path + Cypher in the proof panel) |
+| 9 | 여행 제안 수락 | Trip from the memory → senior-friendly itinerary |
+| 10 | 가족: 건강 질문 (19:40) | Answers only from what mom made public |
+| 11 | 가족: 비공개 질문 | Private daily talk is politely refused |
+| 12 | 가족: 모임 제안 | Gathering artifact everyone can edit |
+| 13 | 가족: 시간 잡기 | Side chats with each member → date confirmed |
+| 14 | 모델 교체 → 다시 질문 | Live switch to another available model (skipped honestly without keys) |
+| 15 | 오늘의 리포트 (21:00) | “오늘 09:00, 14:10, 14:20에 어머님과 대화했어요” |
 
-Rail extras: 먼저 말 걸기 (아침/추억/저녁/사진 요청), 리포트 보내기, 일정 확정하기, 가족 봇 on/off, 모델 전환, 데모 초기화.
+Rail extras: model switch with live health check (✓ latency / ✕), 먼저 말 걸기 (아침/추억/저녁/사진 요청), 리포트 보내기, 일정 확정하기, 가족 봇 on/off, stage theme (light by default), 데모 시각, 처음부터 재생.
+
+### Running on stage — checklist
+
+- `npm install` and `npm run demo` **before** you go on stage (first build ~10 s). Restart after every `git pull`.
+- Keys in `.env` (Node ≥ 20.12 loads it natively; older Node uses a built-in parser with a warning).
+- Rehearse once with the real model you'll present on; the Director's model row shows ✓ + latency after a health check.
+- Slow venue Wi-Fi? `TACHI_LLM_TIMEOUT_MS=5000` (default 7000) — any reply that misses the deadline is answered by the offline brain and labelled 오프라인 응답; after two failures the provider is skipped for a minute.
+- Native graph module trouble on an unusual machine? `TACHI_GRAPH_ENGINE=memory` uses the in-memory graph (the Director shows “메모리 그래프 (대체 모드)”).
+- Optional access control: `TACHI_DIRECTOR_KEY=...` (fixed Director key), `TACHI_SENIOR_KEY=...` (open the senior app with `?key=`). Without a senior key the persona picker is open — fine for a demo, not for real users.
+- `TACHI_LOG_TIMING=1` prints one line per Tachi reply (`model`, `source`, `ms`) for rehearsal timing.
 
 ### Multiple devices (type it yourself)
 
@@ -98,7 +114,7 @@ web (Vite + React 19)                     server (Node + tsx)
 | `npm run dev` | Server (watch) + Vite dev server |
 | `npm run reset` | Reset the database and graph to the demo seed |
 | `npm run typecheck` | TypeScript check |
-| `npm test` | Brain/graph unit tests |
+| `npm test` | Unit tests (brain, graph, providers) + flow, security, P0 and end-to-end smoke suites |
 | `npx tsx server/scripts/smoke.ts` | End-to-end socket smoke test of the whole demo |
 | `npx tsx scripts/qa/capture.ts` | Drive the demo and capture phone screenshots (server must be running) |
 | `npx tsx scripts/qa/gpt-review.ts` | Send source + screenshots to GPT‑6.1 Sol for a structured review |

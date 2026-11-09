@@ -21,13 +21,13 @@ Family members not driven by a human are **AI bots** that chime in with 1–2 li
 
 | t | What the audience sees |
 |---|---|
-| 0–8s | Tachi **proactively** greets mom (`09:00 아침 안부`), referencing an old memory (해운대 1983). |
+| 0–8s | Tachi **proactively** greets mom (`09:00 아침 안부`), referencing an old memory (해운대 1988). |
 | 8–30s | Mom taps the big photo button, uploads an old photo. Tachi asks short warm questions one at a time (언제? 어디? 누구와? 가장 기억나는 일?). Mom answers (typed, quick‑reply chips, or voice). |
-| 30–38s | A **memory card** appears: 장소 경주 불국사 · 시기 1975년 여름 · 인물 남편 박영수, 딸 지은 · 감정 그리움. A small **graph** animates new nodes/edges (Kùzu graph DB). Visibility toggle: 가족 공개 / 나만 보기. |
+| 30–38s | A **memory card** appears: 장소 경주 불국사 · 시기 1984년 봄 · 인물 남편 박영수, 딸 지은, 아들 민준 · 감정 즐거움·그리움. A small **graph** animates new nodes/edges (Kùzu graph DB). Visibility toggle: 가족 공개 / 나만 보기. |
 | 38–45s | Tachi: **“이 추억을 가족에게 공유할까요?”** → 네 → family room receives an **emotional summary card**; bots react (“엄마 이 사진 처음 봐요!”). |
 | 45–52s | Mom types just **“불국사”** → Tachi recalls the memory (photo + story + matched graph path, Cypher shown small). |
 | 52–62s | Tachi suggests a **nearby trip** based on the memory (경주 1박 2일). Mom: 좋아 → **itinerary** card (timeline, senior‑friendly notes). “가족과 함께 가기” → creates a **gathering artifact** in the family room. |
-| 62–75s | Family room: 지은 asks **“엄마 요즘 혈압 괜찮으셔?”** → Tachi answers from health info mom made public (private info is refused). 지은: **“타치, 모임 시간 잡아줘”** → Tachi opens **side chats** with each member (and asks mom in her own chat); bots answer; a live “응답 3/5” counter → **확정: 11월 22일(일) 12:00**. Artifact updates. |
+| 62–75s | Family room: 지은 asks **“엄마 요즘 혈압 괜찮으셔?”** → Tachi answers from health info mom made public (private info is refused). 지은: **“타치, 모임 시간 잡아줘”** → Tachi opens **side chats** with each member (and asks mom in her own chat); bots answer; a live “응답 3/5” counter → **확정: 다음 주말 일요일 12:00**. Artifact updates. |
 | 75–90s | **Daily report** in family room: “오늘 09:00, 14:10 어머니와 대화했어요 …” (private sessions shown as 비공개). Model switcher flips Claude Sonnet ↔ ChatGPT Terra live. |
 
 Every step must be reachable with **one tap** (quick‑reply chips / card buttons) and also via free text.
@@ -171,7 +171,7 @@ first available of sonnet → terra → demo. Anthropic: `POST https://api.anthr
 `{type:'image', source:{type:'base64', media_type, data}}`. **Do not send temperature/top_p.**
 OpenAI: `POST https://api.openai.com/v1/chat/completions`, `Authorization: Bearer`, body
 `{model, messages, max_completion_tokens}`; images as `{type:'image_url', image_url:{url:'data:…'}}`;
-JSON via `response_format: {type:'json_object'}`. Base URLs overridable (`ANTHROPIC_BASE_URL_TACHI`,
+JSON via `response_format: {type:'json_object'}`. Base URLs overridable (`TACHI_ANTHROPIC_BASE_URL`,
 `OPENAI_BASE_URL`). The UI always shows which model actually answered (`message.meta.model`), and a
 fallback badge when the heuristic answered.
 
