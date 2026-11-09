@@ -1,5 +1,9 @@
 # 타치 Tachi
 
+[![Watch the 90-second Tachi demo](demo/video/tachi-demo-thumb.jpg)](demo/video/tachi-demo-en.mp4)
+
+▶ **[Watch the 90-second demo video (English, 1:30)](demo/video/tachi-demo-en.mp4)**: real product footage of the senior app, family room and memory graph, with narration.
+
 **어르신의 기억을 지키고, 가족을 다시 잇는 AI 동반자.**
 An AI companion that turns a senior's old photos and stories into a living memory graph — and brings the family back around those memories.
 
