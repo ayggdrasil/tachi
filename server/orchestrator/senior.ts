@@ -4,7 +4,7 @@ import path from 'node:path';
 import { FAMILY_ROOM_ID, SENIOR_ID, SENIOR_ROOM_ID, TACHI_ID } from '../../shared/constants';
 import { st } from '../i18n';
 import type {
-  CardAction, HealthSummary, ID, Memory, MemoryCardPayload, Message, PrivacyCategory, Room, Trip,
+  CardAction, HealthSummary, ID, ItineraryPayload, Memory, MemoryCardPayload, Message, PrivacyCategory, Room, Trip,
 } from '../../shared/types';
 import type { InterviewState, SeniorObservation } from '../brain/contract';
 import { assessBloodPressure } from '../brain/heuristics/health';
@@ -570,6 +570,21 @@ export async function declineTrip(roomId: ID, tripId: ID, opts: { quiet?: boolea
   if (!opts.quiet) await tachiSay(roomId, { text: st('senior.trip.declined'), meta: tripMeta(tripId, trip?.memoryId) });
 }
 
+/** Family-room version of the itinerary: lead with the memory it grew from, its highlights and the date (trip.com-style story card). */
+function familyTripCard(trip: Trip): ItineraryPayload {
+  const it = trip.itinerary!;
+  const mem = trip.memoryId ? ctx.db.memories.get(trip.memoryId) : undefined;
+  const memOk = !trip.memoryId || memoryVisibleToFamily(mem);
+  return {
+    ...it,
+    story: {
+      ...(memOk && trip.memoryId ? { memoryId: trip.memoryId } : {}),
+      reason: memOk ? trip.suggestion.reason : '',
+      highlights: (trip.suggestion.highlights ?? []).slice(0, 4),
+    },
+  };
+}
+
 async function shareTrip(roomId: ID, tripId: ID, card: Message): Promise<void> {
   const trip = ctx.db.trips.get(tripId);
   if (!trip?.itinerary) throw new Error('itinerary missing');
@@ -582,7 +597,7 @@ async function shareTrip(roomId: ID, tripId: ID, card: Message): Promise<void> {
   let m: Message;
   try {
     m = await tachiSay(FAMILY_ROOM_ID, {
-      kind: 'itinerary', text: st('senior.trip.familyText', { destination: trip.itinerary.destination }), payload: trip.itinerary,
+      kind: 'itinerary', text: st('senior.trip.familyText', { destination: trip.itinerary.destination }), payload: familyTripCard(trip),
       meta: tripMeta(tripId, trip.memoryId),
     });
   } catch (e) {

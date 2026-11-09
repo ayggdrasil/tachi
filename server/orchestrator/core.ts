@@ -339,6 +339,9 @@ export function projectMessage(viewerId: ID, m: Message): Message {
   // 2. trip provenance
   const tripId = m.meta?.tripId ?? (p && (p.type === 'trip_suggestion' || p.type === 'itinerary') ? p.tripId : undefined);
   if (tripId && !tripVisibleToFamily(ctx.db.trips.get(tripId))) return redact(m, privateNotice());
+  if (p?.type === 'itinerary' && p.story?.memoryId && !memoryVisibleToFamily(ctx.db.memories.get(p.story.memoryId))) {
+    m = { ...m, payload: { ...p, story: { highlights: p.story.highlights, reason: '' } } };
+  }
 
   // 2b. answer provenance: any resource / category the answer drew on that is private now retracts it
   const usedMem = m.meta?.memoryIdsUsed ?? [];

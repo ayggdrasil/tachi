@@ -174,6 +174,9 @@ export interface ItineraryPayload {
   dateLabel?: string;           // '날짜 미정' or '11월 22일(일)'
   days: { label: string; stops: TripStop[] }[];
   tips: string[];               // accessibility & health tips
+  /** Set when the senior shares the trip to the family room: a travel-story card (memory + highlights + date);
+   *  the day-by-day plan stays folded behind "View itinerary". memoryId/reason are dropped for viewers who can't see the memory. */
+  story?: { memoryId?: ID; reason: string; highlights: string[] };
 }
 
 export interface HealthCardPayload {

@@ -117,6 +117,9 @@ async function gatherMemories(message: string): Promise<AgentMemory[]> {
   return [...picked.values()].slice(0, 7).map(asAgentMemory);
 }
 
+/** The senior signals the story is complete ("that's all", "please remember it", "그게 다야", "기억해 줘"). */
+const DONE_RE = /that'?s (all|it|the (whole )?story)|remember (it|this|that)|keep (it|this)|save (it|this)|그게\s*다|다야|끝이야|이게\s*다|기억해\s*(줘|주|둬)|저장해/i;
+
 function decadeEra(y: number): string { return getLocale() === 'ko' ? `${Math.floor(y / 10) * 10}년대` : `${Math.floor(y / 10) * 10}s`; }
 
 /** Validate the model's memory and build the record (private until the senior shares it). */
@@ -181,6 +184,18 @@ export async function agentTurn(room: Room, text: string | undefined, photoUrl: 
   if (askMed) { reply = st('senior.askWhichMed'); chips = [st('senior.askWhichMed.c1'), st('senior.askWhichMed.c2')]; }
   else if (RECORD_CLAIM_RE.test(reply) && !actions.some(a => a.type === 'log_health' || a.type === 'save_memory' || a.type === 'update_draft')) reply = stripRecordClaims(reply);
 
+  // A NEW memory is pushed to the DB only once the story has had room to grow: at least two story turns,
+  // or the senior says she is done. An early save becomes a draft and Tachi keeps listening instead.
+  const storyTurns = draft?.turns ?? 0;
+  const saveReady = storyTurns >= 2 || DONE_RE.test(message);
+  const early = actions.find(a => a.type === 'save_memory');
+  if (early && !saveReady) {
+    const idx = actions.indexOf(early);
+    actions[idx] = { type: 'update_draft', draft: cleanDraft((early as { memory?: unknown }).memory) ?? {} } as SeniorAgentAction;
+    if (!draft) draft = { turns: 1 };
+    reply = st('senior.agent.tellMore');
+    chips = [];
+  }
   const memoryTalk = !!draft || actions.some(a => ['save_memory', 'update_draft', 'show_memory'].includes(a.type));
   const healthTalk = actions.some(a => a.type === 'log_health');
   await tachiSay(room.id, { text: reply, quickReplies: chips, meta: { category: healthTalk ? 'health' : memoryTalk ? 'memory' : 'daily' } }, ai);
@@ -192,7 +207,8 @@ export async function agentTurn(room: Room, text: string | undefined, photoUrl: 
     try {
       switch (a.type) {
         case 'update_draft': {
-          const merged = mergeDraft(loadDraft(room.id) ?? draft, cleanDraft((a as { draft?: unknown }).draft));
+          const base = loadDraft(room.id) ?? draft ?? { turns: 1 };
+          const merged = { ...mergeDraft(base, cleanDraft((a as { draft?: unknown }).draft)), turns: base.turns ?? 1 };
           draft = merged;
           saveDraft(room.id, merged);
           break;

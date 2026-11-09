@@ -108,3 +108,20 @@
 .cd-chosen { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-4); font-size: var(--text-caption); }
 .cd-chosen li { display: flex; align-items: center; gap: var(--space-6); }
 .senior .cd-chosen { font-size: var(--senior-body); }
+
+/* Family-room trip story (trip.com-style): memory hero, highlights, date; plan folds out */
+.cd-story-trip { gap: var(--space-10); }
+.cd-ts-hero { margin: 0; position: relative; }
+.cd-ts-cap { position: absolute; left: var(--space-8); bottom: var(--space-8); padding: var(--space-2) var(--space-8); border-radius: var(--radius-sm);
+  background: var(--inverse-bg); color: var(--inverse-text); font-size: var(--text-micro); font-weight: var(--weight-medium); }
+.cd-ts-mem { font-size: var(--text-caption); color: var(--text-2); }
+.cd-ts-hl { margin: var(--space-4) 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: var(--space-6); }
+.cd-ts-hl li { display: inline-flex; align-items: center; gap: var(--space-4); min-height: 32px; padding: 0 var(--space-10);
+  border: 1px solid var(--border); border-radius: var(--radius-pill); font-size: var(--text-caption); }
+.cd-ts-when { display: flex; align-items: center; gap: var(--space-6); font-size: var(--text-caption); font-weight: var(--weight-medium); }
+.cd-ts-toggle { display: inline-flex; align-items: center; gap: var(--space-4); }
+.cd-ts-toggle svg { transition: transform var(--dur-fast) var(--ease-out); }
+.cd-ts-flip { transform: rotate(180deg); }
+.cd-ts-plan { border-top: 1px solid var(--border); padding-top: var(--space-8); }
+.cd-embedded { border: 0; padding: 0; background: transparent; }
+.senior .cd-ts-hl li, .senior .cd-ts-when, .senior .cd-ts-mem { font-size: var(--senior-caption); }

@@ -149,6 +149,7 @@ const T: Record<string, [string, string]> = {
   'senior.sess.recall': [`Recalling a memory`, `추억 떠올리기`],
   'senior.sess.recallSummary': [`Remembered {title} again.`, `{title} 이야기를 다시 떠올리셨어요.`],
   'senior.defaultMed': [`medication`, `복용약`],
+  'senior.agent.tellMore': [`What a precious memory. Tell me a little more. Who was with you, and how did it feel?`, `정말 귀한 기억이에요. 조금만 더 들려주세요. 누구와 함께였고, 그때 기분은 어떠셨어요?`],
   'senior.thanksTelling': [`Thank you for telling me.`, `말씀해 주셔서 고마워요.`],
   'senior.askWhichMed': [`Which medicine do you mean? The morning blood pressure pill or the evening joint medicine?`, `어떤 약을 말씀하시는 거예요? 아침 혈압약인가요, 저녁 관절약인가요?`],
   'senior.askWhichMed.c1': [`Morning blood pressure pill`, `아침 혈압약`],

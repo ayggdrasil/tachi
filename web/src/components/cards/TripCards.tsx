@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
-import { Accessibility, MapPin } from 'lucide-react';
+import { Accessibility, CalendarDays, ChevronDown, MapPin } from 'lucide-react';
+import { useTachi } from '../../lib/store';
 import { SpeakButton } from '../common/SpeakButton';
 import { useT } from '../../lib/i18n';
 import type { ItineraryPayload, TripSuggestionPayload } from '../../../../shared/types';
@@ -36,7 +37,50 @@ function routeSummary(stops: ItineraryPayload['days'][number]['stops']) {
   return { from, to, depart: a.time, arrive: b.time, mode };
 }
 
-export function ItineraryCard({ message, variant, actionSlot }: CardProps) {
+/** Family-room share: a travel-story card (memory it grew from + highlights + date). The day plan unfolds on demand. */
+export function ItineraryCard(props: CardProps) {
+  const p = props.message.payload as ItineraryPayload;
+  return p.story ? <TripStoryCard {...props} /> : <ItineraryPlan {...props} />;
+}
+
+function TripStoryCard({ message, variant, actionSlot }: CardProps) {
+  const t = useT();
+  const p = message.payload as ItineraryPayload;
+  const story = p.story!;
+  const mem = useTachi(s => (story.memoryId ? s.memories.find(m => m.id === story.memoryId && m.status === 'saved') : undefined));
+  const [open, setOpen] = useState(false);
+  const when = [p.dateLabel, p.days.length > 1 ? t('trip.nDays', { n: p.days.length }) : t('trip.dayTrip')].filter(Boolean).join(' · ');
+  const memYear = mem?.year ? String(mem.year) : mem?.era ?? '';
+  const planId = `trip-plan-${message.id}`;
+  return (
+    <article className="cd cd-trip cd-story-trip" aria-label={p.title}>
+      {mem?.photoUrl && (
+        <figure className="cd-ts-hero">
+          <img className="cd-photo-in" src={mem.photoUrl} alt="" loading="lazy" decoding="async" />
+          <figcaption className="cd-ts-cap">{t('trip.memoryEyebrow')}{memYear ? ` · ${memYear}` : ''}</figcaption>
+        </figure>
+      )}
+      <div className="cd-row cd-between"><h3 className="cd-title">{p.title}</h3>{variant === 'senior' && <SpeakButton text={`${p.title}. ${story.reason}`} />}</div>
+      {mem && !mem.photoUrl && <p className="cd-meta">{t('trip.memoryEyebrow')}{memYear ? ` · ${memYear}` : ''}</p>}
+      {mem && <p className="cd-ts-mem"><b>{mem.title}</b></p>}
+      {story.reason && <p className="cd-warm">{story.reason}</p>}
+      {story.highlights.length > 0 && (
+        <section aria-label={t('trip.highlights')}>
+          <p className="cd-label">{t('trip.highlights')}</p>
+          <ul className="cd-ts-hl">{story.highlights.map(h => <li key={h}><MapPin size={14} aria-hidden />{h}</li>)}</ul>
+        </section>
+      )}
+      <p className="cd-ts-when"><CalendarDays size={15} aria-hidden /><span>{when}</span><span className="faint"> · {p.destination}</span></p>
+      <button type="button" className="cd-link cd-more cd-ts-toggle" aria-expanded={open} aria-controls={planId} onClick={() => setOpen(v => !v)}>
+        {open ? t('trip.hidePlan') : t('trip.viewPlan')}<ChevronDown size={15} aria-hidden className={open ? 'cd-ts-flip' : undefined} />
+      </button>
+      {open && <div id={planId} className="cd-ts-plan"><ItineraryPlan message={message} variant={variant} embedded /></div>}
+      {actionSlot}
+    </article>
+  );
+}
+
+function ItineraryPlan({ message, variant, actionSlot, embedded }: CardProps & { embedded?: boolean }) {
   const t = useT();
   const p = message.payload as ItineraryPayload;
   const [day, setDay] = useState(0);
@@ -53,9 +97,9 @@ export function ItineraryCard({ message, variant, actionSlot }: CardProps) {
   const senior = variant === 'senior';
   const readText = d ? `${p.title}. ${d.label}. ` + d.stops.map(s => `${s.time}, ${s.title}. ${s.description}`).join(' ') : p.title;
   return (
-    <article className="cd cd-trip cd-compact" aria-label={p.title}>
-      <div className="cd-row cd-between"><h3 className="cd-title">{p.title}</h3>{senior && <SpeakButton text={readText} />}</div>
-      <p className="cd-meta">{[p.destination, p.days.length > 1 ? t('trip.nDays', { n: p.days.length }) : t('trip.dayTrip'), p.dateLabel].filter(Boolean).join(' · ')}</p>
+    <article className={`cd cd-trip cd-compact${embedded ? ' cd-embedded' : ''}`} aria-label={p.title}>
+      {!embedded && <div className="cd-row cd-between"><h3 className="cd-title">{p.title}</h3>{senior && <SpeakButton text={readText} />}</div>}
+      {!embedded && <p className="cd-meta">{[p.destination, p.days.length > 1 ? t('trip.nDays', { n: p.days.length }) : t('trip.dayTrip'), p.dateLabel].filter(Boolean).join(' · ')}</p>}
       {p.days.length > 1 && (
         <div className="cd-tabs" role="tablist" aria-label={t('trip.dayTabs')}>
           {p.days.map((x, i) => (
