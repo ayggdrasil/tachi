@@ -178,7 +178,9 @@ export const tachi = {
   /** Resolves when the server finished the action ({ok:false} on failure or after 20s without an ack) so buttons can recover. */
   action(roomId: ID, messageId: ID, actionId: string, data?: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
     return new Promise(resolve => {
-      getSocket().timeout(20000).emit('action', { roomId, messageId, actionId, data }, (err: Error | null, r?: { ok: boolean; error?: string }) => {
+      // optional-ack events aren't typed for .timeout(); the server always acks `action`
+      (getSocket().timeout(20000) as unknown as { emit: (ev: 'action', p: unknown, cb: (err: Error | null, r?: { ok: boolean; error?: string }) => void) => void })
+        .emit('action', { roomId, messageId, actionId, data }, (err, r) => {
         resolve(err ? { ok: false, error: '응답이 늦어요' } : (r ?? { ok: true }));
       });
     });
