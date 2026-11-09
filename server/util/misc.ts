@@ -10,7 +10,12 @@ export function shuffle<T>(arr: T[]): T[] {
   for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
   return a;
 }
-export const nowIso = (): string => new Date().toISOString();
+// Virtual demo clock (minutes). Single source of truth; core.now() and nowIso() both read it.
+let clockOffsetMinutes = 0;
+export const getClockOffsetMinutes = (): number => clockOffsetMinutes;
+export const setClockOffsetMinutes = (m: number): void => { clockOffsetMinutes = Number.isFinite(m) ? m : 0; };
+export const clockNow = (): Date => new Date(Date.now() + clockOffsetMinutes * 60000);
+export const nowIso = (): string => clockNow().toISOString();
 /** Local 'YYYY-MM-DD' */
 export const ymd = (d: Date): string => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 export const sameDay = (a: Date, b: Date): boolean => ymd(a) === ymd(b);

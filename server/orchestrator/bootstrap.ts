@@ -2,7 +2,7 @@
 import { DIRECTOR_ID } from '../../shared/constants';
 import type { Bootstrap, GraphDelta, ID } from '../../shared/types';
 import { ctx } from './ctx';
-import { DIRECTOR_USER, getDemo, getPrivacy, healthFor, presence, seesAll } from './core';
+import { DIRECTOR_USER, scrubHiddenTitles, getDemo, getPrivacy, healthFor, memoryVisibleToFamily, presence, projectMessage, seesAll } from './core';
 import { warn } from '../util/misc';
 
 export async function buildBootstrap(viewerId: ID): Promise<Bootstrap> {
@@ -15,12 +15,12 @@ export async function buildBootstrap(viewerId: ID): Promise<Bootstrap> {
   const rooms = db.rooms.all().filter(r => director || r.memberIds.includes(viewerId));
   const roomIds = new Set(rooms.map(r => r.id));
   const messages: Bootstrap['messages'] = {};
-  for (const r of rooms) messages[r.id] = db.messages.byRoom(r.id, 200);
+  for (const r of rooms) messages[r.id] = db.messages.byRoom(r.id, 200).map(m => scrubHiddenTitles(viewerId, projectMessage(viewerId, m)));
 
-  const memories = db.memories.all().filter(m => all || (m.status === 'saved' && m.visibility === 'family'));
-  const artifacts = db.artifacts.all().filter(a => roomIds.has(a.roomId));
+  const memories = db.memories.all().filter(m => all || memoryVisibleToFamily(m));
+  const artifacts = db.artifacts.all().filter(a => roomIds.has(a.roomId)).map(a => scrubHiddenTitles(viewerId, a));
   const polls = db.polls.all().filter(p => roomIds.has(p.familyRoomId) || Object.values(p.sideRoomIds).some(id => roomIds.has(id)));
-  const trips = db.trips.all().filter(() => all || privacy.trip === 'family');
+  const trips = db.trips.all().filter(() => all || privacy.trip === 'family').map(t => scrubHiddenTitles(viewerId, t));
 
   let graph: GraphDelta = { nodes: [], edges: [] };
   try {

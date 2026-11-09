@@ -8,9 +8,14 @@ const BP_RE = /(?:혈압[^\d]{0,12})?(\d{2,3})\s*(?:에|\/|-|,|하고|\s)\s*(\d{
 
 export function seniorIntent(text: string, ctx: SeniorIntentContext): SeniorIntent {
   const t = text.trim();
-  if (ctx.pending) {
+  if (ctx.pending === 'share_confirm' || ctx.pending === 'trip_confirm') {
     const yn = yesNo(t);
     if (yn) return { type: yn };
+  }
+  if (ctx.pending === 'itinerary') {
+    if (/가족\s*(?:과|이랑|하고|들과|들이랑)\s*(?:함께|같이)|(?:애들|아이들|식구들)(?:이랑|하고|과)\s*(?:함께|같이)|다\s*같이\s*(?:가|모|해)|가족\s*모임|함께\s*가기|같이\s*가기/.test(t) && !/보내|공유/.test(t)) return { type: 'make_gathering' };
+    if (/(?:보내|공유)/.test(t) && /(?:가족|애들|아이들|식구)/.test(t) && !/혈압/.test(t)) return { type: 'share_trip' };
+    if (/(?:여행|계획|일정).{0,12}(?:보내|공유)/.test(t)) return { type: 'share_trip' };
   }
   if (/보내\s*줘|보내줘|공유|애들한테|아이들한테|가족한테|가족에게|식구들한테/.test(t) && !/혈압/.test(t)) return { type: 'ask_share' };
   const bp = /혈압/.test(t) ? t.match(BP_RE) : t.match(/(?<!\d)(\d{2,3})\s*\/\s*(\d{2,3})(?!\d)/);
@@ -28,8 +33,6 @@ export function seniorIntent(text: string, ctx: SeniorIntentContext): SeniorInte
     const toks = tokens(t).filter(w => !/^(기억|그때|사진|보여|옛날|추억|나니|나요|하니|혹시)$/.test(w));
     return { type: 'recall', keywords: toks.slice(0, 4) };
   }
-  const yn = yesNo(t);
-  if (yn && ctx.pending) return { type: yn };
   return { type: 'smalltalk' };
 }
 

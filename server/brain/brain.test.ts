@@ -221,3 +221,69 @@ test('LLM failure falls back to heuristic', async () => {
   assert.ok(r.value.length > 0);
   delete process.env.ANTHROPIC_API_KEY;
 });
+
+// ── review round 1: F7 / F21 / F22 / F1 ──────────────────────────────────
+const names2 = ['경주 불국사', '박영수', '김지은', '박민준', '1984년', '가족여행', '다보탑', '벚꽃', '그리움'];
+const cls2 = async (text: string, pending: 'share_confirm' | 'trip_confirm' | 'itinerary' | null = null) =>
+  (await brain.classifySeniorIntent(text, { knownNodeNames: names2, pending })).value;
+
+test('F7 consent parsing: yes / no / not-consent', async () => {
+  for (const y of ['응', '어 그래', '그래', '좋아', '네', '예', '그럼', '보내줘', '공유해줘', '그렇게 해', '좋지', '알았어', '네요', '응, 애들한테 보내줘', '좋아, 다시 가보고 싶네'])
+    assert.equal((await cls2(y, 'share_confirm')).type, 'yes', y);
+  for (const n of ['아니', '싫어', '나중에', '됐어', '안 할래', '하지 마', '나만 간직할게요', '나만 볼래', '비밀로 해줘'])
+    assert.equal((await cls2(n, 'share_confirm')).type, 'no', n);
+  assert.equal((await cls2('어제 무릎이 아팠어', 'share_confirm')).type, 'smalltalk');
+  assert.equal((await cls2('어디였더라', 'share_confirm')).type, 'smalltalk');
+  assert.equal((await cls2('불국사 기억나?', 'share_confirm')).type, 'recall');
+  assert.equal((await cls2('오늘 혈압 132에 84였어', 'trip_confirm')).type, 'health_log');
+  assert.equal((await cls2('네 그런데 오늘 날씨가 정말 좋아서 산책을 다녀왔어요', 'share_confirm')).type, 'smalltalk');
+});
+
+test('F22 itinerary intents', async () => {
+  for (const t of ['가족에게 보내기', '여행 계획 애들한테 보내줘', '가족한테 보내줘', '여행 계획을 가족에게 보내줘'])
+    assert.equal((await cls2(t, 'itinerary')).type, 'share_trip', t);
+  for (const t of ['가족과 함께 가기', '애들이랑 같이 가자', '다 같이 가자', '가족 모임으로 만들어줘'])
+    assert.equal((await cls2(t, 'itinerary')).type, 'make_gathering', t);
+  assert.equal((await cls2('가족한테 보내줘')).type, 'ask_share');
+});
+
+test('F21 source attribution', async () => {
+  const r1 = await brain.classifySeniorIntent('불국사 보여줘', { knownNodeNames: names2, pending: null });
+  assert.equal(r1.source, 'rule'); assert.equal(r1.model, '규칙 기반'); assert.equal(r1.fallback, false);
+  assert.equal((await brain.recallReply(memory, '불국사', mom)).source, 'heuristic');
+  assert.equal((await brain.classifyFamilyIntent('모임 하자', user('jieun'))).source, 'rule');
+  const ctx = { privateCategories: ['health'] } as unknown as FamilyContext;
+  const ans = await brain.answerFamily('엄마 혈압 어때?', ctx);
+  assert.equal(ans.source, 'rule'); assert.equal(ans.model, '규칙 기반');
+});
+
+test('F1 circuit breaker and live source', async () => {
+  const saved = { k: process.env.ANTHROPIC_API_KEY, u: process.env.TACHI_ANTHROPIC_BASE_URL, t: process.env.TACHI_LLM_TIMEOUT_MS };
+  const { resetCircuit } = await import('./llm');
+  resetCircuit();
+  process.env.ANTHROPIC_API_KEY = 'sk-test';
+  process.env.TACHI_ANTHROPIC_BASE_URL = 'http://127.0.0.1:9';
+  process.env.TACHI_LLM_TIMEOUT_MS = '500';
+  const b = createBrain();
+  b.setActiveModel('claude-sonnet');
+  const r1 = await b.recallReply(memory, '불국사', mom);
+  const r2 = await b.recallReply(memory, '불국사', mom);
+  for (const r of [r1, r2]) { assert.equal(r.fallback, true); assert.equal(r.source, 'heuristic'); }
+  // breaker now open: no network attempt, immediate heuristic
+  const t0 = Date.now();
+  const r3 = await b.recallReply(memory, '불국사', mom);
+  assert.equal(r3.fallback, true); assert.equal(r3.source, 'heuristic'); assert.equal(r3.model, '데모 브레인');
+  assert.ok(Date.now() - t0 < 100);
+  // a working provider reports llm
+  resetCircuit();
+  const http = await import('node:http');
+  const srv = http.createServer((_q, res) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ content: [{ type: 'text', text: '{"reply":"그때 정말 좋으셨죠."}' }] })); });
+  await new Promise<void>(ok => srv.listen(0, '127.0.0.1', ok));
+  process.env.TACHI_ANTHROPIC_BASE_URL = `http://127.0.0.1:${(srv.address() as { port: number }).port}`;
+  const b2 = createBrain(); b2.setActiveModel('claude-sonnet');
+  const ok = await b2.recallReply(memory, '불국사', mom);
+  assert.equal(ok.source, 'llm'); assert.equal(ok.fallback, false);
+  srv.close();
+  resetCircuit();
+  for (const [k, v] of [['ANTHROPIC_API_KEY', saved.k], ['TACHI_ANTHROPIC_BASE_URL', saved.u], ['TACHI_LLM_TIMEOUT_MS', saved.t]] as const) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+});

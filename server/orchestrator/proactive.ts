@@ -2,9 +2,9 @@
 import { DAILY_REPORT_TIME, FAMILY_ROOM_ID, SENIOR_ROOM_ID, dayHeaderLabel } from '../../shared/constants';
 import type { Memory, PrivacyCategory, ProactiveKind, ReportPayload } from '../../shared/types';
 import { ctx } from './ctx';
-import { getDemo, getHealth, getPrivacy, later, now, patchDemo, senior, tachiSay } from './core';
+import { getDemo, getHealth, getPrivacy, memoryVisibleToFamily, now, patchDemo, runWithGen, senior, tachiSay } from './core';
 import { reactBots } from './bots';
-import { endSession, startSession, todaysSessions } from './sessions';
+import { endSession, sessionHiddenFromFamily, startSession, todaysSessions } from './sessions';
 import { pick, warn, ymd } from '../util/misc';
 
 const KEY_ACTIVE = 'active-proactive';
@@ -65,19 +65,42 @@ function kindOfTitle(title: string): ProactiveKind {
   return (Object.entries(TITLES).find(([, t]) => t === title)?.[0] as ProactiveKind | undefined) ?? 'morning';
 }
 
+const MASKED_TITLE = '대화';
+const MASKED_SUMMARY = '비공개 대화예요';
+
 export async function postReport(auto = false): Promise<void> {
   const sessions = todaysSessions();
   if (auto && !sessions.length) return;
   const privacy = getPrivacy();
-  const h = getHealth();
-  const moodToday = privacy.mood === 'family' ? h?.mood.at(-1)?.label : undefined;
-  const ai = await ctx.brain.composeReport({ sessions, privacy, moodToday, senior: senior(), now: now() });
+  const moodToday = privacy.mood === 'family' ? getHealth()?.mood.at(-1)?.label : undefined;
+  // sessions about a memory the family cannot see are masked before the brain ever sees them
+  const hidden = new Set(sessions.filter(sessionHiddenFromFamily).map(s => s.id));
+  const forBrain = sessions.map(s => (hidden.has(s.id) ? { ...s, title: MASKED_TITLE, summary: MASKED_SUMMARY, memoryId: undefined } : s));
+  const ai = await ctx.brain.composeReport({ sessions: forBrain, privacy, moodToday, senior: senior(), now: now() });
   const v = ai.value;
+  const rows = (v.sessions ?? []).map(s => (
+    privacy[s.category] === 'private' || (s.title === MASKED_TITLE && s.summary === MASKED_SUMMARY)
+      ? { ...s, title: MASKED_TITLE, summary: MASKED_SUMMARY, isPrivate: true } : s));
+  // the highlight must never carry a private memory's title (or a masked session's original wording)
+  const secrets = [
+    ...ctx.db.memories.all().filter(m => !memoryVisibleToFamily(m)).map(m => m.title),
+    ...sessions.filter(s => hidden.has(s.id)).flatMap(s => [s.title, s.summary]),
+  ].filter(t => t && t.length >= 2 && t !== MASKED_TITLE);
+  let highlight = v.highlight;
+  if (highlight && secrets.some(t => highlight!.includes(t))) highlight = undefined;
+  if (!highlight || hidden.size) {
+    const times = [...new Set(rows.map(r => r.time))];
+    const lastPublic = [...rows].reverse().find(r => !r.isPrivate);
+    highlight = rows.length
+      ? `오늘 ${times.join(', ')}에 어머님과 대화했어요. ${lastPublic ? `${lastPublic.title} 이야기를 하시며 편안한 시간을 보내셨어요.` : '오늘 나눈 이야기는 어머님이 비공개로 해 두셨어요.'}`
+      : v.highlight ?? '오늘은 아직 나눈 대화가 없어요.';
+  }
   const payload: ReportPayload = {
     ...v, type: 'report',
     dateLabel: v.dateLabel || dayHeaderLabel(now()),
     moodLabel: privacy.mood === 'family' ? v.moodLabel ?? moodToday : undefined,
-    sessions: (v.sessions ?? []).map(s => (privacy[s.category] === 'private' ? { ...s, summary: '비공개 대화예요', isPrivate: true } : s)),
+    sessions: rows,
+    highlight,
   };
   sessions.forEach(s => ctx.db.sessions.put({ ...s, reported: true }));
   const m = await tachiSay(FAMILY_ROOM_ID, {
@@ -91,7 +114,7 @@ let timer: NodeJS.Timeout | undefined;
 
 export function startTicker(): void {
   stopTicker();
-  timer = setInterval(() => { tick().catch(e => warn('tick failed:', e)); }, 20_000);
+  timer = setInterval(() => { if (ctx.resetting) return; runWithGen(ctx.gen, () => tick()).catch(e => warn('tick failed:', e)); }, 20_000);
   timer.unref?.();
 }
 export function stopTicker(): void { if (timer) clearInterval(timer); timer = undefined; }

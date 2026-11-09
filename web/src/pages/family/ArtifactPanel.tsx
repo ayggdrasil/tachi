@@ -134,6 +134,17 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
     [messages, artifactId],
   );
 
+  const candidate = useMemo(() => {
+    if (!artifact?.pollId) return null;
+    const list = messages ?? [];
+    for (let i = list.length - 1; i >= 0; i--) {
+      const pl = list[i].payload;
+      if (pl?.type === 'schedule_result' && pl.pollId === artifact.pollId) return pl.confirmed === false ? pl.slot : null;
+    }
+    return null;
+  }, [messages, artifact?.pollId]);
+  const pollOpen = poll?.status === 'open';
+
   if (!artifact) return <div className="ap-empty muted caption">모임 정보를 불러오지 못했어요.</div>;
 
   const byOther = artifact.updatedBy !== meId;
@@ -153,7 +164,7 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
       <Field className="ap-title" value={artifact.title} label="모임 제목" byOther={byOther} onCommit={v => patch({ title: v })} />
       <div className="ap-meta">
         <span className={`badge ap-status ap-status-${artifact.dateStatus}`}>{STATUS_LABEL[artifact.dateStatus]}</span>
-        <span className="caption">{artifact.dateLabel ?? '날짜 미정'}</span>
+        <span className="caption">{artifact.dateStatus !== 'confirmed' && candidate ? `후보: ${candidate.label}` : (artifact.dateLabel ?? '날짜 미정')}</span>
         {artifact.place && <span className="caption muted">· {artifact.place}</span>}
       </div>
       <p className="ap-live caption faint" aria-live="polite">
@@ -165,7 +176,7 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
           <Sparkles size={14} strokeWidth={1.5} /> {assisting ? '아이디어 찾는 중…' : '타치에게 아이디어 받기'}
         </button>
         {artifact.dateStatus === 'undecided' && (
-          <button className="btn btn-primary" disabled={!artifactMsg}
+          <button className="btn btn-primary" disabled={!artifactMsg || pollOpen}
             onClick={() => artifactMsg && tachi.action(artifact.roomId, artifactMsg.id, 'start_scheduling', { artifactId: artifact.id })}>
             <CalendarClock size={14} strokeWidth={1.5} /> 일정 조율 시작
           </button>

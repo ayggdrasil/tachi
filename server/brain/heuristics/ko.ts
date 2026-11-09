@@ -177,13 +177,19 @@ export function parseTopics(text: string): string[] {
 }
 
 // ── yes / no ───────────────────────────────────────────────────────────────
-const YES_RE = /^(?:응|어|그래|그려|그럼|그렇게|좋아|좋지|좋네|좋아요|네|예|넵|맞아|맞다|오냐|부탁|해줘|해 줘|보내줘|보내 줘|보내|공유해|알겠|가자|그러자|그러지)/;
-const NO_RE = /^(?:아니|아냐|싫어|싫다|나중에|됐어|됐다|괜찮아|괜찮다|안 할|안할|하지 마|말아|그만|다음에|아직)/;
+const YES_WORD = '(?:응응|응|어|그래|그려|그럼|그렇게\\s*해|좋아|좋지|좋네|네|예|넵|맞아|오냐|알았어|알겠어|알겠습니다|부탁해|부탁|해줘|해\\s*줘|보내\\s*줘|보내|공유\\s*해\\s*줘|공유해|가자|그러자|그러지|그렇게\\s*하자)';
+// A yes-word must end at a boundary: end, punctuation, whitespace, or a short softener (요/지/죠/야/줘).
+const YES_RE = new RegExp(`^${YES_WORD}(?:요|지요|죠|지|야|줘)?(?=$|[\\s.,!~…?])`);
+const NO_RE = /^(?:아니|아냐|싫어|싫다|싫은|나중에|됐어|됐다|괜찮아|괜찮다|안\s*할|안할|안\s*보|하지\s*마|말아|그만|다음에|아직)|나만\s*(?:간직|볼|보고|가지고|알)|비밀|혼자만|보내지\s*마|공유\s*(?:하지|안)/;
+// Content that is clearly not a consent answer (health, questions, recall, numbers).
+const NOT_CONSENT_RE = /[?？]|기억|어디|언제|누가|뭐|왜|아프|아팠|무릎|혈압|두통|어지|\d/;
+const MAX_CONSENT_LEN = 16;
 export function yesNo(text: string): 'yes' | 'no' | undefined {
   const t = text.trim().replace(/^[\s.,!~…]+/, '');
-  if (NO_RE.test(t)) return 'no';
+  if (!t) return undefined;
+  if (NO_RE.test(t) && t.length <= 30) return 'no';
+  if (t.length > MAX_CONSENT_LEN || NOT_CONSENT_RE.test(t)) return undefined;
   if (YES_RE.test(t)) return 'yes';
-  if (/^(?:보내|공유).{0,6}(?:줘|해|주세요)/.test(t)) return 'yes';
   return undefined;
 }
 

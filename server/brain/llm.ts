@@ -6,19 +6,49 @@ import { anthropicComplete } from './providers/anthropic';
 import { openaiComplete } from './providers/openai';
 import type { LLMImage, LLMRequest } from './providers/types';
 
-export const LLM_TIMEOUT_MS = 25_000;
+export const llmTimeoutMs = (): number => {
+  const n = Number(process.env.TACHI_LLM_TIMEOUT_MS);
+  return Number.isFinite(n) && n > 0 ? n : 12_000;
+};
+export const LLM_TIMEOUT_MS = 12_000;
+
+// ── per-provider circuit breaker ───────────────────────────────────────────
+const BREAKER_THRESHOLD = 2;
+const BREAKER_COOLDOWN_MS = 60_000;
+const breakers = new Map<string, { failures: number; openUntil: number }>();
+export function circuitOpen(provider: string): boolean {
+  const b = breakers.get(provider);
+  return !!b && b.openUntil > Date.now();
+}
+function recordFailure(provider: string, e: unknown): void {
+  const b = breakers.get(provider) ?? { failures: 0, openUntil: 0 };
+  b.failures += 1;
+  if (b.failures >= BREAKER_THRESHOLD && b.openUntil <= Date.now()) {
+    b.openUntil = Date.now() + BREAKER_COOLDOWN_MS;
+    console.warn(`[brain] ${provider} failed ${b.failures}x in a row (${e instanceof Error ? e.message : String(e)}); using demo heuristic for ${BREAKER_COOLDOWN_MS / 1000}s`);
+  }
+  breakers.set(provider, b);
+}
+export const resetCircuit = (provider?: string): void => { if (provider) breakers.delete(provider); else breakers.clear(); };
+
 const MAX_IMAGE_BYTES = 4.5 * 1024 * 1024;
 
 export interface CompleteInput { system: string; turns: ChatTurn[]; images?: LLMImage[]; json?: boolean; maxTokens: number }
 
 export async function complete(option: ModelOption, input: CompleteInput): Promise<string> {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), LLM_TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), llmTimeoutMs());
   try {
     const req: LLMRequest = input;
-    if (option.provider === 'anthropic') return await anthropicComplete(option.modelId, req, ctrl.signal);
-    if (option.provider === 'openai') return await openaiComplete(option.modelId, req, ctrl.signal);
-    throw new Error('no provider');
+    let out: string;
+    if (option.provider === 'anthropic') out = await anthropicComplete(option.modelId, req, ctrl.signal);
+    else if (option.provider === 'openai') out = await openaiComplete(option.modelId, req, ctrl.signal);
+    else throw new Error('no provider');
+    breakers.delete(option.provider);
+    return out;
+  } catch (e) {
+    recordFailure(option.provider, e);
+    throw e;
   } finally { clearTimeout(timer); }
 }
 

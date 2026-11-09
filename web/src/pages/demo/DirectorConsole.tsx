@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, Pause, Play, QrCode, RotateCcw } from 'lucide-react';
+import { Check, Clock, Loader2, Pause, Play, QrCode, RotateCcw } from 'lucide-react';
 import { DEMO_SCRIPT, DIRECTOR_ID, FAMILY_ROOM_ID, SENIOR_ROOM_ID, type DemoStep } from '../../../../shared/constants';
 import type { ProactiveKind } from '../../../../shared/types';
-import { initTachi, tachi, useTachi } from '../../lib/store';
+import { getState, initTachi, tachi, useTachi } from '../../lib/store';
+import { getSocket } from '../../lib/socket';
 import { ModelSwitcher } from '../../components/common/ModelSwitcher';
 import { Avatar } from '../../components/common/Avatar';
 import { MemoryGraph } from '../../components/graph/MemoryGraph';
@@ -23,16 +24,20 @@ const PROACTIVE: { kind: ProactiveKind; label: string }[] = [
   { kind: 'evening', label: '저녁 인사' }, { kind: 'ask_photo', label: '사진 요청' },
 ];
 
-/** wait (ms) before running the step after this one */
-function waitAfter(step: DemoStep | undefined): number {
-  if (!step) return 1200;
-  if (step.director === 'proactive') return 5500;
-  if (step.photo) return 7000;
-  if (step.id === 'a-story' || step.id === 'share') return 7000;
-  if (step.id === 'recall' || step.id === 'trip') return 6500;
-  if (step.id === 'schedule') return 9000;
-  if (step.room === 'family') return 6000;
-  return 4500;
+const STEP_TIMEOUT = 45000;
+const DWELL = 2500;
+const DWELL_LONG = 4000;
+const LONG_KINDS = new Set(['memory_card', 'share_card', 'itinerary', 'schedule_result']);
+
+type StepStat = 'running' | 'done' | 'timeout';
+
+function fmtClock(offsetMin: number): string {
+  const d = new Date(Date.now() + offsetMin * 60000);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+function fmtElapsed(ms: number): string {
+  const sec = Math.max(0, Math.floor(ms / 1000));
+  return `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
 }
 
 export default function DirectorConsole() {
@@ -51,36 +56,113 @@ export default function DirectorConsole() {
   const edges = useMemo(() => Object.values(graph.edges), [graph.edges]);
 
   const [cursor, setCursor] = useState(0);
-  const [done, setDone] = useState<Set<string>>(new Set());
+  const [stat, setStat] = useState<Record<string, StepStat>>({});
+  const [running, setRunning] = useState<{ i: number; baseline: Set<string> } | null>(null);
+  const [dwell, setDwell] = useState(false);
   const [auto, setAuto] = useState(false);
   const [showSide, setShowSide] = useState(false);
   const [showGraph, setShowGraph] = useState(false);
   const [frameKey, setFrameKey] = useState(0);
+  const [reloading, setReloading] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const [qr, setQr] = useState(false);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [endedAt, setEndedAt] = useState<number | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [clockTick, setClockTick] = useState(0);
 
   const total = DEMO_SCRIPT.length;
   const cursorRef = useRef(cursor);
   cursorRef.current = cursor;
+  const runningRef = useRef(running);
+  runningRef.current = running;
+  const startedRef = useRef(startedAt);
+  startedRef.current = startedAt;
+  const messages = useTachi(s => s.messages);
+  const polls = useTachi(s => s.polls);
 
   const runStep = useCallback((i: number) => {
     const step = DEMO_SCRIPT[i];
-    if (!step) return;
-    if (step.director === 'proactive') tachi.demo.proactive();
+    if (!step || runningRef.current) return;
+    const roomId = step.waitFor ? (step.waitFor.room === 'senior' ? SENIOR_ROOM_ID : FAMILY_ROOM_ID) : null;
+    const baseline = new Set((roomId ? getState().messages[roomId] ?? [] : []).map(m => m.id));
+    if (startedRef.current === null) { const t = Date.now(); startedRef.current = t; setStartedAt(t); setEndedAt(null); }
+    if (step.clock) tachi.demo.clock(step.clock);
+    if (step.director === 'proactive') tachi.demo.proactive(step.kind);
     else if (step.director === 'report') tachi.demo.report();
     else if (step.director === 'closePoll') tachi.demo.closePoll();
     else if (step.as) tachi.demo.say(step.as, step.room === 'senior' ? SENIOR_ROOM_ID : FAMILY_ROOM_ID, step.text, step.photo);
-    setDone(d => new Set(d).add(step.id));
-    setCursor(i + 1);
+    setDwell(false);
+    setCursor(c => Math.max(c, i + 1));
+    if (step.waitFor) {
+      const r = { i, baseline };
+      runningRef.current = r;
+      setRunning(r);
+      setStat(d => ({ ...d, [step.id]: 'running' }));
+    } else {
+      setStat(d => ({ ...d, [step.id]: 'done' }));
+    }
   }, []);
+
+  // completion watcher
+  useEffect(() => {
+    if (!running) return;
+    const step = DEMO_SCRIPT[running.i];
+    const w = step?.waitFor;
+    if (!step || !w) return;
+    const list = messages[w.room === 'senior' ? SENIOR_ROOM_ID : FAMILY_ROOM_ID] ?? [];
+    if (list.some(m => !running.baseline.has(m.id) && m.kind === w.kind && (!w.from || m.senderId === w.from))) {
+      setStat(d => ({ ...d, [step.id]: 'done' }));
+      runningRef.current = null;
+      setRunning(null);
+      if (running.i === total - 1) setEndedAt(Date.now());
+      setDwell(true);
+    }
+  }, [running, messages, total]);
+
+  // timeout
+  useEffect(() => {
+    if (!running) return;
+    const step = DEMO_SCRIPT[running.i];
+    const t = window.setTimeout(() => {
+      setStat(d => ({ ...d, [step.id]: 'timeout' }));
+      runningRef.current = null;
+      setRunning(null);
+      setAuto(false);
+    }, STEP_TIMEOUT);
+    return () => window.clearTimeout(t);
+  }, [running]);
+
+  // dwell after completion
+  const lastDoneKind = DEMO_SCRIPT[cursor - 1]?.waitFor?.kind ?? null;
+  useEffect(() => {
+    if (!dwell) return;
+    const t = window.setTimeout(() => setDwell(false), lastDoneKind && LONG_KINDS.has(lastDoneKind) ? DWELL_LONG : DWELL);
+    return () => window.clearTimeout(t);
+  }, [dwell, lastDoneKind]);
+
+  // elapsed ticker
+  useEffect(() => {
+    if (startedAt === null || endedAt !== null) return;
+    const t = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, [startedAt, endedAt]);
+  // virtual clock ticker
+  useEffect(() => { const t = window.setInterval(() => setClockTick(n => n + 1), 30000); return () => window.clearInterval(t); }, []);
 
   const runNext = useCallback(() => { if (cursorRef.current < total) runStep(cursorRef.current); }, [runStep, total]);
   const back = useCallback(() => {
+    if (runningRef.current) return;
     const c = Math.max(0, cursorRef.current - 1);
     setCursor(c);
-    setDone(d => { const n = new Set(d); const s = DEMO_SCRIPT[c]; if (s) n.delete(s.id); return n; });
+    setStat(d => { const n = { ...d }; const s = DEMO_SCRIPT[c]; if (s) delete n[s.id]; return n; });
   }, []);
-  const resetCursor = useCallback(() => { setCursor(0); setDone(new Set()); setAuto(false); }, []);
+  const resetCursor = useCallback(() => {
+    runningRef.current = null;
+    startedRef.current = null;
+    setRunning(null); setCursor(0); setStat({}); setAuto(false); setDwell(false);
+    setStartedAt(null); setEndedAt(null);
+  }, []);
 
   // keyboard
   const blocked = confirmReset || qr;
@@ -97,21 +179,48 @@ export default function DirectorConsole() {
     return () => window.removeEventListener('keydown', on);
   }, [blocked, runNext, back, resetCursor]);
 
-  // auto-run
+  // auto-run: advance only after completion + dwell
   useEffect(() => {
     if (!auto) return;
-    if (cursor >= total) { setAuto(false); return; }
-    const wait = cursor === 0 ? 800 : waitAfter(DEMO_SCRIPT[cursor - 1]);
-    const t = window.setTimeout(() => runStep(cursor), wait);
+    if (cursor >= total && !running) { setAuto(false); return; }
+    if (running || dwell || cursor >= total) return;
+    const t = window.setTimeout(() => runStep(cursor), cursor === 0 ? 800 : 200);
     return () => window.clearTimeout(t);
-  }, [auto, cursor, total, runStep]);
+  }, [auto, cursor, total, running, dwell, runStep]);
+
+  // reset: wait for the director store to be ready again, then re-key frames
+  useEffect(() => {
+    const on = () => { resetCursor(); setReloading(true); };
+    const sock = getSocket();
+    sock.on('reset', on);
+    return () => { sock.off('reset', on); };
+  }, [resetCursor]);
+  useEffect(() => {
+    if (!reloading) return;
+    if (status === 'ready') {
+      const t = window.setTimeout(() => { setFrameKey(k => k + 1); setReloading(false); }, 150);
+      return () => window.clearTimeout(t);
+    }
+    const f = window.setTimeout(() => { setFrameKey(k => k + 1); setReloading(false); }, 12000);
+    return () => window.clearTimeout(f);
+  }, [reloading, status]);
 
   const doReset = () => {
     setConfirmReset(false);
-    tachi.demo.reset();
     resetCursor();
-    window.setTimeout(() => setFrameKey(k => k + 1), 700);
+    setReloading(true);
+    tachi.demo.reset();
   };
+
+  // minjun's side-chat room from the latest open (else most recent) poll
+  const sideRoomId = useMemo(() => {
+    const list = Object.values(polls).filter(p => p.sideRoomIds?.minjun);
+    if (!list.length) return null;
+    const open = list.filter(p => p.status === 'open');
+    const pool = open.length ? open : list;
+    pool.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    return pool[0].sideRoomIds.minjun;
+  }, [polls]);
 
   // stage sizing
   const stageRef = useRef<HTMLDivElement>(null);
@@ -136,6 +245,10 @@ export default function DirectorConsole() {
   const modelLabel = models?.options.find(o => o.key === models.active)?.label ?? '—';
   const family = Object.values(users).filter(u => u.role !== 'ai' && u.id !== DIRECTOR_ID);
   const nextStep = DEMO_SCRIPT[cursor];
+  const busy = !!running;
+  const doneCount = Object.values(stat).filter(v => v === 'done').length;
+  const virtualClock = useMemo(() => fmtClock(demo?.clockOffsetMinutes ?? 0), [demo?.clockOffsetMinutes, clockTick]); // eslint-disable-line react-hooks/exhaustive-deps
+  const elapsed = startedAt === null ? null : fmtElapsed((endedAt ?? nowMs) - startedAt);
 
   return (
     <div className="dc">
@@ -152,25 +265,35 @@ export default function DirectorConsole() {
           <section className="dc-sec" aria-label="시나리오">
             <div className="dc-sec-head">
               <h2 className="dc-h">시나리오</h2>
-              <span className="caption faint">{Math.min(cursor, total)}/{total}</span>
+              <span className="caption faint">{doneCount}/{total}</span>
+              {elapsed && <span className="caption faint dc-elapsed" title="데모 경과 시간">{elapsed}</span>}
               <span className="dc-spacer" />
               <button className="chip dc-auto" aria-pressed={auto} onClick={() => setAuto(a => !a)} disabled={cursor >= total && !auto}>
                 {auto ? <Pause size={12} strokeWidth={1.5} /> : <Play size={12} strokeWidth={1.5} />} 자동 진행
               </button>
               <button className="btn btn-icon dc-mini" onClick={resetCursor} aria-label="시나리오 처음으로 (R)" title="처음으로 (R)"><RotateCcw size={14} strokeWidth={1.5} /></button>
             </div>
+            <p className="dc-clock caption muted"><Clock size={12} strokeWidth={1.5} aria-hidden /> 데모 시각 {virtualClock}
+              <button className="chip dc-live" onClick={() => tachi.demo.clock(null)} disabled={!demo?.clockOffsetMinutes}>실시간으로</button>
+            </p>
             <ol className="dc-steps">
               {DEMO_SCRIPT.map((s, i) => {
-                const isDone = done.has(s.id);
+                const st = stat[s.id];
+                const isDone = st === 'done';
                 const isNext = i === cursor;
                 return (
                   <li key={s.id}>
-                    <button className={`dc-step ${isNext ? 'is-next' : ''} ${isDone ? 'is-done' : ''}`}
+                    <button className={`dc-step ${isNext ? 'is-next' : ''} ${isDone ? 'is-done' : ''} ${st === 'running' ? 'is-running' : ''}`}
+                      disabled={busy}
                       onClick={e => { runStep(i); e.currentTarget.blur(); }} aria-current={isNext ? 'step' : undefined}>
-                      <span className="dc-step-n">{isDone ? <Check size={13} strokeWidth={2} aria-label="완료" /> : i + 1}</span>
+                      <span className="dc-step-n">
+                        {st === 'running' ? <Loader2 size={13} strokeWidth={2} className="dc-spin" aria-label="진행 중" /> : isDone ? <Check size={13} strokeWidth={2} aria-label="완료" /> : i + 1}
+                      </span>
                       <span className="dc-step-main">
                         <span className="dc-step-label">{s.label}</span>
-                        {isNext && <span className="dc-step-hint">{s.hint}</span>}
+                        {(isNext || st === 'running' || st === 'timeout') && (
+                          <span className="dc-step-hint">{st === 'running' ? '응답 기다리는 중…' : st === 'timeout' ? '시간 초과 · 다시 눌러 재시도' : s.hint}</span>
+                        )}
                       </span>
                     </button>
                   </li>
@@ -242,7 +365,11 @@ export default function DirectorConsole() {
         <div className="dc-frames" style={{ gap: GAP }}>
           <Phone scale={scale} label="어머니 · 시니어 앱" name="김순자" src="/senior?as=mom&embed=1" k={frameKey} />
           <Phone scale={scale} label="딸 지은 · 가족방" name="김지은" src="/family?as=jieun&embed=1" k={frameKey} />
-          {third === 'side' && <Phone scale={scale} label="아들 민준 · 가족방" name="박민준" src="/family?as=minjun&embed=1" k={frameKey} />}
+          {third === 'side' && (
+            <Phone scale={scale} label="민준 · 사이드 챗" name="박민준" k={frameKey}
+              src={sideRoomId ? `/family?as=minjun&embed=1&room=${encodeURIComponent(sideRoomId)}` : '/family?as=minjun&embed=1'}
+              caption={sideRoomId ? undefined : '일정 조율이 시작되면 사이드 챗이 열려요'} />
+          )}
           {third === 'graph' && (
             <section className="dc-graph" style={{ width: GRAPH_W, height: PHONE_H * scale + LABEL_H }} aria-label="기억 그래프">
               <div className="dc-label">기억 그래프 · Kùzu</div>
@@ -274,7 +401,7 @@ export default function DirectorConsole() {
   );
 }
 
-function Phone({ scale, label, name, src, k }: { scale: number; label: string; name: string; src: string; k: number }) {
+function Phone({ scale, label, name, src, k, caption }: { scale: number; label: string; name: string; src: string; k: number; caption?: string }) {
   return (
     <figure className="dc-phone-wrap" style={{ width: PHONE_W * scale }}>
       <figcaption className="dc-label">{label}</figcaption>
@@ -284,6 +411,7 @@ function Phone({ scale, label, name, src, k }: { scale: number; label: string; n
           <iframe key={`${src}-${k}`} className="dc-iframe" src={src} title={label} />
         </div>
       </div>
+      {caption && <figcaption className="dc-cap caption muted">{caption}</figcaption>}
     </figure>
   );
 }

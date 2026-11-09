@@ -6,8 +6,9 @@ import type {
   DemoState, GraphDelta, HealthSummary, ID, Memory, Message, MessageKind, MessageMeta, MessagePayload, CardAction,
   Poll, Presence, PrivacySettings, Room, Trip, User,
 } from '../../shared/types';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { ctx, type Sock } from './ctx';
-import { nowIso, sleep, uid, warn } from '../util/misc';
+import { clockNow, getClockOffsetMinutes, nowIso, setClockOffsetMinutes, sleep, uid, warn } from '../util/misc';
 
 // ── ids / channels ──────────────────────────────────────────────────────────
 export const roomChannel = (id: ID): string => `room:${id}`;
@@ -22,9 +23,52 @@ export const DIRECTOR_USER: User = {
 
 // ── clock & state ───────────────────────────────────────────────────────────
 export function getDemo(): DemoState { return ctx.db.kv.get<DemoState>('demo')!; }
-export function now(): Date {
-  const off = ctx.db.kv.get<DemoState>('demo')?.clockOffsetMinutes ?? 0;
-  return new Date(Date.now() + off * 60000);
+/** The demo clock: real time shifted by the virtual offset (same source as nowIso()). */
+export function now(): Date { return clockNow(); }
+/** Set the in-memory offset (after boot / reseed). */
+export function syncClock(offsetMinutes = 0): void { setClockOffsetMinutes(offsetMinutes); }
+
+/** Set the virtual clock to today HH:MM (null = real time). Never moves backwards: an earlier time adds one minute. */
+export function setDemoClock(time: string | null): boolean {
+  if (time === null || time === undefined) { patchDemo({ clockOffsetMinutes: 0 }); return true; }
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(time).trim());
+  if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return false;
+  const target = new Date();
+  target.setHours(Number(m[1]), Number(m[2]), 0, 0);
+  const cur = getClockOffsetMinutes();
+  const off = target.getTime() < now().getTime() ? cur + 1 : (target.getTime() - Date.now()) / 60000;
+  patchDemo({ clockOffsetMinutes: off });
+  return true;
+}
+
+// ── generation (reset safety) ───────────────────────────────────────────────
+const genStore = new AsyncLocalStorage<{ gen: number }>();
+/** Run `fn` (and everything it awaits / schedules) under demo generation `gen`. */
+export function runWithGen<T>(gen: number, fn: () => T): T { return genStore.run({ gen }, fn); }
+export function currentGen(): number { return genStore.getStore()?.gen ?? ctx.gen; }
+/** True when the running flow belongs to a demo generation that has since been reset. */
+export function isStale(): boolean { const s = genStore.getStore(); return !!s && s.gen !== ctx.gen; }
+
+/** Make db / graph writes from stale flows no-ops (so old flows cannot repopulate a freshly seeded demo). */
+export function installGuards(): void {
+  const g = ctx as unknown as { __guarded?: boolean };
+  if (g.__guarded) return;
+  g.__guarded = true;
+  type Fn = (...a: unknown[]) => unknown;
+  const wrap = (obj: Record<string, unknown>, names: string[], dropped: (name: string, a: unknown[]) => unknown) => {
+    for (const k of names) {
+      const orig = obj[k] as Fn | undefined;
+      if (typeof orig !== 'function') continue;
+      obj[k] = function (this: unknown, ...a: unknown[]) { return isStale() ? dropped(k, a) : orig.apply(this, a); };
+    }
+  };
+  const db = ctx.db as unknown as Record<string, Record<string, unknown>>;
+  for (const t of ['users', 'contacts', 'rooms', 'memories', 'trips', 'artifacts', 'polls', 'sessions', 'messages']) {
+    wrap(db[t], ['put', 'insert', 'update', 'delete'], (_k, a) => a[0]);
+  }
+  wrap(db.kv, ['set', 'del'], (k, a) => (k === 'set' ? a[1] : undefined));
+  wrap(ctx.graph as unknown as Record<string, unknown>, ['upsertMemory', 'linkFamily'],
+    k => Promise.resolve(k === 'upsertMemory' ? { nodes: [], edges: [] } : undefined));
 }
 export function getPrivacy(): PrivacySettings { return ctx.db.kv.get<PrivacySettings>('privacy')!; }
 export function getHealth(): HealthSummary | undefined { return ctx.db.kv.get<HealthSummary>('health'); }
@@ -36,17 +80,20 @@ export function displayName(id: ID): string { return id === TACHI_ID ? '타치' 
 
 /** Run `fn` later, dropping it if the demo was reset in between; never throws. */
 export function later(ms: number, fn: () => void | Promise<void>): void {
-  const gen = ctx.gen;
+  const gen = currentGen();
+  if (isStale()) return;
   setTimeout(() => {
     if (gen !== ctx.gen) return;
-    Promise.resolve().then(fn).catch(e => warn('later() failed:', e));
+    runWithGen(gen, () => Promise.resolve().then(fn).catch(e => warn('later() failed:', e)));
   }, ms);
 }
 
 /** Serialize work per room so Tachi's replies keep their order. */
 export function enqueue(key: string, fn: () => Promise<void>): Promise<void> {
+  if (isStale()) return Promise.resolve();
+  const gen = currentGen();
   const prev = ctx.queues.get(key) ?? Promise.resolve();
-  const next = prev.then(fn).catch(e => warn('queue task failed:', e));
+  const next = prev.then(() => (gen === ctx.gen ? runWithGen(gen, fn) : undefined)).catch(e => warn('queue task failed:', e));
   ctx.queues.set(key, next);
   return next;
 }
@@ -77,6 +124,7 @@ export interface PostInput {
 
 export function post(roomId: ID, input: PostInput): Message {
   const m: Message = { id: uid('msg'), roomId, createdAt: nowIso(), ...input, kind: input.kind ?? 'text' };
+  if (isStale()) return m; // the demo was reset while this flow was running: drop silently
   ctx.db.messages.insert(m);
   const room = ctx.db.rooms.get(roomId);
   if (room) { room.lastMessageAt = m.createdAt; ctx.db.rooms.put(room); }
@@ -85,6 +133,7 @@ export function post(roomId: ID, input: PostInput): Message {
 }
 
 export function updateMessage(m: Message): Message {
+  if (isStale()) return m;
   ctx.db.messages.update(m);
   ctx.io.to(roomChannel(m.roomId)).emit('message:update', m);
   return m;
@@ -95,16 +144,27 @@ export function systemNote(roomId: ID, text: string): Message {
 }
 
 export function emitTyping(roomId: ID, userId: ID): void {
+  if (isStale()) return;
   ctx.io.to(roomChannel(roomId)).emit('typing', { roomId, userId });
 }
 
-export interface AIMeta { model: string; fallback: boolean }
+export interface AIMeta { model: string; fallback: boolean; source?: 'llm' | 'heuristic' | 'rule' }
 
-/** Tachi speaks: typing indicator, natural pause, then the message (tagged with the answering model). */
-export async function tachiSay(roomId: ID, input: Omit<PostInput, 'senderId'>, ai?: AIMeta): Promise<Message> {
+/** Show Tachi's typing indicator right away and keep it alive (every ~4s) while `fn` runs. */
+export async function withTyping<T>(roomId: ID, fn: () => Promise<T>): Promise<T> {
   emitTyping(roomId, TACHI_ID);
-  await sleep(ctx.paceMs);
-  const meta: MessageMeta = { ...input.meta, ...(ai ? { model: ai.model, fallback: ai.fallback } : {}) };
+  const iv = setInterval(() => emitTyping(roomId, TACHI_ID), 4000);
+  iv.unref?.();
+  try { return await fn(); } finally { clearInterval(iv); }
+}
+
+/** Tachi speaks: typing indicator, natural pause, then the message (tagged with the real answering source). */
+export async function tachiSay(roomId: ID, input: Omit<PostInput, 'senderId'>, ai?: AIMeta): Promise<Message> {
+  await withTyping(roomId, () => sleep(ctx.paceMs));
+  const meta: MessageMeta = {
+    ...input.meta,
+    ...(ai ? { model: ai.model, fallback: ai.fallback, source: ai.source ?? (ai.fallback ? 'heuristic' : 'llm') } : {}),
+  };
   return post(roomId, { ...input, senderId: TACHI_ID, meta });
 }
 
@@ -122,41 +182,118 @@ export function memoryStub(m: Memory): Memory {
   };
 }
 
+/** THE effective-visibility rule: a saved memory is visible to the family only if both the memory and the memory category are public. */
+export function memoryVisibleToFamily(m: Memory | undefined | null): boolean {
+  return !!m && m.status === 'saved' && m.visibility === 'family' && getPrivacy().memory === 'family';
+}
+
 /** What a given viewer may know about a memory (null = nothing at all). */
 export function memoryFor(viewerId: ID, m: Memory): Memory | null {
   if (seesAll(viewerId)) return m;
   if (m.status !== 'saved') return null;
-  return m.visibility === 'family' ? m : memoryStub(m);
+  return memoryVisibleToFamily(m) ? m : memoryStub(m);
 }
 
 export function emitMemory(m: Memory): void {
+  if (isStale()) return;
   forViewers((s, v) => { const mm = memoryFor(v, m); if (mm) s.emit('memory:upsert', mm); });
 }
 
-/** Graph delta belonging to `m`: senior/director always, family only when the memory is shared. */
+/** Graph delta belonging to `m`: senior/director always, family only when the memory is effectively shared. */
 export function emitGraphDelta(delta: GraphDelta, m: Memory): void {
-  if (!delta.nodes.length && !delta.edges.length) return;
-  forViewers((s, v) => { if (seesAll(v) || (m.status === 'saved' && m.visibility === 'family')) s.emit('graph:delta', delta); });
+  if (isStale() || (!delta.nodes.length && !delta.edges.length)) return;
+  const visible = memoryVisibleToFamily(m);
+  forViewers((s, v) => { if (seesAll(v) || visible) s.emit('graph:delta', delta); });
 }
 
+/** Health as the family may see it: null when private; mood stripped when only mood is private. */
+export function healthForFamily(h: HealthSummary | undefined = getHealth()): HealthSummary | null {
+  if (!h || getPrivacy().health !== 'family') return null;
+  return getPrivacy().mood === 'family' ? h : { ...h, mood: [] };
+}
 export function healthFor(viewerId: ID): HealthSummary | null {
   const h = getHealth();
   if (!h) return null;
-  return seesAll(viewerId) || getPrivacy().health === 'family' ? h : null;
+  return seesAll(viewerId) ? h : healthForFamily(h);
 }
-export function emitHealth(): void { forViewers((s, v) => s.emit('health:update', healthFor(v))); }
+export function emitHealth(): void { if (!isStale()) forViewers((s, v) => s.emit('health:update', healthFor(v))); }
+
+/** Viewer-aware copy of a stored message: cards whose data is no longer visible to a family viewer are redacted. */
+export function projectMessage(viewerId: ID, m: Message): Message {
+  if (seesAll(viewerId) || !m.payload) return m;
+  const p = m.payload;
+  if (p.type === 'share_card' || p.type === 'memory_card' || p.type === 'recall_card') {
+    const mem = ctx.db.memories.get(p.memoryId);
+    if (memoryVisibleToFamily(mem)) return m;
+    const text = '어머님이 이 추억을 비공개로 바꾸셨어요.';
+    const stub: Memory = { ...memoryStub(mem ?? ({ id: p.memoryId, ownerId: SENIOR_ID, createdAt: m.createdAt } as Memory)), title: '비공개로 바뀐 추억' };
+    const payload: MessagePayload =
+      p.type === 'share_card' ? { type: 'share_card', memoryId: p.memoryId, title: '비공개로 바뀐 추억', summary: '', people: [] }
+        : p.type === 'memory_card' ? { type: 'memory_card', memoryId: p.memoryId, memory: stub, graphDelta: { nodes: [], edges: [] } }
+          : { type: 'recall_card', memoryId: p.memoryId, memory: stub, matched: [], path: { nodes: [], edges: [] }, alternatives: [] };
+    return { ...m, text, payload, actions: undefined, quickReplies: undefined };
+  }
+  if (p.type === 'report') {
+    // reports written while a memory was public must not keep its title once it is retracted
+    const titles = ctx.db.memories.all().filter(x => !memoryVisibleToFamily(x)).map(x => x.title).filter(t => t && t.length >= 2);
+    const hit = (t?: string) => !!t && titles.some(x => t.includes(x));
+    if (!p.sessions.some(r => hit(r.title) || hit(r.summary)) && !hit(p.highlight) && !hit(m.text)) return m;
+    const sessions = p.sessions.map(r => (hit(r.title) || hit(r.summary) ? { ...r, title: '대화', summary: '비공개 대화예요', isPrivate: true } : r));
+    const times = [...new Set(sessions.map(r => r.time))].join(', ');
+    const highlight = `오늘 ${times}에 어머님과 대화했어요. 일부 이야기는 비공개예요.`;
+    return { ...m, text: hit(m.text) ? highlight : m.text, payload: { ...p, sessions, highlight: hit(p.highlight) ? highlight : p.highlight } };
+  }
+  if (p.type === 'health_card') {
+    const h = healthForFamily(p.summary);
+    if (!h) return { ...m, kind: 'text', text: '어머님이 건강 정보를 비공개로 바꾸셨어요.', payload: undefined, actions: undefined };
+    return h === p.summary ? m : { ...m, payload: { ...p, summary: h } };
+  }
+  return m;
+}
+
+/** Replace titles of memories the family cannot see inside any serializable value (artifacts, trips, chat text). */
+export function scrubHiddenTitles<T>(viewerId: ID, value: T): T {
+  if (seesAll(viewerId)) return value;
+  const titles = ctx.db.memories.all().filter(x => !memoryVisibleToFamily(x)).map(x => x.title).filter(t => t && t.length >= 3 && !t.includes('"'));
+  if (!titles.length) return value;
+  let j = JSON.stringify(value);
+  const before = j;
+  for (const t of titles) j = j.split(JSON.stringify(t).slice(1, -1)).join('비공개 추억');
+  return j === before ? value : (JSON.parse(j) as T);
+}
+
+/** After any privacy change: senior/director keep their live stream; family clients rebuild from a freshly projected bootstrap. */
+export function resyncFamilyViewers(): void {
+  if (isStale()) return;
+  ctx.io.emit('privacy:update', getPrivacy());
+  emitHealth();
+  forViewers((s, v) => { if (!seesAll(v)) s.emit('reset'); });
+}
+
+/** Change one memory's visibility (authorization is the caller's job) and propagate it everywhere. */
+export function applyMemoryVisibility(memoryId: ID, visibility: 'family' | 'private'): Memory | undefined {
+  const m = ctx.db.memories.get(memoryId);
+  if (!m) return undefined;
+  if (m.visibility !== visibility) { m.visibility = visibility; ctx.db.memories.put(m); }
+  emitMemory(m);
+  resyncFamilyViewers();
+  return m;
+}
 
 export function emitTrip(t: Trip): void {
+  if (isStale()) return;
   const pub = getPrivacy().trip === 'family';
   forViewers((s, v) => { if (seesAll(v) || pub) s.emit('trip:upsert', t); });
 }
 
 export function emitPoll(p: Poll): void {
+  if (isStale()) return;
   const channels = [roomChannel(p.familyRoomId), ...Object.values(p.sideRoomIds).map(roomChannel)];
   ctx.io.to(channels).emit('poll:upsert', p);
 }
 
 export function emitRoomTo(room: Room): void {
+  if (isStale()) return;
   const chans = [...room.memberIds.map(userChannel), userChannel(DIRECTOR_ID)];
   ctx.io.to(chans).emit('room:upsert', room);
 }
@@ -170,6 +307,8 @@ export function emitPresence(): void { ctx.io.emit('presence:update', presence()
 export function emitDemo(): void { ctx.io.emit('demo:update', getDemo()); }
 export function patchDemo(patch: Partial<DemoState>): DemoState {
   const d = { ...getDemo(), ...patch };
+  if (isStale()) return d;
+  if (patch.clockOffsetMinutes !== undefined) setClockOffsetMinutes(patch.clockOffsetMinutes);
   ctx.db.kv.set('demo', d);
   emitDemo();
   return d;

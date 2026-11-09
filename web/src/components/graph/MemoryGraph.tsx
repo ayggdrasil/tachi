@@ -33,11 +33,85 @@ function Shape({ label, r = 1 }: { label: GraphNodeLabel; r?: number }) {
 }
 
 const trunc = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
+/** Rough rendered width of a label: Hangul/CJK are ~full-width, latin ~0.58em. */
+const textW = (s: string, fs: number) => [...s].reduce((w, c) => w + (c.charCodeAt(0) > 255 ? fs * 0.98 : fs * 0.58), 0);
+const LABEL_ORDER: GraphNodeLabel[] = ['Person', 'Place', 'Era', 'Event', 'Emotion', 'Topic', 'Memory'];
+
+interface LabelPos { x: number; y: number; anchor: 'start' | 'middle' | 'end' }
+
+/** Deterministic memory-centred radial layout: entity nodes evenly spaced on an ellipse, grouped by label, labels outside. */
+function radialLayout(nodes: GraphNode[], edges: GraphEdge[], W: number, H: number, fs: number, maxChars: number) {
+  const pos = new Map<string, { x: number; y: number }>();
+  const labels = new Map<string, LabelPos>();
+  const deg = new Map<string, number>();
+  edges.forEach(e => { deg.set(e.source, (deg.get(e.source) ?? 0) + 1); deg.set(e.target, (deg.get(e.target) ?? 0) + 1); });
+  const mems = nodes.filter(n => n.label === 'Memory').sort((a, b) => (deg.get(b.id) ?? 0) - (deg.get(a.id) ?? 0));
+  const center = mems[0];
+  const rest = nodes.filter(n => n !== center)
+    .sort((a, b) => LABEL_ORDER.indexOf(a.label) - LABEL_ORDER.indexOf(b.label) || a.name.localeCompare(b.name, 'ko') || a.id.localeCompare(b.id));
+  const cx = W / 2, cy = H / 2;
+  const maxW = Math.max(40, ...rest.map(n => textW(trunc(n.name, maxChars), fs)));
+  const rx = Math.max(46, Math.min(W / 2 - 22 - maxW, 130));
+  const ry = Math.max(40, H / 2 - 30);
+  if (center) { pos.set(center.id, { x: cx, y: cy }); labels.set(center.id, { x: cx, y: cy + 21, anchor: 'middle' }); }
+  const n = rest.length;
+  rest.forEach((node, i) => {
+    const a = -Math.PI / 2 + ((i + 0.5) / n) * Math.PI * 2;
+    const x = cx + Math.cos(a) * rx, y = cy + Math.sin(a) * ry;
+    pos.set(node.id, { x, y });
+    const c = Math.cos(a);
+    const anchor = c > 0.25 ? 'start' : c < -0.25 ? 'end' : 'middle';
+    const lx = anchor === 'start' ? x + 12 : anchor === 'end' ? x - 12 : x;
+    const ly = anchor === 'middle' ? (Math.sin(a) < 0 ? y - 12 : y + 20) : y + 4;
+    labels.set(node.id, { x: lx, y: ly, anchor });
+  });
+  // Resolve any remaining label overlaps by nudging vertically.
+  const boxes = rest.map(node => {
+    const l = labels.get(node.id)!; const w = textW(trunc(node.name, maxChars), fs);
+    return { id: node.id, w, l };
+  });
+  const left = (b: { w: number; l: LabelPos }) => (b.l.anchor === 'start' ? b.l.x : b.l.anchor === 'end' ? b.l.x - b.w : b.l.x - b.w / 2);
+  for (let it = 0; it < 40; it++) {
+    let moved = false;
+    for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i], b = boxes[j];
+      if (left(a) < left(b) + b.w + 2 && left(b) < left(a) + a.w + 2 && Math.abs(a.l.y - b.l.y) < fs + 2) {
+        const d = (fs + 2 - Math.abs(a.l.y - b.l.y)) / 2 + 0.5;
+        const up = a.l.y <= b.l.y ? -1 : 1;
+        a.l.y += up * d; b.l.y -= up * d; moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+  boxes.forEach(b => { b.l.y = Math.min(H - 3, Math.max(fs, b.l.y)); });
+  return { pos, labels };
+}
+
+/** Separate node+label rectangles so no two nodes' labels overlap (full/interactive layout). */
+function relaxRects(sn: { id: string; name: string; label: GraphNodeLabel; x: number; y: number }[], W: number, H: number, fs: number, pad: number) {
+  const w = (n: { name: string; label: GraphNodeLabel }) => Math.max(22, textW(trunc(n.name, n.label === 'Memory' ? 11 : 8), fs));
+  for (let it = 0; it < 120; it++) {
+    let moved = false;
+    for (let i = 0; i < sn.length; i++) for (let j = i + 1; j < sn.length; j++) {
+      const a = sn[i], b = sn[j];
+      const ox = (w(a) + w(b)) / 2 + 6 - Math.abs(a.x - b.x);
+      const oy = fs + 20 - Math.abs(a.y - b.y);
+      if (ox > 0 && oy > 0) {
+        moved = true;
+        if (oy < ox) { const s = a.y <= b.y ? -1 : 1; a.y += s * oy / 2; b.y -= s * oy / 2; }
+        else { const s = a.x <= b.x ? -1 : 1; a.x += s * ox / 2; b.x -= s * ox / 2; }
+      }
+    }
+    sn.forEach(n => { const hw = w(n) / 2; n.x = Math.min(W - Math.max(pad, hw + 2), Math.max(Math.max(pad, hw + 2), n.x)); n.y = Math.min(H - pad - 6, Math.max(pad, n.y)); });
+    if (!moved) break;
+  }
+}
 
 export function MemoryGraph({ nodes, edges, highlightIds, height, interactive, compact }: {
   nodes: GraphNode[]; edges: GraphEdge[]; highlightIds?: string[]; height?: number; interactive?: boolean; compact?: boolean;
 }) {
-  const H = height ?? (compact ? 170 : 280);
+  const H = height ?? (compact ? 220 : 280);
+  const fs = compact ? 12 : 13;
   const wrapRef = useRef<HTMLDivElement>(null);
   const [W, setW] = useState(320);
   const posRef = useRef<Map<string, { x: number; y: number }>>(new Map());
@@ -47,6 +121,7 @@ export function MemoryGraph({ nodes, edges, highlightIds, height, interactive, c
   const [hover, setHover] = useState<string | null>(null);
   const [pulse, setPulse] = useState(false);
   const dragging = useRef<string | null>(null);
+  const labelRef = useRef<Map<string, LabelPos>>(new Map());
 
   useEffect(() => {
     const el = wrapRef.current; if (!el) return;
@@ -70,6 +145,15 @@ export function MemoryGraph({ nodes, edges, highlightIds, height, interactive, c
   useEffect(() => {
     simRef.current?.stop();
     const ids = new Set(nodes.map(n => n.id));
+    if (compact) {
+      const { pos: rp, labels } = radialLayout(nodes, edges, W, H, fs, 8);
+      labelRef.current = labels;
+      rp.forEach((p, id) => posRef.current.set(id, p));
+      simNodes.current = []; simRef.current = null;
+      linksRef.current = edges.filter(e => ids.has(e.source) && ids.has(e.target)).map(e => ({ id: e.id, type: e.type, source: e.source, target: e.target }));
+      force(v => v + 1);
+      return;
+    }
     const sn: SimNode[] = nodes.map(n => {
       const prev = posRef.current.get(n.id);
       return {
@@ -85,9 +169,10 @@ export function MemoryGraph({ nodes, edges, highlightIds, height, interactive, c
       .force('charge', forceManyBody<SimNode>().strength(compact ? -110 : -170))
       .force('x', forceX<SimNode>(W / 2).strength(0.08))
       .force('y', forceY<SimNode>(H / 2).strength(0.12))
-      .force('collide', forceCollide<SimNode>(compact ? 15 : 20))
+      .force('collide', forceCollide<SimNode>(d => Math.min(34, Math.max(20, textW(trunc(d.name, 8), fs) / 2.4))))
       .stop();
     for (let i = 0; i < 260; i++) sim.tick();
+    relaxRects(sn, W, H, fs, pad);
     simNodes.current = sn; linksRef.current = sl;
     sn.forEach(n => posRef.current.set(n.id, { x: n.x, y: n.y }));
     sim.on('tick', () => {
@@ -173,9 +258,14 @@ export function MemoryGraph({ nodes, edges, highlightIds, height, interactive, c
                 onPointerDown={e => onPointerDown(e, n.id)} onPointerEnter={() => interactive && setHover(n.id)} onPointerLeave={() => setHover(null)}>
                 {hi && pulse && <circle r={16} className="mg-pulse" />}
                 <Shape label={n.label} />
-                <text y={isMem ? 22 : n.label === 'Emotion' ? 15 : 19} textAnchor="middle" className={isMem ? 'mg-label mg-label-mem' : 'mg-label'}>
-                  {trunc(n.name, isMem ? 11 : 8)}
-                </text>
+                {(() => {
+                  const lp = compact ? labelRef.current.get(n.id) : undefined;
+                  const cls = isMem ? 'mg-label mg-label-mem' : 'mg-label';
+                  const txt = trunc(n.name, compact ? (isMem ? 7 : 8) : isMem ? 11 : 8);
+                  return lp
+                    ? <text x={lp.x - p.x} y={lp.y - p.y} textAnchor={lp.anchor} className={cls}>{txt}<title>{n.name}</title></text>
+                    : <text y={isMem ? 22 : n.label === 'Emotion' ? 16 : 20} textAnchor="middle" className={cls}>{txt}<title>{n.name}</title></text>;
+                })()}
               </g>
             );
           })}
@@ -192,6 +282,9 @@ export function MemoryGraph({ nodes, edges, highlightIds, height, interactive, c
           );
         })()}
       </svg>
+      <ul className="sr-only mg-text" aria-label="기억 그래프 목록">
+        {edges.map(e => <li key={e.id}>{byId.get(e.source)?.name ?? e.source} — {REL_KO[e.type] ?? e.type} → {byId.get(e.target)?.name ?? e.target}</li>)}
+      </ul>
       {nodes.length === 0 && <div className="mg-empty">아직 연결된 기억이 없어요</div>}
       {!compact && (
         <ul className="mg-legend" aria-label="범례">

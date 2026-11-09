@@ -41,20 +41,39 @@ async function main() {
   await shot(senior, '00-senior-start');
   await shot(family, '00-family-start');
 
+  // Mirror the Director: set the virtual clock, run the step, wait for its completion message, then dwell.
+  const seen: { roomId: string; kind: string; senderId: string; at: number }[] = [];
+  socket.on('message:new', (m: any) => seen.push({ roomId: m.roomId, kind: m.kind, senderId: m.senderId, at: Date.now() }));
+  const waitFor = async (step: typeof DEMO_SCRIPT[number], since: number) => {
+    if (!step.waitFor) { await sleep(4000); return true; }
+    const room = step.waitFor.room === 'family' ? FAMILY_ROOM_ID : SENIOR_ROOM_ID;
+    const t0 = Date.now();
+    while (Date.now() - t0 < 60000) {
+      if (seen.some(x => x.at >= since && x.roomId === room && x.kind === step.waitFor!.kind && (!step.waitFor!.from || x.senderId === step.waitFor!.from))) return true;
+      await sleep(150);
+    }
+    return false;
+  };
+  const timings: Record<string, number> = {};
   let i = 1;
   for (const step of DEMO_SCRIPT) {
-    if (step.director === 'proactive') socket.emit('demo:proactive', {});
+    if (step.clock) socket.emit('demo:clock', { time: step.clock });
+    await sleep(150);
+    const since = Date.now();
+    if (step.director === 'proactive') socket.emit('demo:proactive', { kind: step.kind });
     else if (step.director === 'report') socket.emit('demo:report');
     else if (step.as) {
       socket.emit('demo:say', { userId: step.as, roomId: step.room === 'family' ? FAMILY_ROOM_ID : SENIOR_ROOM_ID, text: step.text, photoUrl: step.photo });
     }
-    // schedule step needs bots to answer in side rooms
-    const wait = step.id === 'schedule' ? 14000 : step.id === 'photo' ? 4500 : 6500;
-    await sleep(wait);
+    const ok = await waitFor(step, since);
+    timings[step.id] = Math.round((Date.now() - since) / 100) / 10;
+    if (!ok) errors.push(`step ${step.id} did not complete (waitFor ${step.waitFor?.kind})`);
+    await sleep(2200);
     const n = String(i++).padStart(2, '0');
     await shot(senior, `${n}-senior-${step.id}`);
     await shot(family, `${n}-family-${step.id}`);
   }
+  console.log('step seconds', JSON.stringify(timings));
   // extra screens
   const desk = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: SCALE })).newPage();
   desk.on('pageerror', e => errors.push(`[desktop] pageerror ${e.message}`));

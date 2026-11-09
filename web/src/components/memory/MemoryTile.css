@@ -7,5 +7,5 @@ button.mt:hover { background: var(--hover); }
 .mt-title { font-size: var(--text-caption); font-weight: var(--weight-semibold); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .mt-meta { font-size: var(--text-small); color: var(--text-2); }
 .senior .mt-title { font-size: var(--senior-caption); }
-.senior .mt-meta { font-size: 15px; }
-.senior .mt-lock { font-size: 13px; }
+.senior .mt-meta { font-size: 17px; }
+.senior .mt-lock { font-size: 17px; }

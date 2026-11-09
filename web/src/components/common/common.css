@@ -23,4 +23,4 @@
 .speak-btn { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: var(--radius-lg); color: var(--text-2); }
 .speak-btn:hover { background: var(--hover); }
 .speak-btn[aria-pressed="true"] { color: var(--text); background: var(--hover); }
-.senior .speak-btn { width: 48px; height: 48px; }
+.senior .speak-btn { width: 56px; height: 56px; }

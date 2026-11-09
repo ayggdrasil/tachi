@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { Lock, Users } from 'lucide-react';
 import type { MemoryCardPayload, PhotoPayload, RecallCardPayload, ShareCardPayload, Visibility } from '../../../../shared/types';
 import { tachi, useTachi } from '../../lib/store';
 import { MemoryGraph } from '../graph/MemoryGraph';
+import { SpeakButton } from '../common/SpeakButton';
 import type { CardProps } from './types';
 import './cards.css';
 
@@ -33,22 +35,29 @@ export function MemoryCard({ message, variant }: CardProps) {
   const nodes = p.graphDelta?.nodes ?? [];
   const edges = p.graphDelta?.edges ?? [];
   const canToggle = meId === m.ownerId || variant === 'senior';
+  const [open, setOpen] = useState(false);
   return (
     <article className="cd cd-memory" aria-label={m.title}>
       {m.photoUrl && <img className="cd-photo-in" src={m.photoUrl} alt="" loading="lazy" />}
-      <h3 className="cd-title">{m.title}</h3>
-      <dl className="cd-dl">
+      <div className="cd-row cd-between"><h3 className="cd-title">{m.title}</h3>
+        {variant === 'senior' && <SpeakButton text={`${m.title}. ${m.story}`} />}</div>
+      <dl className="cd-dl cd-dl-2">
         {rows.filter(([, v]) => v).map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}
-        {m.tags.length > 0 && <div><dt>키워드</dt><dd className="cd-badges">{m.tags.map(t => <span key={t} className="badge">{t}</span>)}</dd></div>}
+        {m.tags.length > 0 && <div className="cd-wide"><dt>키워드</dt><dd className="cd-badges">{m.tags.map(t => <span key={t} className="badge">{t}</span>)}</dd></div>}
       </dl>
-      {m.story && <blockquote className="cd-story">“{m.story}”</blockquote>}
-      {canToggle && <VisibilitySwitch memoryId={m.id} value={m.visibility} />}
       {nodes.length > 0 && (
         <div className="cd-graph">
-          <MemoryGraph nodes={nodes} edges={edges} highlightIds={[...nodes.map(n => n.id), ...edges.map(e => e.id)]} compact height={variant === 'senior' ? 190 : 170} />
+          <MemoryGraph nodes={nodes} edges={edges} highlightIds={[...nodes.map(n => n.id), ...edges.map(e => e.id)]} compact height={220} />
           <p className="cd-cap">기억 그래프에 저장됨 · 노드 {nodes.length} · 연결 {edges.length}</p>
         </div>
       )}
+      {m.story && (
+        <div className="cd-story-wrap">
+          <blockquote className={`cd-story ${open ? '' : 'cd-clamp'}`}>“{m.story}”</blockquote>
+          <button type="button" className="cd-link cd-more" aria-expanded={open} onClick={() => setOpen(o => !o)}>{open ? '이야기 접기' : '이야기 더 보기'}</button>
+        </div>
+      )}
+      {canToggle && <VisibilitySwitch memoryId={m.id} value={m.visibility} />}
     </article>
   );
 }
@@ -68,26 +77,38 @@ export function ShareCard({ message }: CardProps) {
   );
 }
 
+const REL_SENIOR: Record<string, string> = {
+  TAKEN_AT: '찍은 곳', APPEARS_IN: '함께한 사람', IN_ERA: '시기', ABOUT: '사건', EVOKES: '감정', MENTIONS: '키워드', FAMILY_OF: '가족',
+};
+
 export function RecallCard({ message, variant }: CardProps) {
   const p = message.payload as RecallCardPayload;
   const m = p.memory;
+  const senior = variant === 'senior';
   const nodeBy = new Map(p.path.nodes.map(n => [n.id, n]));
   const hops = p.path.edges.map(e => ({ id: e.id, a: nodeBy.get(e.source)?.name ?? e.source, b: nodeBy.get(e.target)?.name ?? e.target, t: e.type }));
   const excerpt = m.story.length > 110 ? m.story.slice(0, 108) + '…' : m.story;
   return (
     <article className="cd cd-recall" aria-label={m.title}>
       {m.photoUrl && <img className="cd-photo-in" src={m.photoUrl} alt="" loading="lazy" />}
-      <h3 className="cd-title">{m.title}</h3>
+      <div className="cd-row cd-between"><h3 className="cd-title">{m.title}</h3>
+        {senior && <SpeakButton text={[message.text, m.story].filter(Boolean).join(' ')} />}</div>
       <p className="cd-warm">{excerpt}</p>
       {p.matched.length > 0 && (
         <div className="cd-row"><span className="cd-label">찾은 단서</span>{p.matched.map(x => <span key={x} className="badge">{x}</span>)}</div>
       )}
       {hops.length > 0 && (
         <div className="cd-path" aria-label="그래프 경로">
-          {hops.map(h => <span key={h.id} className="cd-hop">{h.a} <b>—{h.t}→</b> {h.b}</span>)}
+          {hops.map(h => (
+            <span key={h.id} className="cd-hop">
+              <span className="cd-hop-n">{h.a}</span><b>{senior ? REL_SENIOR[h.t] ?? h.t : `—${h.t}→`}</b><span className="cd-hop-n">{h.b}</span>
+            </span>
+          ))}
         </div>
       )}
-      {p.cypher && <code className={`mono faint cd-cypher ${variant === 'senior' ? 'cd-cypher-s' : ''}`}>{p.cypher}</code>}
+      {!senior && p.cypher && (
+        <details className="cd-tech"><summary>기술 정보 보기</summary><code className="mono cd-cypher">{p.cypher}</code></details>
+      )}
       {p.alternatives.length > 0 && (
         <p className="cd-alt">이런 추억도 있어요: {p.alternatives.map((a, i) => (
           <span key={a.memoryId}>{i > 0 && ' · '}<button type="button" className="cd-link" onClick={() => tachi.send(message.roomId, a.title)}>{a.title}</button></span>

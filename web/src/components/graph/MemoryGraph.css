@@ -7,9 +7,10 @@
 .mg-ring { fill: var(--surface); stroke: var(--text); stroke-width: 1.5; }
 .mg-thin { stroke-width: 1; stroke: var(--text-2); }
 .mg-dot { fill: var(--text-2); }
-.mg-label { font-size: 11px; fill: var(--text-2); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
-.mg-label-mem { font-size: 12px; font-weight: var(--weight-semibold); fill: var(--text); }
-.mg-rel { font-size: 10px; fill: var(--text-2); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; list-style: none; }
+.mg-label { font-size: 13px; fill: var(--text-2); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
+.mg-label-mem { font-size: 13px; font-weight: var(--weight-semibold); fill: var(--text); }
+.mg-rel { font-size: 12px; fill: var(--text-2); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
 .mg-node { transition: opacity var(--dur-med) var(--ease-out); }
 .mg-dim { opacity: .25; }
 .mg-grab { cursor: grab; }
@@ -21,6 +22,8 @@
 .mg-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--text-3); font-size: var(--text-caption); pointer-events: none; }
 .mg-legend { list-style: none; margin: var(--space-8) 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-6) var(--space-12); font-size: var(--text-micro); color: var(--text-2); }
 .mg-legend li { display: inline-flex; align-items: center; gap: var(--space-4); }
-.senior .mg-legend { font-size: 14px; }
+.mg-compact .mg-label { font-size: 12px; }
+.mg-compact .mg-label-mem { font-size: 12px; }
+.senior .mg-legend { font-size: 17px; }
 @keyframes mg-ping { from { opacity: .9; transform: scale(.7); } to { opacity: 0; transform: scale(1.6); } }
 @keyframes mg-in { from { opacity: 0; } to { opacity: 1; } }

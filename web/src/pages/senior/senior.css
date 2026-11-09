@@ -6,9 +6,9 @@
 .sa-header { height: 56px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 var(--space-8) 0 var(--space-16); border-bottom: 1px solid var(--border); }
 .sa-brand { display: flex; align-items: baseline; gap: var(--space-10); }
 .sa-word { font-size: 22px; font-weight: var(--weight-semibold); }
-.sa-status { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; color: var(--text-2); }
+.sa-status { display: inline-flex; align-items: center; gap: 6px; font-size: 17px; color: var(--text-2); }
 .sa-status i { width: 8px; height: 8px; border-radius: 50%; background: var(--text); display: inline-block; }
-.sa-icon-btn { width: 48px; height: 48px; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius-lg); }
+.sa-icon-btn { width: 56px; height: 56px; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius-lg); }
 .sa-icon-btn:hover { background: var(--hover); }
 .sa-main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .sa-chat { flex: 1; min-height: 0; display: flex; flex-direction: column; }

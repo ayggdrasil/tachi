@@ -68,3 +68,6 @@ button.fam-menu-item:hover { background: var(--hover); }
   .fam-head-label { display: none; }
   .fam-composer { padding-bottom: max(var(--space-8), env(safe-area-inset-bottom)); }
 }
+
+.fam-banner { flex: none; display: flex; align-items: center; justify-content: center; gap: var(--space-8); min-height: 36px; margin: 0 var(--space-12) var(--space-4); padding: 0 var(--space-12); border: 0; border-radius: var(--radius-md, 10px); background: var(--accent-soft, var(--surface-2, #eef)); color: var(--text-1, inherit); font-size: var(--text-small); cursor: pointer; }
+.fam-banner b { font-weight: var(--weight-semibold); text-decoration: underline; }

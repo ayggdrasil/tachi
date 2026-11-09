@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowDown, Check, Info } from 'lucide-react';
+import { ArrowDown, Check } from 'lucide-react';
 import type { CardAction, Message, User } from '../../../../shared/types';
 import { SYSTEM_ID, TACHI_ID, dayHeaderLabel, koreanTime } from '../../../../shared/constants';
 import { selectRoomMessages, tachi, useTachi } from '../../lib/store';
@@ -8,7 +8,10 @@ import { SpeakButton } from '../common/SpeakButton';
 import { CardRenderer } from '../cards/CardRenderer';
 import './MessageList.css';
 
-interface Props { roomId: string; variant: 'senior' | 'family'; onOpenArtifact?: (artifactId: string) => void; emptyHint?: React.ReactNode }
+interface Props { roomId: string; variant: 'senior' | 'family'; onOpenArtifact?: (artifactId: string) => void; onOpenRoom?: (roomId: string) => void; emptyHint?: React.ReactNode }
+
+const CARD_KINDS = new Set(['memory_card', 'recall_card', 'trip_suggestion', 'itinerary', 'share_card', 'artifact', 'schedule_request', 'schedule_result', 'health_card', 'report']);
+const TEXT_ABOVE = new Set(['recall_card', 'trip_suggestion']);
 
 function ActionBar({ message, onOpenArtifact }: { message: Message; onOpenArtifact?: (id: string) => void }) {
   const [clicked, setClicked] = useState<Set<string>>(new Set());
@@ -39,21 +42,23 @@ function ActionBar({ message, onOpenArtifact }: { message: Message; onOpenArtifa
 }
 
 function ModelLine({ message, variant }: { message: Message; variant: 'senior' | 'family' }) {
-  const [open, setOpen] = useState(false);
-  const m = message.meta; if (!m?.model && !m?.fallback) return null;
-  const line = `${m.model ?? '타치'}${m.fallback ? ' · 오프라인 응답' : ''}`;
-  if (variant === 'family') return <span className="ml-model">{line}</span>;
-  return (
-    <span className="ml-info">
-      <button type="button" className="ml-info-btn" aria-label="응답 정보" aria-expanded={open} onClick={() => setOpen(o => !o)}><Info size={16} /></button>
-      {open && <span className="ml-model ml-model-s" role="status">{line}</span>}
-    </span>
-  );
+  // Seniors never see technical provenance; the family variant shows what actually produced the text.
+  if (variant === 'senior') return null;
+  const m = message.meta; if (!m?.model && !m?.fallback && !m?.source) return null;
+  const line = m.source === 'rule' ? '규칙 응답'
+    : m.source === 'heuristic' || m.fallback ? '오프라인 응답'
+    : m.model ?? '타치';
+  return <span className="ml-model">{line}</span>;
+}
+
+function GenBadge({ message }: { message: Message }) {
+  const g = message.meta?.generatedBy; if (!g) return null;
+  return <span className="badge ml-gen">{g === 'bot' ? 'AI 봇' : '자동 응답'}</span>;
 }
 
 function dateKey(iso: string) { const d = new Date(iso); return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`; }
 
-export function MessageList({ roomId, variant, onOpenArtifact, emptyHint }: Props) {
+export function MessageList({ roomId, variant, onOpenArtifact, onOpenRoom, emptyHint }: Props) {
   const messages = useTachi(selectRoomMessages(roomId));
   const users = useTachi(s => s.users);
   const meId = useTachi(s => s.meId);
@@ -69,6 +74,13 @@ export function MessageList({ roomId, variant, onOpenArtifact, emptyHint }: Prop
     const el = scrollRef.current; if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
   };
+  const pinMode = useRef<'bottom' | 'card'>('bottom');
+  const toCard = (id: string) => {
+    const el = scrollRef.current; if (!el) return;
+    const row = el.querySelector<HTMLElement>(`[data-mid="${CSS.escape(id)}"]`); if (!row) return toBottom(true);
+    const top = row.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 8;
+    el.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+  };
   const lastTop = useRef(0);
   const onScroll = () => {
     const el = scrollRef.current; if (!el) return;
@@ -82,7 +94,7 @@ export function MessageList({ roomId, variant, onOpenArtifact, emptyHint }: Prop
   // Photos and cards grow after they render: stay pinned to the bottom when they finish loading.
   useEffect(() => {
     const el = scrollRef.current; if (!el) return;
-    const onLoad = () => { if (atBottom.current) el.scrollTop = el.scrollHeight; };
+    const onLoad = () => { if (atBottom.current && pinMode.current === 'bottom') el.scrollTop = el.scrollHeight; };
     el.addEventListener('load', onLoad, true);
     return () => el.removeEventListener('load', onLoad, true);
   }, []);
@@ -94,12 +106,15 @@ export function MessageList({ roomId, variant, onOpenArtifact, emptyHint }: Prop
     prevLen.current = messages.length;
     if (first) { toBottom(false); return; }
     if (!grew) return;
-    if (atBottom.current || last?.senderId === meId) toBottom(true);
+    const isCard = !!last && CARD_KINDS.has(last.kind) && last.senderId !== meId;
+    pinMode.current = isCard ? 'card' : 'bottom';
+    if (isCard && atBottom.current) toCard(last.id);
+    else if (atBottom.current || last?.senderId === meId) toBottom(true);
     else setShowNew(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length, tick]);
 
-  useEffect(() => { if (typing && atBottom.current) toBottom(true); }, [typing]);
+  useEffect(() => { if (typing && atBottom.current && pinMode.current === 'bottom') toBottom(true); }, [typing]);
   useEffect(() => { prevLen.current = 0; setShowNew(false); }, [roomId]);
 
   const lastMsg = messages[messages.length - 1];
@@ -124,17 +139,18 @@ export function MessageList({ roomId, variant, onOpenArtifact, emptyHint }: Prop
           prev = m;
           const isLast = m === lastMsg;
           const date = new Date(m.createdAt);
-          const body = m.kind === 'text' ? null : <CardRenderer message={m} variant={variant} onOpenArtifact={onOpenArtifact} />;
+          const body = m.kind === 'text' ? null : <CardRenderer message={m} variant={variant} onOpenArtifact={onOpenArtifact} onOpenRoom={onOpenRoom} />;
           return (
             <Fragment key={m.id}>
               {showDate && <div className="ml-date"><span>{dayHeaderLabel(date)}</span></div>}
               {isSystem ? (
                 <div className="ml-sys"><CardRenderer message={{ ...m, kind: 'system' }} variant={variant} /></div>
               ) : (
-                <div className={`ml-row ${mine ? 'ml-me' : 'ml-other'} ${head ? 'ml-head' : ''}`}>
+                <div data-mid={m.id} className={`ml-row ${mine ? 'ml-me' : 'ml-other'} ${head ? 'ml-head' : ''}`}>
                   {!mine && <div className="ml-av">{head && <Avatar user={sender} size={senior ? 36 : 30} />}</div>}
                   <div className="ml-col">
-                    {!mine && head && <div className="ml-name">{isTachi ? '타치' : sender?.shortName ?? m.senderId}<span className="ml-time">{koreanTime(date)}</span></div>}
+                    {!mine && head && <div className="ml-name">{isTachi ? '타치' : sender?.shortName ?? m.senderId}<GenBadge message={m} /><span className="ml-time">{koreanTime(date)}</span></div>}
+                    {!head && !mine && m.meta?.generatedBy && <div className="ml-name"><GenBadge message={m} /></div>}
                     {isTachi && m.meta?.proactive && head && <div className="ml-pro">타치가 먼저 말을 걸었어요 · {koreanTime(date)}</div>}
                     {m.kind === 'text' && (
                       <div className={`ml-text ${mine ? 'ml-bubble' : isTachi ? 'ml-tachi' : 'ml-light'}`}>
@@ -142,7 +158,11 @@ export function MessageList({ roomId, variant, onOpenArtifact, emptyHint }: Prop
                         {senior && isTachi && <span className="ml-speak"><SpeakButton text={m.text} /></span>}
                       </div>
                     )}
+                    {m.kind !== 'text' && TEXT_ABOVE.has(m.kind) && m.text && (
+                      <div className="ml-text ml-tachi">{m.text}</div>
+                    )}
                     {body && <div className="ml-card">{body}</div>}
+                    {senior && mine && m.meta?.generatedBy === 'assisted' && <span className="ml-auto-cap">자동 응답</span>}
                     <ActionBar message={m} onOpenArtifact={onOpenArtifact} />
                     {isTachi && <ModelLine message={m} variant={variant} />}
                     {isTachi && isLast && m.quickReplies && m.quickReplies.length > 0 && (

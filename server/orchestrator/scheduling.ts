@@ -1,9 +1,9 @@
 // Gathering schedule coordination (4.7): poll, per-member side rooms, live progress, result.
-import { FAMILY_ROOM_ID, SENIOR_ID, SENIOR_ROOM_ID, TACHI_ID, buildCandidateSlots } from '../../shared/constants';
-import type { Artifact, ID, Message, Poll, Room, ScheduleProgressPayload, ScheduleRequestPayload } from '../../shared/types';
+import { FAMILY_ROOM_ID, SENIOR_ID, SENIOR_ROOM_ID, TACHI_ID, buildCandidateSlots, dateLabel, pad2 } from '../../shared/constants';
+import type { Artifact, ID, Message, Poll, Room, ScheduleProgressPayload, ScheduleRequestPayload, ScheduleResultPayload, Slot } from '../../shared/types';
 import { ctx } from './ctx';
 import {
-  emitPoll, emitRoomTo, getUser, joinRoomSockets, now, post, tachiSay, updateMessage,
+  emitPoll, emitRoomTo, getUser, isMember, joinRoomSockets, markActionDone, now, post, tachiSay, updateMessage, withTyping,
 } from './core';
 import { emitArtifact, latestOpenArtifact } from './artifacts';
 import { reactBots, scheduleBotAnswers } from './bots';
@@ -42,7 +42,7 @@ function sideRoomFor(userId: ID, title: string, pollId: ID): Room {
   return room;
 }
 
-export async function startScheduling(familyRoomId: ID, asker: { id: ID }): Promise<void> {
+export async function startScheduling(familyRoomId: ID, asker: { id: ID }, opts: { slots?: Slot[]; repoll?: boolean } = {}): Promise<void> {
   const family = ctx.db.rooms.get(familyRoomId);
   if (!family) return;
   if (openPoll(familyRoomId)) {
@@ -52,7 +52,7 @@ export async function startScheduling(familyRoomId: ID, asker: { id: ID }): Prom
   const artifact: Artifact | undefined = latestOpenArtifact(familyRoomId);
   const title = artifact?.title ?? '가족 모임';
   const participants = family.memberIds.filter(id => id !== TACHI_ID && getUser(id));
-  const slots = buildCandidateSlots(now());
+  const slots = opts.slots ?? buildCandidateSlots(now());
   const poll: Poll = {
     id: uid('poll'), artifactId: artifact?.id, familyRoomId, title, slots, participantIds: participants, sideRoomIds: {}, responses: {},
     status: 'open', createdAt: nowIso(),
@@ -68,7 +68,7 @@ export async function startScheduling(familyRoomId: ID, asker: { id: ID }): Prom
     emitArtifact(artifact);
   }
 
-  await tachiSay(familyRoomId, { text: '가족 한 분 한 분께 따로 여쭤볼게요.' });
+  await tachiSay(familyRoomId, { text: opts.repoll ? '다른 날짜로 다시 한 분 한 분께 여쭤볼게요.' : '가족 한 분 한 분께 따로 여쭤볼게요.' });
   const progress = post(familyRoomId, {
     senderId: TACHI_ID, kind: 'schedule_progress', text: `일정 응답 0/${participants.length}`, payload: progressPayload(poll),
   });
@@ -117,14 +117,29 @@ export async function submitAvailability(pollId: ID, userId: ID, slotIds: ID[]):
   return true;
 }
 
+/** Best candidate: the senior must be available if anyone can make it with her; most available; tie -> earliest. */
+function bestSlot(poll: Poll): { slot: Slot; available: ID[] } {
+  const avail = (slotId: ID) => poll.participantIds.filter(u => poll.responses[u]?.includes(slotId));
+  const withMom = poll.slots.filter(s => avail(s.id).includes(SENIOR_ID));
+  const pool = withMom.length && poll.participantIds.includes(SENIOR_ID) ? withMom : poll.slots;
+  let best = pool[0];
+  for (const s of pool) if (avail(s.id).length > avail(best.id).length) best = s; // ties keep the earliest
+  return { slot: best, available: avail(best.id) };
+}
+
+async function announceConfirmed(poll: Poll, slot: Slot): Promise<void> {
+  await Promise.all([...new Set(Object.values(poll.sideRoomIds))].map(roomId =>
+    tachiSay(roomId, { text: `${slot.label}에 가족이 모여요.` })));
+}
+
 export async function closePoll(pollId: ID): Promise<void> {
   const poll = ctx.db.polls.get(pollId);
   if (!poll || poll.status !== 'open') return;
-  const count = (slotId: ID) => poll.participantIds.filter(u => poll.responses[u]?.includes(slotId)).length;
-  let best = poll.slots[0];
-  for (const s of poll.slots) if (count(s.id) > count(best.id)) best = s; // ties keep the earliest
-  const available = poll.participantIds.filter(u => poll.responses[u]?.includes(best.id));
+  const { slot: best, available } = bestSlot(poll);
   const unavailable = poll.participantIds.filter(u => !available.includes(u));
+  const unanswered = poll.participantIds.filter(u => !poll.responses[u]);
+  const total = poll.participantIds.length;
+  const unanimous = available.length === total;
   poll.status = 'closed';
   poll.resultSlotId = best.id;
   ctx.db.polls.put(poll);
@@ -133,22 +148,73 @@ export async function closePoll(pollId: ID): Promise<void> {
 
   const artifact = poll.artifactId ? ctx.db.artifacts.get(poll.artifactId) : undefined;
   if (artifact) {
-    artifact.dateStatus = 'confirmed';
+    artifact.dateStatus = unanimous ? 'confirmed' : 'polling';
     artifact.dateLabel = best.label;
-    artifact.slot = best;
+    if (unanimous) artifact.slot = best;
     artifact.updatedBy = TACHI_ID;
     artifact.updatedAt = nowIso();
     ctx.db.artifacts.put(artifact);
     emitArtifact(artifact);
   }
-  const res = await tachiSay(poll.familyRoomId, {
-    kind: 'schedule_result',
-    text: `${best.label}로 정했어요. (${available.length}/${poll.participantIds.length}명 가능)`,
-    payload: { type: 'schedule_result', pollId, slot: best, available, unavailable, artifactId: artifact?.id },
-  });
+  const payload: ScheduleResultPayload = {
+    type: 'schedule_result', pollId, slot: best, available, unavailable, artifactId: artifact?.id,
+    unanimous, confirmed: unanimous, unanswered,
+  };
+  const res = unanimous
+    ? await tachiSay(poll.familyRoomId, { kind: 'schedule_result', text: `${best.label}로 정했어요. (${available.length}/${total}명 가능)`, payload })
+    : await tachiSay(poll.familyRoomId, {
+      kind: 'schedule_result',
+      text: `가장 많이 가능한 후보예요 · ${available.length}/${total}명 (${best.label})`,
+      payload,
+      actions: [
+        { id: 'confirm_slot', label: '이 시간으로 확정', style: 'primary', data: { pollId, slotId: best.id } },
+        { id: 'repoll', label: '다시 조율', data: { pollId } },
+      ],
+    });
   reactBots(poll.familyRoomId, res);
-  await Promise.all([...new Set(Object.values(poll.sideRoomIds))].map(roomId =>
-    tachiSay(roomId, { text: `${best.label}에 가족이 모여요.` })));
+  if (unanimous) await announceConfirmed(poll, best);
+}
+
+/** Family-room actions on a non-unanimous result card: confirm_slot / repoll. */
+export async function handleScheduleAction(userId: ID, msg: Message, actionId: string, data?: Record<string, unknown>): Promise<void> {
+  const room = ctx.db.rooms.get(msg.roomId);
+  if (!room || !isMember(room, userId)) return;
+  const act = msg.actions?.find(a => a.id === actionId);
+  if (act?.done) return;
+  const res = msg.payload as ScheduleResultPayload | undefined;
+  if (!res || res.type !== 'schedule_result') return;
+  const pollId = (typeof data?.pollId === 'string' ? data.pollId : res.pollId) as ID;
+  const poll = ctx.db.polls.get(pollId);
+  if (!poll || poll.status !== 'closed' || res.confirmed) return;
+  if (actionId === 'confirm_slot') {
+    const slotId = typeof data?.slotId === 'string' ? data.slotId : res.slot.id;
+    const slot = poll.slots.find(x => x.id === slotId) ?? res.slot;
+    msg.payload = { ...res, slot, confirmed: true };
+    msg.text = `${slot.label}로 확정했어요. (${res.available.length}/${poll.participantIds.length}명 가능)`;
+    markActionDone(msg);
+    poll.resultSlotId = slot.id;
+    ctx.db.polls.put(poll);
+    emitPoll(poll);
+    const artifact = poll.artifactId ? ctx.db.artifacts.get(poll.artifactId) : undefined;
+    if (artifact) {
+      artifact.dateStatus = 'confirmed';
+      artifact.dateLabel = slot.label;
+      artifact.slot = slot;
+      artifact.updatedBy = TACHI_ID;
+      artifact.updatedAt = nowIso();
+      ctx.db.artifacts.put(artifact);
+      emitArtifact(artifact);
+    }
+    await announceConfirmed(poll, slot);
+  } else if (actionId === 'repoll') {
+    markActionDone(msg);
+    const shifted: Slot[] = poll.slots.map((sl, i) => {
+      const d = new Date(sl.startsAt);
+      d.setDate(d.getDate() + 7);
+      return { id: `slot-${i}`, startsAt: d.toISOString(), label: `${dateLabel(d)} ${pad2(d.getHours())}:00` };
+    });
+    await startScheduling(poll.familyRoomId, { id: userId }, { slots: shifted, repoll: true });
+  }
 }
 
 /** Director "확정" / demo:closePoll. Returns false when no poll is open. */
@@ -162,7 +228,8 @@ export async function forceClosePoll(): Promise<boolean> {
 export async function handlePickSlots(userId: ID, msg: Message, data?: Record<string, unknown>): Promise<void> {
   const p = msg.payload as ScheduleRequestPayload | undefined;
   if (!p || p.type !== 'schedule_request') return;
-  const slotIds = Array.isArray(data?.slotIds) ? (data!.slotIds as unknown[]).filter((x): x is string => typeof x === 'string') : [];
+  if (!Array.isArray(data?.slotIds)) return;
+  const slotIds = (data!.slotIds as unknown[]).filter((x): x is string => typeof x === 'string'); // [] = '이번엔 모두 어려워요'
   await submitAvailability(p.pollId, userId, slotIds);
 }
 
@@ -173,7 +240,11 @@ export async function handleSideMessage(room: Room, userId: ID, text?: string): 
     await tachiSay(room.id, { text: '일정은 이미 정해졌어요. 가족방에서 확인해 보세요.' });
     return;
   }
-  const ai = await ctx.brain.parseAvailability(text, poll.slots);
+  const ai = await withTyping(room.id, () => ctx.brain.parseAvailability(text, poll.slots));
+  if (!ai.value.length && NEGATIVE_RE.test(text)) {
+    await submitAvailability(poll.id, userId, []);
+    return;
+  }
   if (!ai.value.length) {
     await tachiSay(room.id, { text: '어느 시간이 괜찮으신지 한 번만 더 알려 주실래요? 예를 들어 "일요일 점심"처럼요.' }, ai);
     return;
@@ -181,14 +252,19 @@ export async function handleSideMessage(room: Room, userId: ID, text?: string): 
   await submitAvailability(poll.id, userId, ai.value);
 }
 
+const NEGATIVE_RE = /(다|모두|전부|아무\s*때도)\s*(안|어려|못)|안 돼요?$|못 가/;
 const AVAIL_RE = /(토요일|일요일|주말|아무때|아무 때|언제든|다 괜찮|다 좋|점심|저녁|다음 주|다음주)/;
 
 /** The senior may answer an open poll by typing in her own room (only when she hasn't answered). */
 export async function tryMomAvailability(text: string): Promise<boolean> {
   const poll = ctx.db.polls.all().filter(p => p.status === 'open' && p.participantIds.includes(SENIOR_ID) && !p.responses[SENIOR_ID]).at(-1);
-  if (!poll || !AVAIL_RE.test(text)) return false;
-  const ai = await ctx.brain.parseAvailability(text, poll.slots);
-  if (!ai.value.length) return false;
+  if (!poll || !(AVAIL_RE.test(text) || NEGATIVE_RE.test(text))) return false;
+  const ai = await withTyping(SENIOR_ROOM_ID, () => ctx.brain.parseAvailability(text, poll.slots));
+  if (!ai.value.length) {
+    if (!NEGATIVE_RE.test(text)) return false;
+    await submitAvailability(poll.id, SENIOR_ID, []);
+    return true;
+  }
   await submitAvailability(poll.id, SENIOR_ID, ai.value);
   return true;
 }

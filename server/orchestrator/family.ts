@@ -2,10 +2,11 @@
 import type { Message, PrivacyCategory, Room, User } from '../../shared/types';
 import type { FamilyContext } from '../brain/contract';
 import { ctx } from './ctx';
-import { getHealth, getPrivacy, getUser, markActionDone, now, senior, tachiSay } from './core';
+import { getHealth, getPrivacy, getUser, healthForFamily, markActionDone, memoryVisibleToFamily, now, senior, tachiSay, withTyping } from './core';
+import { sessionHiddenFromFamily } from './sessions';
 import { createGathering } from './artifacts';
 import { reactBots } from './bots';
-import { startScheduling, handlePickSlots } from './scheduling';
+import { startScheduling, handlePickSlots, handleScheduleAction } from './scheduling';
 
 /** Only PUBLIC categories reach the brain. Private ones are merely named. */
 export function buildFamilyContext(asker: User): FamilyContext {
@@ -13,16 +14,15 @@ export function buildFamilyContext(asker: User): FamilyContext {
   const priv = (Object.keys(privacy) as PrivacyCategory[]).filter(c => privacy[c] === 'private');
   const h = getHealth();
   const t = now();
+  const fh = healthForFamily(h) ?? undefined;
   return {
     senior: senior(), asker, privacy, privateCategories: priv,
-    health: privacy.health === 'family' ? h : undefined,
+    health: fh,
     moodToday: privacy.mood === 'family' ? h?.mood.at(-1)?.label : undefined,
-    memories: privacy.memory === 'family'
-      ? ctx.db.memories.all().filter(m => m.status === 'saved' && m.visibility === 'family')
-        .map(m => ({ id: m.id, title: m.title, summary: m.summary, year: m.year, place: m.place, people: m.people, emotions: m.emotions }))
-      : [],
+    memories: ctx.db.memories.all().filter(memoryVisibleToFamily)
+      .map(m => ({ id: m.id, title: m.title, summary: m.summary, year: m.year, place: m.place, people: m.people, emotions: m.emotions })),
     recentSessions: ctx.db.sessions.all()
-      .filter(s => privacy[s.category] === 'family' && t.getTime() - new Date(s.startedAt).getTime() < 3 * 86400000)
+      .filter(s => !sessionHiddenFromFamily(s) && t.getTime() - new Date(s.startedAt).getTime() < 3 * 86400000)
       .slice(-5).map(s => ({ startedAt: s.startedAt, title: s.title, summary: s.summary, category: s.category })),
     trips: privacy.trip === 'family'
       ? ctx.db.trips.all().filter(x => x.status !== 'declined').map(x => ({ title: x.suggestion.title, destination: x.suggestion.destination, status: x.status }))
@@ -46,7 +46,7 @@ export async function handleFamilyInput(room: Room, userId: string, text: string
 
 async function answer(room: Room, asker: User, question: string): Promise<void> {
   const fctx = buildFamilyContext(asker);
-  const ai = await ctx.brain.answerFamily(question, fctx);
+  const ai = await withTyping(room.id, () => ctx.brain.answerFamily(question, fctx));
   const t = await tachiSay(room.id, { text: ai.value.text }, ai);
   let last: Message = t;
   if (ai.value.showHealthCard && fctx.health) {
@@ -63,5 +63,7 @@ export async function handleFamilyAction(room: Room, userId: string, msg: Messag
     await startScheduling(room.id, { id: userId });
   } else if (actionId === 'pick_slots') {
     await handlePickSlots(userId, msg, data);
+  } else if (actionId === 'confirm_slot' || actionId === 'repoll') {
+    await handleScheduleAction(userId, msg, actionId, data);
   }
 }

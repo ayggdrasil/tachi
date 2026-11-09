@@ -3,14 +3,14 @@ import { TACHI_ID } from '../../shared/constants';
 import type { Artifact, ArtifactPatch, ID, Memory, Trip, User } from '../../shared/types';
 import { ctx } from './ctx';
 import {
-  emitTyping, getPrivacy, getUser, isMember, roomChannel, seesAll, senior, tachiSay,
+  emitTyping, getPrivacy, memoryVisibleToFamily, getUser, isMember, roomChannel, seesAll, senior, tachiSay, withTyping,
 } from './core';
 import { nowIso, uid } from '../util/misc';
 import { reactBots } from './bots';
 
 function pickMemoryForGathering(roomId: ID): Memory | undefined {
   const last = ctx.db.kv.get<string>('last-memory');
-  const mems = ctx.db.memories.all().filter(m => m.status === 'saved' && m.visibility === 'family');
+  const mems = ctx.db.memories.all().filter(m => memoryVisibleToFamily(m));
   return (last ? mems.find(m => m.id === last) : undefined)
     ?? [...mems].sort((a, b) => (b.sharedAt ?? '').localeCompare(a.sharedAt ?? ''))[0];
 }
@@ -37,11 +37,11 @@ export async function createGathering(
   const members = room.memberIds.map(getUser).filter((u): u is User => !!u && u.id !== TACHI_ID);
   const memory = opts.memory ?? pickMemoryForGathering(roomId);
   const trip = opts.trip ?? pickTrip();
-  const ai = await ctx.brain.draftGathering({
+  const ai = await withTyping(roomId, () => ctx.brain.draftGathering({
     proposalText: text, proposer, members, senior: senior(),
     linkedMemory: memory ? { id: memory.id, title: memory.title, summary: memory.summary, place: memory.place, year: memory.year, people: memory.people } : undefined,
     linkedTrip: trip ? { title: trip.suggestion.title, destination: trip.suggestion.destination, itinerary: trip.itinerary } : undefined,
-  });
+  }));
   const d = ai.value;
   const t = nowIso();
   const memberIds = new Set(members.map(m => m.id));
@@ -114,7 +114,7 @@ export async function assistArtifact(userId: ID, artifactId: ID): Promise<void> 
   const room = ctx.db.rooms.get(a.roomId)!;
   const members = room.memberIds.map(getUser).filter((u): u is User => !!u && u.id !== TACHI_ID);
   emitTyping(a.roomId, TACHI_ID);
-  const ai = await ctx.brain.assistArtifact(a, members);
+  const ai = await withTyping(a.roomId, () => ctx.brain.assistArtifact(a, members));
   const fresh = ctx.db.artifacts.get(artifactId) ?? a;
   const ids = new Set(members.map(m => m.id));
   for (const t of ai.value.newTasks ?? []) {

@@ -62,3 +62,12 @@
   .dc-rail { border-right: 0; border-bottom: 1px solid var(--border); max-height: 60dvh; }
   .dc-stage { min-height: 600px; }
 }
+
+.dc-elapsed { font-variant-numeric: tabular-nums; }
+.dc-clock { display: flex; align-items: center; gap: var(--space-4); margin: 0 0 var(--space-8); }
+.dc-live { min-height: 24px; font-size: var(--text-small); margin-left: auto; }
+.dc-step:disabled { cursor: progress; }
+.dc-spin { animation: dc-spin 1s linear infinite; }
+@keyframes dc-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .dc-spin { animation: none; } }
+.dc-cap { text-align: center; margin-top: var(--space-4); }

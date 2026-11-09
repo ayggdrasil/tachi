@@ -20,6 +20,8 @@ export interface Ctx {
   paceMs: number;
   /** bumps on reset; delayed callbacks from an older generation are dropped */
   gen: number;
+  /** true while the demo is being wiped and reseeded: mutations are refused */
+  resetting: boolean;
   /** userId -> socket ids that claimed that persona */
   claims: Map<ID, Set<string>>;
   /** socket ids that connected from the Director stage (embedded phones) */
@@ -28,4 +30,4 @@ export interface Ctx {
   lanUrls: string[];
 }
 
-export const ctx = { gen: 0, claims: new Map(), assisted: new Set(), queues: new Map(), lanUrls: [], paceMs: 800 } as unknown as Ctx;
+export const ctx = { gen: 0, resetting: false, claims: new Map(), assisted: new Set(), queues: new Map(), lanUrls: [], paceMs: 800 } as unknown as Ctx;

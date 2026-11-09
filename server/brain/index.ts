@@ -7,11 +7,14 @@ import { composeReport as hReport, planItinerary as hPlan, proactiveMessage as h
 import { extractFromState, planNext, startTurn, SLOT_QUESTION } from './heuristics/interview';
 import { availability, familyIntent, seniorIntent } from './heuristics/intents';
 import { EMOTION_LABELS, decadeEra } from './heuristics/ko';
-import { completeJson, loadImage, str, strArr } from './llm';
+import { circuitOpen, completeJson, loadImage, str, strArr } from './llm';
 import { ModelRegistry } from './models';
 import * as P from './prompts';
 
 const DEMO_LABEL = '데모 브레인';
+const RULE_LABEL = '규칙 기반';
+/** Thrown inside an llm callback when the requested provider operation could not run (heuristic substituted). */
+class Substitute extends Error {}
 type J = Record<string, unknown>;
 
 export function createBrain(): Brain {
@@ -25,16 +28,19 @@ export function createBrain(): Brain {
     console.warn(`[brain] ${kind} failed, using demo heuristic: ${msg}`);
   };
 
+  const rule = <T>(value: T): AIResult<T> => ({ value, model: RULE_LABEL, fallback: false, source: 'rule' });
+
+  /** source: 'llm' only when a live provider produced the value; 'heuristic' for the offline brain; 'rule' via `rule()`. */
   async function run<T>(name: string, heur: () => T, llm?: (opt: ModelOption) => Promise<T>): Promise<AIResult<T>> {
     const opt = registry.active();
-    if (opt.provider === 'mock') return { value: heur(), model: DEMO_LABEL, fallback: false };
-    if (!opt.available) return { value: heur(), model: DEMO_LABEL, fallback: true };
-    if (!llm) return { value: heur(), model: opt.label, fallback: false };
+    if (opt.provider === 'mock') return { value: heur(), model: DEMO_LABEL, fallback: false, source: 'heuristic' };
+    if (!opt.available || circuitOpen(opt.provider)) return { value: heur(), model: DEMO_LABEL, fallback: true, source: 'heuristic' };
+    if (!llm) return rule(heur());
     try {
-      return { value: await llm(opt), model: opt.label, fallback: false };
+      return { value: await llm(opt), model: opt.label, fallback: false, source: 'llm' };
     } catch (e) {
-      warnOnce(name, e);
-      return { value: heur(), model: DEMO_LABEL, fallback: true };
+      if (!(e instanceof Substitute)) warnOnce(name, e);
+      return { value: heur(), model: DEMO_LABEL, fallback: true, source: 'heuristic' };
     }
   }
 
@@ -48,7 +54,7 @@ export function createBrain(): Brain {
     // ── interview ────────────────────────────────────────────────────────
     startInterview: input => run('startInterview', () => startTurn(input), async opt => {
       const img = loadImage(input.photoPath);
-      if (!img) return startTurn(input);
+      if (!img) throw new Substitute('image unavailable');
       const j = await ask(opt, P.interviewStartPrompt(), 300, [img]);
       let obs = str(j.observation, 80);
       if (!obs) throw new Error('missing observation');
@@ -56,10 +62,10 @@ export function createBrain(): Brain {
       return startTurn(input, obs);
     }),
 
-    interviewTurn: (state, answer) => {
+    interviewTurn: async (state, answer) => {
       const { turn, nextSlot } = planNext(state, answer);
+      if (turn.done || !nextSlot) return rule(turn);
       return run('interviewTurn', () => turn, async opt => {
-        if (turn.done || !nextSlot) return turn;
         const lastQ = SLOT_QUESTION[nextSlot];
         const ack = turn.reply.replace(lastQ, '').trim();
         const j = await ask(opt, P.interviewTurnPrompt(state, answer, nextSlot, ack, lastQ), 300);
@@ -99,7 +105,8 @@ export function createBrain(): Brain {
     // ── senior ───────────────────────────────────────────────────────────
     classifySeniorIntent: (text, ctx) => {
       const h = seniorIntent(text, ctx);
-      return run<SeniorIntent>('classifySeniorIntent', () => h, h.type === 'smalltalk' ? async opt => {
+      if (h.type !== 'smalltalk') return Promise.resolve(rule<SeniorIntent>(h));
+      return run<SeniorIntent>('classifySeniorIntent', () => h, async opt => {
         const j = await ask(opt, P.seniorIntentPrompt(text, ctx.knownNodeNames), 200);
         const type = String(j.type);
         const kws = strArr(j.keywords, 5, 20);
@@ -107,7 +114,7 @@ export function createBrain(): Brain {
         if (type === 'trip') return { type: 'trip', destination: str(j.destination, 20) };
         if (type === 'ask_share') return { type: 'ask_share' };
         return h;
-      } : undefined);
+      });
     },
 
     recallReply: (memory, query) => run('recallReply', () => hRecall(memory, query), async opt => {
@@ -177,22 +184,23 @@ export function createBrain(): Brain {
 
     composeReport: ({ sessions, privacy, moodToday, now }) => {
       const h = hReport(sessions, privacy, moodToday, now);
+      if (!h.sessions.length) return Promise.resolve(rule(h));
       return run('composeReport', () => h, async opt => {
-        if (!h.sessions.length) return h;
         const j = await ask(opt, P.reportHighlightPrompt(h.sessions, h.moodLabel), 400);
         return { ...h, highlight: str(j.highlight, 200) ?? h.highlight };
       });
     },
 
     // ── family ───────────────────────────────────────────────────────────
-    classifyFamilyIntent: (text, asker) => run('classifyFamilyIntent', () => familyIntent(text, asker)),
+    classifyFamilyIntent: async (text, asker) => rule(familyIntent(text, asker)),
 
     answerFamily: (question, ctx) => {
       const h = hAnswer(question, ctx);
       // Privacy: refusals and no-data answers never reach the LLM.
       const cat = questionCategory(question);
       const refusal = !!cat && ctx.privateCategories.includes(cat);
-      return run<FamilyAnswer>('answerFamily', () => h, refusal ? undefined : async opt => {
+      if (refusal) return Promise.resolve(rule<FamilyAnswer>(h));
+      return run<FamilyAnswer>('answerFamily', () => h, async opt => {
         const j = await ask(opt, P.familyAnswerPrompt(question, ctx), 700);
         const text = str(j.text, 500);
         if (!text) throw new Error('missing text');
@@ -227,20 +235,23 @@ export function createBrain(): Brain {
 
     parseAvailability: (text, slots) => {
       const h = availability(text, slots);
-      return run<string[]>('parseAvailability', () => h, h.length ? undefined : async opt => {
+      if (h.length) return Promise.resolve(rule<string[]>(h));
+      return run<string[]>('parseAvailability', () => h, async opt => {
         const j = await ask(opt, P.availabilityPrompt(text, slots), 300);
         const valid = new Set(slots.map(s => s.id));
         return strArr(j.slotIds, 12, 20).filter(id => valid.has(id));
       });
     },
 
-    botReply: ctx => run('botReply', () => hBot(ctx), async opt => {
+    botReply: async ctx => {
       const heur = hBot(ctx);
-      if (heur === '' && ctx.trigger.kind !== 'share_card') return '';
+      if (heur === '' && ctx.trigger.kind !== 'share_card') return rule('');
+      return run('botReply', () => heur, async opt => {
       const j = await ask(opt, P.botPrompt(ctx), 200);
       const r = typeof j.reply === 'string' ? j.reply.trim().slice(0, 140) : '';
       return r;
-    }),
+      });
+    },
   };
   return brain;
 }

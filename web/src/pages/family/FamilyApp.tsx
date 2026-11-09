@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useRef, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, HeartHandshake, MoreHorizontal, UserPlus, X } from 'lucide-react';
+import { ArrowLeft, CalendarClock, HeartHandshake, MoreHorizontal, UserPlus, X } from 'lucide-react';
 import { FAMILY_ROOM_ID } from '../../../../shared/constants';
 import { initTachi, isEmbedded, rememberPersona, resolvePersona, useTachi } from '../../lib/store';
 import { MessageList } from '../../components/chat/MessageList';
@@ -40,9 +40,17 @@ export default function FamilyApp() {
   const [seen, setSeen] = useState<Record<string, number>>({});
 
   const visibleRooms = useMemo(() => rooms.filter(r => r.type !== 'tachi'), [rooms]);
+  const wantRoom = useRef(sp.get('room'));
 
   // pick a default room once rooms are known
   useEffect(() => {
+    if (wantRoom.current && visibleRooms.some(r => r.id === wantRoom.current)) {
+      const id = wantRoom.current;
+      wantRoom.current = null;
+      setActiveId(id);
+      setView('chat');
+      return;
+    }
     if (activeId && visibleRooms.some(r => r.id === activeId)) return;
     const first = visibleRooms.find(r => r.id === FAMILY_ROOM_ID) ?? visibleRooms.find(r => r.type === 'family') ?? visibleRooms[0];
     setActiveId(first?.id ?? null);
@@ -77,6 +85,19 @@ export default function FamilyApp() {
   const family = useMemo(() => Object.values(users).filter(u => u.role === 'family'), [users]);
   const members = useMemo(() => (room?.memberIds ?? []).map(id => users[id]).filter(u => u && u.id !== 'tachi'), [room, users]);
 
+  // embedded: a pending schedule request addressed to me in another room → slim banner
+  const pendingReq = useMemo(() => {
+    if (!embedded || !me) return null;
+    let best: { roomId: string; at: string } | null = null;
+    for (const r of visibleRooms) {
+      if (r.type !== 'side') continue;
+      for (const m of messages[r.id] ?? []) {
+        if (m.payload?.type === 'schedule_request' && !m.payload.answered && (!best || m.createdAt > best.at)) best = { roomId: r.id, at: m.createdAt };
+      }
+    }
+    return best;
+  }, [embedded, me, visibleRooms, messages]);
+
   const switchPersona = useCallback((id: string) => {
     rememberPersona(id);
     const q = new URLSearchParams(sp);
@@ -86,6 +107,7 @@ export default function FamilyApp() {
     nav({ search: `?${q.toString()}` }, { replace: true });
   }, [nav, sp]);
 
+  const openRoom = (id: string) => { setActiveId(id); setView('chat'); setPanel(null); };
   const selectRoom = (id: string) => { setActiveId(id); setView('chat'); setPanel(null); };
   const togglePanel = (p: Panel) => setPanel(cur => (cur && p && cur.kind === p.kind && (cur.kind === 'mom' || (p.kind === 'artifact' && cur.kind === 'artifact' && cur.id === p.id)) ? null : p));
 
@@ -164,12 +186,18 @@ export default function FamilyApp() {
             </div>
           </header>
 
+          {pendingReq && pendingReq.roomId !== activeId && (
+            <button className="fam-banner" onClick={() => openRoom(pendingReq.roomId)}>
+              <CalendarClock size={14} strokeWidth={1.5} /> 타치가 일정을 여쭤봐요 · <b>답하기</b>
+            </button>
+          )}
           {room ? (
             <>
               <div className="fam-thread">
                 <div className="fam-thread-inner">
                   <MessageList roomId={room.id} variant="family"
-                    onOpenArtifact={id => { setPanel({ kind: 'artifact', id }); }} />
+                    onOpenArtifact={id => { setPanel({ kind: 'artifact', id }); }}
+                    onOpenRoom={id => openRoom(id)} />
                 </div>
               </div>
               <div className="fam-composer">

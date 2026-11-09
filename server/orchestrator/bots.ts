@@ -29,7 +29,7 @@ export async function botSpeak(roomId: ID, user: User, trigger: { kind: string; 
   if (!text) return null;
   const current = getUser(user.id);
   if (!current?.isBot) return null; // a human claimed this persona meanwhile
-  return post(roomId, { senderId: user.id, text });
+  return post(roomId, { senderId: user.id, text, meta: { generatedBy: 'bot' } });
 }
 
 /**
@@ -90,7 +90,10 @@ export function scheduleBotAnswers(poll: Poll): void {
       if (!roomId) return;
       emitTyping(roomId, userId);
       await new Promise(r => setTimeout(r, 600));
-      post(roomId, { senderId: userId, text: slotLine(fresh, prefs, userId) });
+      post(roomId, {
+        senderId: userId, text: slotLine(fresh, prefs, userId),
+        meta: { generatedBy: getUser(userId)?.isBot ? 'bot' : 'assisted' },
+      });
       await submitAvailability(fresh.id, userId, prefs);
     });
   }

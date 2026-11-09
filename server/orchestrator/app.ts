@@ -15,6 +15,7 @@ import { createGraphStore } from '../graph/index';
 import { openDb } from '../db';
 import { seed } from '../db/seed';
 import { ctx, type IO } from './ctx';
+import { installGuards, memoryVisibleToFamily, syncClock } from './core';
 import { attachSocketHandlers } from './socket';
 import { startTicker, stopTicker } from './proactive';
 import { log, warn } from '../util/misc';
@@ -49,7 +50,10 @@ export async function createApp(opts: AppOptions = {}) {
     brain: createBrain(), graph: createGraphStore({ dataDir }),
   });
   ctx.lanUrls = lanUrls(port);
+  ctx.resetting = false;
   await ctx.graph.init();
+  (ctx as unknown as { __guarded?: boolean }).__guarded = false;
+  installGuards();
 
   // first boot → seed; existing db with an empty graph → rebuild graph from memories
   if (!ctx.db.users.all().length) await seed();
@@ -60,7 +64,8 @@ export async function createApp(opts: AppOptions = {}) {
     } catch (e) { warn('graph rebuild failed:', e); }
   }
   const demo = ctx.db.kv.get<import('../../shared/types').DemoState>('demo');
-  if (demo) ctx.db.kv.set('demo', { ...demo, lanUrls: ctx.lanUrls });
+  syncClock(0); // the virtual clock never survives a restart
+  if (demo) ctx.db.kv.set('demo', { ...demo, clockOffsetMinutes: 0, lanUrls: ctx.lanUrls });
   const savedModel = ctx.db.kv.get<ModelKey>('model');
   if (savedModel) { try { ctx.brain.setActiveModel(savedModel); } catch { /* unavailable now */ } }
 
@@ -103,8 +108,14 @@ export async function createApp(opts: AppOptions = {}) {
     try { files = fs.readdirSync(photosDir).filter(f => /\.(jpe?g|png|webp|gif)$/i.test(f)).sort(); } catch { /* none */ }
     res.json(files.map(f => `/demo-photos/${f}`));
   });
-  app.get('/api/graph', async (_req, res) => {
-    try { res.json(await ctx.graph.subgraph()); } catch (e) { res.status(500).json({ error: String(e) }); }
+  app.get('/api/graph', async (req, res) => {
+    try {
+      const dirKey = process.env.TACHI_DIRECTOR_KEY;
+      const full = dirKey ? req.query.key === dirKey : req.query.as === 'director';
+      if (full) { res.json(await ctx.graph.subgraph()); return; }
+      const ids = ctx.db.memories.all().filter(memoryVisibleToFamily).map(m => m.id);
+      res.json(ids.length ? await ctx.graph.subgraph(ids) : { nodes: [], edges: [] });
+    } catch (e) { res.status(500).json({ error: String(e) }); }
   });
   app.get('/api/status', (_req, res) => {
     res.json({ ok: true, graphEngine: ctx.graph.engine, model: ctx.brain.getModelState().active });

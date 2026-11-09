@@ -24,13 +24,13 @@ async function waitFor<T>(label: string, fn: () => T | undefined | false, timeou
   return undefined;
 }
 
-async function client(url: string, id: string): Promise<Client> {
+async function client(url: string, id: string, assisted = false): Promise<Client> {
   const sock = connect(url, { transports: ['websocket'], forceNew: true }) as Client['sock'];
   const c = { id, sock, msgs: [] as Message[] } as Client;
   sock.on('message:new', m => c.msgs.push(m));
   sock.on('message:update', m => { const i = c.msgs.findIndex(x => x.id === m.id); if (i >= 0) c.msgs[i] = m; });
   await new Promise<void>(r => sock.on('connect', () => r()));
-  c.boot = await new Promise<Bootstrap>((res, rej) => sock.emit('hello', { userId: id }, b => ('error' in b ? rej(new Error(b.error)) : res(b))));
+  c.boot = await new Promise<Bootstrap>((res, rej) => sock.emit('hello', { userId: id, assisted }, b => ('error' in b ? rej(new Error(b.error)) : res(b))));
   c.msgs.push(...Object.values(c.boot.messages).flat());
   return c;
 }
@@ -47,6 +47,7 @@ async function main() {
 
   const mom = await client(url, 'mom');
   const jieun = await client(url, 'jieun');
+  const dir = await client(url, 'director');
   check(mom.boot.memories.length === 3, 'mom bootstrap has 3 seeded memories');
   check(jieun.boot.memories.length === 2, 'family bootstrap hides the private wedding memory');
   check(mom.boot.rooms.some(r => r.id === FAMILY_ROOM_ID), 'mom is in the family room');
@@ -62,7 +63,7 @@ async function main() {
 
   // 0) proactive → mom replies → automatic report
   let t0 = Date.now();
-  mom.sock.emit('demo:proactive', { kind: 'morning' });
+  dir.sock.emit('demo:proactive', { kind: 'morning' });
   const pro = await waitFor('proactive greeting', () => mom.msgs.find(m => m.meta?.proactive && Date.parse(m.createdAt) >= t0));
   check(!!pro, 'proactive greeting posted');
   const photoStep = DEMO_SCRIPT.find(s => s.id === 'photo')!;
@@ -119,17 +120,51 @@ async function main() {
   if (reqMom) mom.sock.emit('action', { roomId: reqMom.roomId, messageId: reqMom.id, actionId: 'pick_slots', data: { slotIds: ['slot-0', 'slot-1', 'slot-2', 'slot-3'] } });
   if (reqJieun) jieun.sock.emit('action', { roomId: reqJieun.roomId, messageId: reqJieun.id, actionId: 'pick_slots', data: { slotIds: ['slot-0', 'slot-2', 'slot-3'] } });
   const result = await waitFor('schedule_result', () => find(jieun, FAMILY_ROOM_ID, 'schedule_result', t0), 25000);
-  if (!result) jieun.sock.emit('demo:closePoll');
+  if (!result) dir.sock.emit('demo:closePoll');
   const result2 = result ?? await waitFor('schedule_result after closePoll', () => find(jieun, FAMILY_ROOM_ID, 'schedule_result', t0));
   check(!!result2, 'schedule_result posted');
   if (result2?.payload?.type === 'schedule_result') check(result2.payload.slot.id === 'slot-2', `chosen slot is the common one (${result2.payload.slot.label})`);
 
+  // 7b) privacy hardening (F8/F9/F10)
+  const graphNoKey = await fetch(`${url}/api/graph`).then(r => r.json());
+  check(!JSON.stringify(graphNoKey).includes('mem-wedding-1976') && !JSON.stringify(graphNoKey).includes('명동성당'), '/api/graph without key excludes the private wedding memory');
+  check(JSON.stringify(graphNoKey).includes('mem-haeundae-1988'), '/api/graph without key still has public memories');
+
+  let resetSeen = false;
+  jieun.sock.once('reset', () => { resetSeen = true; });
+  jieun.sock.emit('demo:reset');
+  await sleep(900);
+  check(!resetSeen && ctx.db.memories.all().length >= 4, 'demo:reset from a non-director socket is ignored');
+
+  t0 = Date.now();
+  say(mom, SENIOR_ROOM_ID, '명동성당');
+  await waitFor('recall of private wedding memory', () => find(mom, SENIOR_ROOM_ID, 'recall_card', t0));
+
   // 8) report
   t0 = Date.now();
-  jieun.sock.emit('demo:report');
+  dir.sock.emit('demo:report');
   const rep = await waitFor('report', () => jieun.msgs.find(m => m.kind === 'report' && Date.parse(m.createdAt) >= t0));
   check(!!rep, 'report card in family room');
   if (rep?.payload?.type === 'report') check(rep.payload.sessions.filter(s => s.isPrivate).every(s => s.summary === '비공개 대화예요'), 'private sessions are redacted in the report');
+
+  if (rep?.payload?.type === 'report') {
+    const blob = JSON.stringify(rep.payload);
+    check(!blob.includes('명동성당') && rep.payload.sessions.some(s => s.isPrivate && s.title === '대화'), 'report after recalling 명동성당 masks the private wedding session');
+  }
+
+  // 8b) a memory made private after sharing: a fresh family bootstrap has no story / card content
+  if (card?.payload?.type === 'memory_card') {
+    const mem = card.payload.memory;
+    const gotReset = new Promise<boolean>(r => { jieun.sock.once('reset', () => r(true)); setTimeout(() => r(false), 2000); });
+    mom.sock.emit('memory:visibility', { memoryId: mem.id, visibility: 'private' });
+    check(await gotReset, 'family client receives reset after a memory is made private');
+    const fresh = await client(url, 'jieun');
+    const blob = JSON.stringify(fresh.boot);
+    check(!fresh.boot.memories.some(m => m.id === mem.id), 'family bootstrap omits the memory made private');
+    check(!blob.includes(mem.story.slice(0, 20)) && !blob.includes(mem.title), 'family bootstrap has no story/title of the private memory');
+    if (process.env.SMOKE_DEBUG) { const i = blob.indexOf(mem.title); console.log(mem.title, '|', blob.slice(Math.max(0,i-200), i+120)); }
+    fresh.sock.close();
+  }
 
   // 9) privacy: switching health to private nulls it for family
   const hp = new Promise<unknown>(r => jieun.sock.once('health:update', h => r(h)));
@@ -138,10 +173,10 @@ async function main() {
 
   // 10) reset is quick
   t0 = Date.now();
-  await new Promise<void>(r => { mom.sock.once('reset', () => r()); mom.sock.emit('demo:reset'); });
+  await new Promise<void>(r => { mom.sock.once('reset', () => r()); dir.sock.emit('demo:reset'); });
   check(Date.now() - t0 < 2000, `reset finished in ${Date.now() - t0}ms`);
 
-  mom.sock.close(); jieun.sock.close();
+  mom.sock.close(); jieun.sock.close(); dir.sock.close();
   await close();
   fs.rmSync(dataDir, { recursive: true, force: true });
   console.log(failures ? `\nSMOKE FAILED (${failures})` : '\nSMOKE OK');
