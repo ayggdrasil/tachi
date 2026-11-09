@@ -25,7 +25,9 @@ async function main() {
   await new Promise<void>((res, rej) => { socket.on('connect', () => res()); socket.on('connect_error', rej); });
   const boot = await new Promise<Bootstrap | { error: string }>(res => socket.emit('hello', { userId: DIRECTOR_ID, key: process.env.TACHI_DIRECTOR_KEY }, b => res(b)));
   // Drive the script of the server's product language (DEMO_SCRIPT_EN by default, the Korean DEMO_SCRIPT with TACHI_LOCALE=ko).
-  const locale: Locale = ('locale' in boot ? boot.locale : undefined) ?? 'en';
+  // LANG_DEMO=ko|en forces a script; otherwise follow the server's language
+  const forced = process.env.LANG_DEMO === 'ko' || process.env.LANG_DEMO === 'en' ? (process.env.LANG_DEMO as Locale) : undefined;
+  const locale: Locale = forced ?? ('locale' in boot ? boot.locale : undefined) ?? 'en';
   const DEMO_SCRIPT = demoScriptFor(locale);
   console.log('locale', locale);
   socket.emit('demo:reset');
