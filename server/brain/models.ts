@@ -1,5 +1,6 @@
 import { MODEL_DEFS } from '../../shared/constants';
 import type { ModelKey, ModelOption, ModelState } from '../../shared/types';
+import { getLocale } from './locale';
 
 function providerAvailable(provider: string): boolean {
   if (provider === 'anthropic') return !!process.env.ANTHROPIC_API_KEY;
@@ -9,7 +10,7 @@ function providerAvailable(provider: string): boolean {
 
 export function buildOptions(): ModelOption[] {
   return MODEL_DEFS.map(d => ({
-    key: d.key, label: d.label, provider: d.provider,
+    key: d.key, label: d.provider === 'mock' && getLocale() === 'en' ? 'Demo brain' : d.label, provider: d.provider,
     modelId: d.provider === 'mock' ? '' : (d.env && process.env[d.env]) || d.defaultModelId,
     available: providerAvailable(d.provider),
   }));

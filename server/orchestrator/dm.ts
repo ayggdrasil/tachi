@@ -1,8 +1,8 @@
 // Person-to-person 1:1 side chats ('dm' rooms): plain chat, Tachi never answers; unclaimed personas reply in character.
-import { DIRECTOR_ID, TACHI_ID } from '../../shared/constants';
+import { DIRECTOR_ID, SENIOR_ID, TACHI_ID } from '../../shared/constants';
 import type { ID, Message, Room } from '../../shared/types';
 import { ctx } from './ctx';
-import { emitRoomTo, getUser, joinRoomSockets, later } from './core';
+import { emitRoomTo, getUser, joinRoomSockets, later, post } from './core';
 import { botSpeak } from './bots';
 import { st } from '../i18n';
 import { nowIso, rand, uid } from '../util/misc';
@@ -36,6 +36,10 @@ export async function handleDmMessage(room: Room, senderId: ID, msg: Message): P
   later(rand(1500, 3000), async () => {
     const fresh = getUser(other.id);
     if (!fresh?.isBot) return; // a human claimed this persona meanwhile
-    await botSpeak(room.id, fresh, { kind: msg.kind === 'photo' ? 'photo' : 'text', text: msg.text }, msg);
+    const said = await botSpeak(room.id, fresh, { kind: msg.kind === 'photo' ? 'photo' : 'text', text: msg.text }, msg);
+    // a DM must never go unanswered: when the brain has nothing to say, the persona still acknowledges
+    if (said || !getUser(other.id)?.isBot || !ctx.db.rooms.get(room.id)) return;
+    const text = senderId === SENIOR_ID ? st('dm.botAckSenior', { call: st('dm.callSenior') }) : st('dm.botAck');
+    post(room.id, { senderId: other.id, text, meta: { generatedBy: 'bot', source: 'rule' } });
   });
 }

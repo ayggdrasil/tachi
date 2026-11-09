@@ -331,7 +331,8 @@ export default function FamilyApp() {
                 <div className="fam-thread-inner">
                   <MessageList roomId={room.id} variant="family"
                     onOpenArtifact={id => openPanel({ kind: 'artifact', id })}
-                    onOpenRoom={id => openRoom(id)} />
+                    onOpenRoom={id => openRoom(id)}
+                    onOpenDm={id => void startDm(id)} />
                 </div>
               </div>
               <div className="fam-composer">
