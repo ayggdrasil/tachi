@@ -23,7 +23,7 @@
   --surface: var(--color-pure-white);
   --text: var(--color-graphite-ink);
   --text-2: var(--color-mid-ash);
-  --text-3: var(--color-hollow);
+  --text-3: #6e6e6e;              /* AA (≥4.5:1) on white & mist; Hollow stays for disabled/decorative strokes only */
   --border: var(--color-hairline);
   --border-strong: var(--color-hairline-strong);
   --hover: var(--color-hover-veil);
@@ -86,4 +86,49 @@
   --dur-fast: 120ms;
   --dur-med: 220ms;
   --dur-slow: 420ms;
+}
+
+/* ── Dark theme: same achromatic language (graphite paper at night). Raw palette flips so every token follows. ── */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-sidebar-mist: #171717;
+  --color-pure-white: #212121;
+  --color-graphite-ink: #ececec;
+  --color-mid-ash: #b4b4b4;
+  --color-hollow: #8f8f8f;
+  --color-hairline: #ffffff1a;
+  --color-hairline-strong: #ffffff2e;
+  --color-hover-veil: #ffffff0f;
+  --color-press-veil: #ffffff17;
+  --color-ink-press: #ffffff;
+  --color-deep-charcoal: #000000a6;
+  --color-edge-gray: #3a3a3a;
+  --color-user-bubble: #303030;
+  --text-3: #a3a3a3;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --color-sidebar-mist: #171717;
+    --color-pure-white: #212121;
+    --color-graphite-ink: #ececec;
+    --color-mid-ash: #b4b4b4;
+    --color-hollow: #8f8f8f;
+    --color-hairline: #ffffff1a;
+    --color-hairline-strong: #ffffff2e;
+    --color-hover-veil: #ffffff0f;
+    --color-press-veil: #ffffff17;
+    --color-ink-press: #ffffff;
+    --color-deep-charcoal: #000000a6;
+    --color-edge-gray: #3a3a3a;
+    --color-user-bubble: #303030;
+    --text-3: #a3a3a3;
+  }
+}
+:root { color-scheme: light; }
+
+/* Reduced motion: keep every state change legible (fades, instant positions) instead of killing feedback. */
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-fast: 0ms; --dur-med: 120ms; --dur-slow: 160ms; }
+  html { scroll-behavior: auto; }
 }

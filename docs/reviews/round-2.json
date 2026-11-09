@@ -1,0 +1,236 @@
+{
+  "model": "gpt-6.1-sol",
+  "effort": "xhigh",
+  "seconds": 436,
+  "usage": {
+    "input_tokens": 175755,
+    "input_tokens_details": {
+      "cache_write_tokens": 175752,
+      "cached_tokens": 0
+    },
+    "output_tokens": 21092,
+    "output_tokens_details": {
+      "reasoning_tokens": 16056
+    },
+    "total_tokens": 196847
+  },
+  "scores": {
+    "demo_readiness": 6.8,
+    "senior_ux": 7,
+    "family_ux": 7.5,
+    "ai_behavior": 6.5,
+    "robustness": 5.5,
+    "design_fidelity": 8.2,
+    "overall": 7
+  },
+  "summary": "The captures demonstrate a complete offline flow through memory creation, sharing, recall, itinerary generation, scheduling, and reporting, with a strong graphite-on-paper visual foundation. Several round-1 fixes genuinely hold: new memories start private, consent parsing is narrower, trip offers are reserved to prevent duplicates, and non-unanimous scheduling results require confirmation. However, the mobile captures still bury the graph, privacy controls, and primary actions, while the Director has timing and state-management gaps that can derail a fast live run. Privacy enforcement remains incomplete across action authorization, live emissions, derived trip data, and historical messages, and the family health answer can contradict the newly added urgent-reading safeguards.",
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "high",
+      "area": "demo",
+      "file": "web/src/components/cards/MemoryCards.tsx",
+      "problem": "The most important demo moments are below the fold: the saved-memory graph and sharing controls, the recall path, and the itinerary's family actions are not visible when their steps complete.",
+      "evidence": "05-senior-a-story.png shows only the photo and extracted fields before the composer starts at about y=630; the graph, visibility switch, and share actions are below it. 07-senior-recall.png cuts off the story before the matched path, and 08-senior-trip.png cuts off the third stop before either family CTA. MessageList pins long cards to their top, while ActionBar is rendered after the entire card. The consent quick replies are on the preceding text message, so the isLast check hides them once the memory card arrives.",
+      "fix": "Create compact initial card states sized for the available chat viewport: collapse graph/story details, shorten the initial itinerary preview, and place the consent or family CTA in an immediately visible action region. Show the graph automatically in the Director during memory creation. Add 390×844 screenshot assertions that each step's primary action is visible without scrolling."
+    },
+    {
+      "id": "F2",
+      "severity": "high",
+      "area": "demo",
+      "file": "web/src/pages/demo/DirectorConsole.tsx",
+      "problem": "Fast manual advancement can send the trip acceptance before a trip offer exists, leaving the Director waiting for an itinerary that will never be generated.",
+      "evidence": "The recall step completes on recall_card, not trip_suggestion. The following step immediately sends '좋아, 다시 가보고 싶네'. In senior.ts, scheduleOffer reserves the memory before its delayed callback, and offerTripFromIntent simply returns when offerReserved contains that memory. A fast share → recall → trip sequence can therefore consume the acceptance without accepting anything, followed by a 45-second Director timeout.",
+      "fix": "Gate the trip step on an actual actionable trip_suggestion and send accept_trip with its tripId. Alternatively, queue acceptance against the reserved offer rather than silently returning. Test rapid manual advancement with no dwell and with a delayed suggestTrip provider."
+    },
+    {
+      "id": "F3",
+      "severity": "high",
+      "area": "demo",
+      "file": "server/orchestrator/core.ts",
+      "problem": "The virtual clock cannot reliably start the demo at 09:00 when the presentation happens after 09:00.",
+      "evidence": "setDemoClock compares the requested time with now(), which initially equals wall-clock time. If the target is earlier, it applies cur + 1 instead of the requested time. Starting at 16:00 and requesting the first scripted 09:00 greeting produces approximately 16:01, not 09:00. Subsequent report timestamps then differ from the rehearsed story.",
+      "fix": "Allow the first clock assignment after reset to establish an absolute demo time, independent of wall-clock time. Apply monotonicity only between subsequent scripted events. Add tests starting the application at afternoon and evening wall-clock times and assert the scripted 09:00, 14:10, 14:20, and 21:00 timestamps."
+    },
+    {
+      "id": "F4",
+      "severity": "high",
+      "area": "demo",
+      "file": "server/brain/llm.ts",
+      "problem": "The revised provider timeout and circuit breaker still do not establish a credible 90-second live-provider budget.",
+      "evidence": "Each provider operation can wait 12 seconds, the breaker opens only after two failures, and it retries after 60 seconds. The script performs separate live operations for greeting, photo observation, interview turns, extraction, sharing, recall, suggestion, itinerary, health answer, gathering, and report, in addition to Director dwell time. A slow provider can consume a substantial fraction of the demo before fallback; STEP_TIMEOUT allows a single step to occupy 45 seconds.",
+      "fix": "Add a presentation-mode end-to-end deadline per step, preflight the selected providers before starting the timer, and fall back within a short explicit budget. Precompute or start expensive itinerary work earlier where appropriate. Run the full script with default pacing against delayed and failing provider stubs and assert completion within 90 seconds."
+    },
+    {
+      "id": "F5",
+      "severity": "critical",
+      "area": "server",
+      "file": "server/orchestrator/messages.ts",
+      "problem": "A family member can invoke senior-only actions and publish or change another person's private memory without consent.",
+      "evidence": "handleAction checks membership in the supplied room, then routes every SENIOR_ACTIONS value to handleSeniorAction without checking the actor. handleSeniorAction permits a missing action entry and accepts client-supplied memoryId/tripId overrides. A jieun socket can use a family-room message ID with actionId='share_memory' and memoryId='mem-wedding-1976'; doShare has no owner authorization and changes that private memory to family visibility.",
+      "fix": "Authorize senior actions against the authenticated memory/trip owner and the correct senior room. Require the requested action to exist on the referenced message, and derive resource IDs from its server-stored action data rather than arbitrary client overrides. Add adversarial socket tests using a valid family identity and a family message."
+    },
+    {
+      "id": "F6",
+      "severity": "high",
+      "area": "server",
+      "file": "web/src/pages/family/Sidebar.tsx",
+      "problem": "The family-facing application directly exposes a route that grants access to the senior's private profile.",
+      "evidence": "Sidebar renders '어머니 화면 보기' linking to /senior?as=mom. resolvePersona accepts that query parameter, and hello accepts mom without an owner credential. The optional director key protects only the director identity, not the senior identity. A family user can therefore open the private wedding memory and change privacy settings through the normal UI.",
+      "fix": "Keep unrestricted role switching inside an explicitly isolated rehearsal mode. Outside that mode, require an owner capability or pairing credential for the senior identity and hide the owner-screen link from family accounts. A lightweight demo pairing secret is sufficient; a full production login system is not necessary for this build."
+    },
+    {
+      "id": "F7",
+      "severity": "high",
+      "area": "server",
+      "file": "server/orchestrator/core.ts",
+      "problem": "Viewer-aware privacy projection is bypassed by live message delivery.",
+      "evidence": "post and updateMessage broadcast the stored message directly to the room channel instead of applying projectMessage and scrubHiddenTitles. In doShare, setting the individual memory to family does not change a private memory category, yet the raw share_card is still posted to the family room. Family answers also capture their public context before awaiting the provider, so a privacy change during generation can still be followed by a raw sensitive answer.",
+      "fix": "Project every outgoing message per recipient at emission time, including updates, using the current privacy state. Recheck visibility after awaited generation and before committing a share. When the memory category is private, require explicit resolution of that setting rather than reporting successful sharing while bootstrap and live delivery disagree."
+    },
+    {
+      "id": "F8",
+      "severity": "high",
+      "area": "server",
+      "file": "server/orchestrator/senior.ts",
+      "problem": "Private memories leak into public trip state even when the senior never shares the memory.",
+      "evidence": "Recalling the private wedding memory can automatically schedule a trip offer. suggestTrip embeds memoryRef, place, and tags in its reason. emitTrip sends that Trip to family viewers whenever the trip category is public, without checking the source memory. Bootstrap likewise includes these trips and only replaces exact hidden memory titles, which does not remove a reason such as '1976년 서울 명동성당 이야기가 떠올랐어요'.",
+      "fix": "Track visibility/provenance on trips derived from memories. Keep a private-memory-derived suggestion private until an explicit sharing action authorizes the disclosed content, or generate a sanitized public trip projection that contains no private memory reference. Test private recall followed by automatic suggestion against both live family events and a fresh bootstrap."
+    },
+    {
+      "id": "F9",
+      "severity": "high",
+      "area": "server",
+      "file": "server/orchestrator/core.ts",
+      "problem": "Privacy retraction removes structured health cards but leaves sensitive Tachi text and previously public report fields readable.",
+      "evidence": "projectMessage immediately returns messages without payloads, including the numeric health answer visible above the card in 09-family-health.png. Report projection only reacts to hidden memory-title matches; it does not remask rows when a category becomes private or remove moodLabel when mood becomes private. Trip payload messages are also returned unchanged. A reset/re-hello therefore does not fully retract these disclosures.",
+      "fix": "Attach category and source-resource provenance to all Tachi answers and shared payloads, then apply current privacy to plain text, reports, mood labels, and trip messages during both bootstrap and live projection. Regenerate report highlights from the projected rows. Add fresh-bootstrap tests after health, mood, daily, and trip retraction, not just assertions that health:update becomes null."
+    },
+    {
+      "id": "F10",
+      "severity": "high",
+      "area": "server",
+      "file": "server/orchestrator/core.ts",
+      "problem": "The generation guards do not fully prevent old asynchronous work from contaminating a reset.",
+      "evidence": "installGuards checks staleness only when graph.upsertMemory is entered. An already-running Kùzu upsert continues through many awaited statements and can interleave with clear/reseed, recreating old graph nodes after the clear. Separately, artifacts.ts emitArtifact has no isStale guard, so a deferred draft/assist can broadcast an obsolete artifact after reset even when its database write is dropped.",
+      "fix": "Serialize graph mutations and reset/reseed at the whole-operation level, or add generation checks inside the graph transaction before commit. Guard every artifact emission against stale generations. Add regression tests that reset during a deferred gathering response and midway through graph upsert, then verify exact seed state in SQLite, Kùzu, and emitted client state."
+    },
+    {
+      "id": "F11",
+      "severity": "high",
+      "area": "ai",
+      "file": "server/brain/heuristics/family.ts",
+      "problem": "The family health answer can reassure the family about a dangerously high latest reading, despite the senior-side urgent-reading fix.",
+      "evidence": "The family answer chooses its warning solely from avgS >= 140 and otherwise says '전반적으로 안정적인 편이에요'. Replacing the seeded latest 127/80 reading with 200/120 yields an average systolic value of about 139, so the answer states the latest 200/120 and then calls the situation stable. Static health_card bot replies can additionally say that the senior is healthy or that the reading is reassuring.",
+      "fix": "Share one deterministic health-severity evaluator between senior logging, family answers, and bot reactions. Evaluate the latest systolic and diastolic readings before averages, and suppress reassuring bot templates for concerning readings. Add a regression covering a 200/120 latest reading with an otherwise normal seven-day history."
+    },
+    {
+      "id": "F12",
+      "severity": "medium",
+      "area": "demo",
+      "file": "web/src/components/cards/MemoryCards.tsx",
+      "problem": "The promised technical proof of graph recall is unreachable in the actual demo, and the Director labels the graph as Kùzu even when the fallback engine is active.",
+      "evidence": "RecallCard displays cypher only when variant is not senior, but recall cards are posted to the senior room and rendered with variant='senior'. The Director's graph panel has no recall-query inspector and hardcodes '기억 그래프 · Kùzu'. The server already exposes the actual graphEngine through /api/status.",
+      "fix": "Keep technical details out of the senior UI, but add a Director-only inspector showing the latest matched path and Cypher when recall completes. Read and display the actual engine, including an explicit in-memory fallback label. Automatically reveal this proof during the memory and recall steps."
+    },
+    {
+      "id": "F13",
+      "severity": "medium",
+      "area": "demo",
+      "file": "shared/constants.ts",
+      "problem": "The 90-second script ends without demonstrating the advertised live model switch.",
+      "evidence": "DEMO_SCRIPT has 12 steps and ends with report. Although DemoStep permits director='model', DirectorConsole has no execution branch for it. The elapsed timer ends when the report arrives, and 91-director.png places the model controls below the visible rail content. No supplied capture demonstrates a response from the second provider.",
+      "fix": "Add an explicit final model-switch step with a target model key, wait for model:update, and generate a short response whose actual source/model is visible in the Director. Keep the switch control above the fold and provide an honest unavailable-provider state when keys are absent."
+    },
+    {
+      "id": "F14",
+      "severity": "medium",
+      "area": "demo",
+      "file": "web/src/pages/demo/DirectorConsole.tsx",
+      "problem": "The Director can show a fresh scenario against completed server state, and its '처음으로' control does not restore a rehearsable starting point.",
+      "evidence": "91-director.png shows 0/12 with step 1 selected while both phones display the completed schedule/report and the virtual clock is 21:00. Cursor and completion state are local React state. resetCursor and the R shortcut clear only that state, can discard the local wait while server work continues, and do not reset conversations or the clock.",
+      "fix": "Make '처음부터 재생' perform an acknowledged server reset before enabling playback, or clearly separate and label cursor-only navigation. Disable cursor reset during an active step unless the server operation is cancelled. Persist or derive authoritative scenario progress so refreshing the Director cannot falsely present a clean start."
+    },
+    {
+      "id": "F15",
+      "severity": "medium",
+      "area": "family-ux",
+      "file": "web/src/pages/family/FamilyApp.tsx",
+      "problem": "Demonstrating the daughter's side chat can strand the family phone away from the schedule result and daily report.",
+      "evidence": "The pending-request banner and ScheduleProgressCard navigate activeId to a side room. After an answer or poll closure, FamilyApp does not navigate back or offer a direct family-room return. On mobile the header back button opens the room list, requiring another selection; subsequent Director steps still post results to the family room.",
+      "fix": "Add a persistent '가족방으로 돌아가기' action in scheduling side chats and show it prominently once the answer is sent. For embedded Director phones, return to the family room when the result/report step is presented, without relying on the presenter to navigate through the list."
+    },
+    {
+      "id": "F16",
+      "severity": "medium",
+      "area": "family-ux",
+      "file": "web/src/components/cards/GatheringCards.tsx",
+      "problem": "The non-unanimous scheduling fix still produces incorrect counts and premature confirmation language in edge cases.",
+      "evidence": "closePoll includes unanswered participants in unavailable, while ScheduleResultCard calculates total as available + unavailable + unanswered and renders both lists. A force-close can therefore double-count people. refreshProgress labels every closed poll '확정', and offline schedule_result bot templates say '확정됐네요' even when confirmed is false and the card still requires a human decision.",
+      "fix": "Make available, unavailable, and unanswered disjoint and use poll.participantIds.length as the denominator. Distinguish '응답 마감', '후보 제안', and '확정' throughout progress text and bot context. Test a forced close with unanswered participants and a completed poll with no common slot."
+    },
+    {
+      "id": "F17",
+      "severity": "medium",
+      "area": "ai",
+      "file": "server/orchestrator/proactive.ts",
+      "problem": "The proactive greeting's most relevant quick reply does not continue the referenced memory conversation in offline mode.",
+      "evidence": "01-senior-proactive.png offers '그 사진 얘기해 줄게'. fireProactive does not retain the referenced memory as a conversational target. That phrase matches neither the known graph entities nor the recall patterns in seniorIntent, so it falls through to generic small talk rather than recalling the 해운대 photo or asking a memory-specific question.",
+      "fix": "Retain the proactive memoryId and bind contextual quick replies to explicit continuation actions. Route this reply to that memory's photo/story or a focused follow-up question. Add an offline test that taps every proactive quick reply rather than only advancing the scripted photo step."
+    },
+    {
+      "id": "F18",
+      "severity": "medium",
+      "area": "ai",
+      "file": "server/orchestrator/senior.ts",
+      "problem": "Medication and mood conversations can claim to record information while family answers continue using unchanged seeded data.",
+      "evidence": "The heuristic response to '약 먹었어' says '기록해 둘게요', but smallTalk only writes a SessionLog; it does not update HealthSummary.medications. Mood statements likewise do not update HealthSummary.mood, yet buildFamilyContext and postReport read its last seeded label. The medication regex also treats a sentence containing '약을' as positive adherence even if it says the medicine was not taken.",
+      "fix": "Return structured, polarity-aware observations for explicit medication and mood statements and persist them before acknowledging a record. If an observation is not stored, remove the recording claim. Test taken/missed medication statements and an explicit negative mood followed by family Q&A and a report."
+    },
+    {
+      "id": "F19",
+      "severity": "medium",
+      "area": "ai",
+      "file": "server/brain/index.ts",
+      "problem": "The new source attribution is still inaccurate for partially invalid provider output, and family bot messages discard provider provenance entirely.",
+      "evidence": "Several live callbacks substitute heuristic content internally, such as recallReply returning str(j.reply) ?? hRecall and interviewTurn returning turn for an invalid reply. run then labels those values source='llm', fallback=false. botSpeak receives AIResult but posts only generatedBy='bot', dropping model, fallback, and source.",
+      "fix": "Treat failed semantic validation as an explicit substitution that returns heuristic provenance, rather than returning fallback text from a successful live callback. Propagate AIResult metadata into bot messages. Add tests where the provider returns valid JSON with missing fields and assert that the UI does not credit the selected live model."
+    },
+    {
+      "id": "F20",
+      "severity": "medium",
+      "area": "senior-ux",
+      "file": "web/src/components/chat/MessageList.tsx",
+      "problem": "Card actions become permanently disabled locally before the server confirms success, so the gentle '다시 시도' fallback can leave no usable retry.",
+      "evidence": "ActionBar adds an action to clicked before emitting and never clears it on timeout, toast, or handler failure. ScheduleRequestCard similarly sets sent=true before acknowledgment. Server flows also mark actions done before awaited sharing or itinerary work completes. A failed operation can therefore leave a disabled button without the promised result.",
+      "fix": "Add acknowledged pending/succeeded/failed action states with a bounded timeout and a visible retry path. Mark actions done only after the operation commits, and make retries idempotent using the message/action identifiers. Exercise a server-side failure after a card tap and verify the same control can recover."
+    },
+    {
+      "id": "F21",
+      "severity": "medium",
+      "area": "senior-ux",
+      "file": "web/src/components/chat/Composer.tsx",
+      "problem": "Photo-upload and microphone failures silently return the senior to the idle composer.",
+      "evidence": "onFile catches uploadPhoto failures with an empty catch despite the server's 15 MB upload limit. rec.onerror only sets listening=false, with no explanation for denied permission or recognition failure. A rejected upload or microphone request therefore produces neither a message nor an actionable error.",
+      "fix": "Show a large Korean error message or toast with the specific recovery action, preserve the selected input where possible, and explain microphone permission failures while keeping typed input available. Test an oversized image, a failed upload request, and denied microphone permission."
+    },
+    {
+      "id": "F22",
+      "severity": "medium",
+      "area": "a11y",
+      "file": "web/src/components/graph/MemoryGraph.css",
+      "problem": "The inline graph blocks touch scrolling even when it is only a noninteractive preview.",
+      "evidence": ".mg-svg applies touch-action:none unconditionally. MemoryCard renders a 220px compact graph without interactive=true, so swiping over that large area suppresses normal vertical panning while the pointer handlers perform no drag. This compounds the long-card navigation problem on real phones.",
+      "fix": "Allow pan-y on noninteractive graph previews and on interactive graph backgrounds. Restrict gesture suppression to actual draggable targets, and provide a separate explicit graph-interaction mode if needed. Verify that a continuous vertical swipe can scroll through the saved-memory card on a touch device."
+    },
+    {
+      "id": "F23",
+      "severity": "low",
+      "area": "design",
+      "file": "web/src/pages/family/FamilyApp.css",
+      "problem": "The pending-schedule banner breaks the otherwise achromatic design system.",
+      "evidence": ".fam-banner uses var(--accent-soft, var(--surface-2, #eef)); neither custom property is defined in the supplied tokens, so the active scheduling banner resolves to a lavender background. This state is transient and is not visible in the post-completion schedule capture.",
+      "fix": "Replace the fallback chain with existing achromatic tokens such as --bg-chrome, --text, and a hairline border. Capture the pending-request state before bots answer to verify that the monochrome system holds throughout scheduling."
+    }
+  ]
+}
