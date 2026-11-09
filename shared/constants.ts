@@ -62,8 +62,8 @@ export interface ModelOptionDef { key: ModelKey; label: string; provider: Provid
 export const MODEL_DEFS: ModelOptionDef[] = [
   { key: 'claude-sonnet', label: 'Claude Sonnet 5.5', provider: 'anthropic', defaultModelId: 'claude-sonnet-5-5', env: 'TACHI_MODEL_CLAUDE_SONNET' },
   { key: 'claude-haiku', label: 'Claude Haiku 5.5', provider: 'anthropic', defaultModelId: 'claude-haiku-5-5', env: 'TACHI_MODEL_CLAUDE_HAIKU' },
-  { key: 'gpt-terra', label: 'ChatGPT Terra', provider: 'openai', defaultModelId: 'gpt-5.6-terra', env: 'TACHI_MODEL_GPT_TERRA' },
-  { key: 'gpt-luna', label: 'ChatGPT Luna', provider: 'openai', defaultModelId: 'gpt-5.6-luna', env: 'TACHI_MODEL_GPT_LUNA' },
+  { key: 'gpt-terra', label: 'ChatGPT Terra', provider: 'openai', defaultModelId: 'gpt-6.1-terra', env: 'TACHI_MODEL_GPT_TERRA' },
+  { key: 'gpt-luna', label: 'ChatGPT Luna', provider: 'openai', defaultModelId: 'gpt-6-luna', env: 'TACHI_MODEL_GPT_LUNA' },
   { key: 'demo', label: '데모 브레인', provider: 'mock', defaultModelId: '', env: '' },
 ];
 

@@ -1,0 +1,26 @@
+.av { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; flex: none; font-weight: var(--weight-semibold); line-height: 1; user-select: none; }
+.av-tachi { background: var(--inverse-bg); color: var(--inverse-text); }
+.av-user { background: var(--bg-chrome); color: var(--text); border: 1px solid var(--border); }
+.av-hollow { background: transparent; color: var(--text-3); border: 1.5px dashed var(--border-strong); }
+
+/* Model switcher */
+.ms { position: relative; display: inline-block; }
+.ms-pill { display: inline-flex; align-items: center; gap: var(--space-6); min-height: 32px; padding: 0 var(--space-10); border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface); font-size: var(--text-small); font-weight: var(--weight-medium); }
+.ms-pill:hover { background: var(--hover); }
+.ms-menu { position: absolute; z-index: 40; top: calc(100% + 6px); right: 0; min-width: 232px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-6); }
+.ms-list { display: flex; flex-direction: column; gap: 2px; }
+.ms-row { display: flex; align-items: center; gap: var(--space-8); width: 100%; min-height: 40px; padding: 0 var(--space-10); border-radius: var(--radius-lg); text-align: left; font-size: var(--text-caption); }
+.ms-row:hover:not(:disabled) { background: var(--hover); }
+.ms-row:disabled { color: var(--text-3); }
+.ms-row .ms-label { flex: 1; font-weight: var(--weight-medium); }
+.ms-row .ms-sub { font-size: var(--text-micro); color: var(--text-3); }
+.ms-check { width: 16px; display: inline-flex; flex: none; }
+
+/* Toasts */
+.toasts { position: fixed; z-index: 90; left: 0; right: 0; bottom: 24px; display: flex; flex-direction: column; align-items: center; gap: var(--space-8); pointer-events: none; padding: 0 var(--space-16); }
+.toast { background: var(--color-ink-press); color: var(--inverse-text); padding: var(--space-10) var(--space-16); border-radius: var(--radius-pill); font-size: var(--text-caption); font-weight: var(--weight-medium); animation: tachi-fade-up var(--dur-med) var(--ease-out); max-width: 100%; }
+
+.speak-btn { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: var(--radius-lg); color: var(--text-2); }
+.speak-btn:hover { background: var(--hover); }
+.speak-btn[aria-pressed="true"] { color: var(--text); background: var(--hover); }
+.senior .speak-btn { width: 48px; height: 48px; }

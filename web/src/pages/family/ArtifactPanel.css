@@ -1,0 +1,46 @@
+.ap { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-16) var(--space-16) var(--space-32); }
+.ap-empty { padding: var(--space-24); }
+.ap-field {
+  width: 100%; border: 1px solid transparent; border-radius: var(--radius-lg); background: transparent;
+  padding: var(--space-6) var(--space-8); margin-left: calc(var(--space-8) * -1); width: calc(100% + var(--space-8));
+  resize: none; field-sizing: content; min-height: 34px;
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.ap-field:hover { background: var(--hover); }
+.ap-field:focus { outline: none; background: var(--surface); border-color: var(--color-graphite-ink); }
+.ap-field::placeholder { color: var(--text-3); }
+.ap-title { font-size: 20px; font-weight: var(--weight-semibold); line-height: 1.35; }
+.ap-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-6); }
+.ap-status-confirmed { background: var(--inverse-bg); color: var(--inverse-text); }
+.ap-live { min-height: 20px; }
+.ap-actions { display: flex; flex-wrap: wrap; gap: var(--space-8); margin: var(--space-8) 0 var(--space-4); }
+.ap-sec { margin-top: var(--space-16); }
+.ap-h { font-size: var(--text-caption); font-weight: var(--weight-semibold); color: var(--text-2); margin-bottom: var(--space-6); }
+.is-flash { animation: ap-flash 1.5s var(--ease-out); }
+@keyframes ap-flash { 0%, 30% { background: var(--press); } 100% { background: transparent; } }
+
+.ap-poll { margin-top: var(--space-12); padding: var(--space-12); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-chrome); }
+.ap-poll-people { display: flex; flex-wrap: wrap; gap: var(--space-8); }
+.ap-poll-p { display: inline-flex; align-items: center; gap: var(--space-6); opacity: .55; }
+.ap-poll-p.is-in { opacity: 1; }
+.ap-poll-st { font-size: var(--text-micro); display: inline-flex; }
+
+.ap-agenda { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.ap-agenda-row { display: flex; align-items: center; gap: var(--space-6); }
+.ap-agenda-row .ap-field { margin-left: 0; width: auto; flex: 1; }
+.ap-num { width: 18px; text-align: center; color: var(--text-3); font-size: var(--text-caption); flex: none; }
+.ap-add { min-height: 32px; color: var(--text-2); padding: 0 var(--space-8); }
+.ap-rm { min-height: 28px; width: 28px; opacity: 0; flex: none; }
+.ap-agenda-row:hover .ap-rm, .ap-task:hover .ap-rm, .ap-rm:focus-visible { opacity: 1; }
+@media (hover: none) { .ap-rm { opacity: 1; } }
+
+.ap-tasks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.ap-task { display: flex; align-items: center; gap: var(--space-8); padding: var(--space-6) 0; border-bottom: 1px solid var(--border); }
+.ap-check { width: 16px; height: 16px; accent-color: var(--color-graphite-ink); flex: none; margin: 0; }
+.ap-task-text { flex: 1; min-width: 0; font-size: var(--text-caption); }
+.ap-task-text.is-done { color: var(--text-3); text-decoration: line-through; }
+.ap-assign { display: inline-flex; align-items: center; gap: var(--space-4); flex: none; }
+.ap-noassign { width: 22px; height: 22px; border-radius: 50%; border: 1px dashed var(--border-strong); }
+.ap-select { border: 0; background: transparent; font-size: var(--text-small); color: var(--text-2); max-width: 84px; padding: 2px; border-radius: var(--radius-sm); }
+.ap-select:hover { background: var(--hover); }
+.ap-addtask { display: flex; gap: var(--space-6); margin-top: var(--space-8); }

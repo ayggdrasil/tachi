@@ -376,7 +376,7 @@ export interface Bootstrap {
 
 // ── Socket events ───────────────────────────────────────────────────────────
 export interface ClientToServerEvents {
-  hello: (p: { userId: ID }, ack: (b: Bootstrap | { error: string }) => void) => void;
+  hello: (p: { userId: ID; assisted?: boolean /* embedded in the Director stage: bots may fill in schedule answers */ }, ack: (b: Bootstrap | { error: string }) => void) => void;
   'message:send': (p: { roomId: ID; text?: string; photoUrl?: string }) => void;
   action: (p: { roomId: ID; messageId: ID; actionId: string; data?: Record<string, unknown> }) => void;
   typing: (p: { roomId: ID }) => void;

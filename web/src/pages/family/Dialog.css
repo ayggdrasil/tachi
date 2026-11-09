@@ -1,0 +1,17 @@
+.dlg-wrap { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: var(--space-16); }
+.dlg-scrim { z-index: 0; }
+.dlg {
+  position: relative; z-index: 1; width: 100%; max-height: calc(100dvh - 32px);
+  display: flex; flex-direction: column;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-2xl);
+  animation: tachi-fade-up var(--dur-med) var(--ease-out);
+}
+.dlg:focus { outline: none; }
+.dlg-head { display: flex; align-items: center; justify-content: space-between; padding: var(--space-16) var(--space-16) var(--space-8) var(--space-20); }
+.dlg-title { font-size: 18px; line-height: 1.4; }
+.dlg-body { padding: var(--space-8) var(--space-20) var(--space-16); overflow-y: auto; min-height: 0; }
+.dlg-foot { display: flex; justify-content: flex-end; gap: var(--space-8); padding: var(--space-12) var(--space-20) var(--space-16); border-top: 1px solid var(--border); }
+@media (max-width: 599px) {
+  .dlg-wrap { align-items: flex-end; padding: 0; }
+  .dlg { max-width: none !important; border-radius: var(--radius-2xl) var(--radius-2xl) 0 0; max-height: 90dvh; }
+}

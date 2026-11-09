@@ -1,0 +1,161 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Camera, Image as ImageIcon, Images, Mic, Send, Square } from 'lucide-react';
+import { tachi } from '../../lib/store';
+import './Composer.css';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type SR = any;
+
+function normalizePhotos(json: unknown): string[] {
+  const arr: unknown[] = Array.isArray(json) ? json : Array.isArray((json as { files?: unknown[] })?.files) ? (json as { files: unknown[] }).files
+    : Array.isArray((json as { photos?: unknown[] })?.photos) ? (json as { photos: unknown[] }).photos : [];
+  return arr.map(x => {
+    const s = typeof x === 'string' ? x : ((x as { url?: string; path?: string; file?: string; name?: string })?.url ?? (x as { path?: string })?.path ?? (x as { file?: string })?.file ?? (x as { name?: string })?.name ?? '');
+    if (!s) return '';
+    return /^(https?:)?\//.test(s) ? s : `/demo-photos/${s}`;
+  }).filter(Boolean);
+}
+
+export function Composer({ roomId, variant, placeholder, allowPhoto = true }: {
+  roomId: string; variant: 'senior' | 'family'; placeholder?: string; allowPhoto?: boolean;
+}) {
+  const senior = variant === 'senior';
+  const [text, setText] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [samples, setSamples] = useState<string[]>([]);
+  const [showSamples, setShowSamples] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  const lastTyping = useRef(0);
+  const recRef = useRef<SR>(null);
+  const baseText = useRef('');
+  const popRef = useRef<HTMLDivElement>(null);
+
+  const SRctor: SR = typeof window !== 'undefined' ? ((window as unknown as Record<string, unknown>).SpeechRecognition ?? (window as unknown as Record<string, unknown>).webkitSpeechRecognition) : null;
+
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/demo-photos').then(r => (r.ok ? r.json() : [])).then(j => { if (alive) setSamples(normalizePhotos(j)); }).catch(() => { /* optional */ });
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!showSamples) return;
+    const onDown = (e: MouseEvent) => { if (!popRef.current?.contains(e.target as Node)) setShowSamples(false); };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [showSamples]);
+
+  useEffect(() => () => { try { recRef.current?.abort?.(); } catch { /* noop */ } }, []);
+
+  useEffect(() => {
+    const ta = taRef.current; if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = `${Math.min(140, ta.scrollHeight)}px`;
+  }, [text]);
+
+  const submit = useCallback(() => {
+    const t = text.trim(); if (!t) return;
+    if (listening) { try { recRef.current?.stop(); } catch { /* noop */ } }
+    tachi.send(roomId, t);
+    setText('');
+  }, [text, roomId, listening]);
+
+  const onChange = (v: string) => {
+    setText(v);
+    const now = Date.now();
+    if (v && now - lastTyping.current > 2500) { lastTyping.current = now; tachi.typing(roomId); }
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) { e.preventDefault(); submit(); }
+  };
+
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]; e.target.value = '';
+    if (!f) return;
+    setUploading(true);
+    try { await tachi.sendPhoto(roomId, f); } catch { /* toast would be nice; keep calm */ } finally { setUploading(false); }
+  };
+
+  const toggleMic = () => {
+    if (!SRctor) return;
+    if (listening) { try { recRef.current?.stop(); } catch { /* noop */ } return; }
+    const rec = new SRctor();
+    rec.lang = 'ko-KR'; rec.interimResults = true; rec.continuous = false;
+    baseText.current = text ? text.trimEnd() + ' ' : '';
+    rec.onresult = (ev: { results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal?: boolean }> }) => {
+      let s = '';
+      for (let i = 0; i < ev.results.length; i++) s += ev.results[i][0].transcript;
+      setText(baseText.current + s);
+    };
+    rec.onend = () => setListening(false);
+    rec.onerror = () => setListening(false);
+    recRef.current = rec;
+    try { rec.start(); setListening(true); } catch { setListening(false); }
+  };
+
+  const pickSample = (url: string) => { setShowSamples(false); tachi.sendPhotoUrl(roomId, url); };
+
+  const samplePop = showSamples && samples.length > 0 && (
+    <div className="cp-pop" role="dialog" aria-label="예시 사진">
+      <p className="cp-pop-t">예시 사진</p>
+      <div className="cp-thumbs">
+        {samples.map(u => (
+          <button key={u} type="button" className="cp-thumb" onClick={() => pickSample(u)} aria-label="이 사진 보내기"><img src={u} alt="" loading="lazy" /></button>
+        ))}
+      </div>
+    </div>
+  );
+
+  const fileInput = <input ref={fileRef} type="file" accept="image/*" hidden onChange={onFile} />;
+
+  if (senior) {
+    return (
+      <div className="cp cp-senior">
+        {fileInput}
+        {allowPhoto && (
+          <div className="cp-photo-row" ref={popRef}>
+            <button type="button" className="btn cp-photo-btn" disabled={uploading} onClick={() => fileRef.current?.click()}>
+              <Camera size={24} />{uploading ? '사진을 올리는 중…' : '사진 보여주기'}
+            </button>
+            {samples.length > 0 && (
+              <button type="button" className="btn cp-sample-btn" aria-label="예시 사진 보기" aria-expanded={showSamples} onClick={() => setShowSamples(v => !v)}><Images size={22} /></button>
+            )}
+            {samplePop}
+          </div>
+        )}
+        <div className="cp-row">
+          {SRctor && (
+            <button type="button" className={`cp-round ${listening ? 'cp-on' : ''}`} aria-pressed={listening} aria-label={listening ? '듣기 멈추기' : '말로 입력하기'} onClick={toggleMic}>
+              {listening ? <Square size={22} /> : <Mic size={26} />}
+            </button>
+          )}
+          <input className="input cp-input" value={text} onChange={e => onChange(e.target.value)} onKeyDown={onKeyDown}
+            placeholder={listening ? '듣고 있어요…' : (placeholder ?? '타치에게 말해 보세요')} aria-label="메시지 입력" enterKeyHint="send" />
+          <button type="button" className="cp-round cp-send" disabled={!text.trim()} aria-label="보내기" onClick={submit}><Send size={24} /></button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="cp cp-family">
+      {fileInput}
+      {uploading && <p className="cp-up">사진을 올리는 중…</p>}
+      <div className="cp-row" ref={popRef}>
+        {allowPhoto && (
+          <button type="button" className="btn btn-icon" aria-label="사진 보내기" disabled={uploading} onClick={() => fileRef.current?.click()}><ImageIcon size={20} /></button>
+        )}
+        {allowPhoto && samples.length > 0 && (
+          <button type="button" className="btn btn-icon" aria-label="예시 사진" aria-expanded={showSamples} onClick={() => setShowSamples(v => !v)}><Images size={20} /></button>
+        )}
+        {samplePop}
+        <textarea ref={taRef} className="cp-ta" rows={1} value={text} onChange={e => onChange(e.target.value)} onKeyDown={onKeyDown}
+          placeholder={placeholder ?? '메시지를 입력하세요'} aria-label="메시지 입력" />
+        <button type="button" className="cp-send-sm" disabled={!text.trim()} aria-label="보내기" onClick={submit}><Send size={18} /></button>
+      </div>
+    </div>
+  );
+}

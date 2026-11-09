@@ -93,7 +93,7 @@ let currentUser: ID | null = null;
 function hello() {
   if (!currentUser) return;
   set({ status: 'connecting' });
-  getSocket().emit('hello', { userId: currentUser }, res => {
+  getSocket().emit('hello', { userId: currentUser, assisted: isEmbedded() }, res => {
     if ('error' in res) set({ status: 'error', error: res.error });
     else applyBootstrap(res);
   });

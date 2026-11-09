@@ -161,8 +161,8 @@ finish after ≤4 questions). Replies ≤ 2 short sentences, honorific (해요�
 |---|---|---|---|
 | `claude-sonnet` | Claude Sonnet 5.5 | anthropic | `claude-sonnet-5-5` (`TACHI_MODEL_CLAUDE_SONNET`) |
 | `claude-haiku` | Claude Haiku 5.5 | anthropic | `claude-haiku-5-5` (`TACHI_MODEL_CLAUDE_HAIKU`) |
-| `gpt-terra` | ChatGPT Terra | openai | `gpt-5.6-terra` (`TACHI_MODEL_GPT_TERRA`) |
-| `gpt-luna` | ChatGPT Luna | openai | `gpt-5.6-luna` (`TACHI_MODEL_GPT_LUNA`) |
+| `gpt-terra` | ChatGPT Terra | openai | `gpt-6.1-terra` (`TACHI_MODEL_GPT_TERRA`) |
+| `gpt-luna` | ChatGPT Luna | openai | `gpt-6-luna` (`TACHI_MODEL_GPT_LUNA`) |
 | `demo` | 데모 브레인 (오프라인) | mock | — |
 
 Keys: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (from env or `.env` via `process.loadEnvFile`). Default active =

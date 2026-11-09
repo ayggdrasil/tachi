@@ -1,0 +1,31 @@
+.ld { min-height: 100dvh; background: var(--bg); display: flex; justify-content: center; padding: var(--space-48) var(--space-16) var(--space-32); }
+.ld-inner { width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: var(--space-32); }
+.ld-hero { text-align: center; padding-top: var(--space-24); }
+.ld-mark { font-size: 40px; line-height: 1.2; font-weight: var(--weight-semibold); letter-spacing: -0.02em; }
+.ld-pitch { margin-top: var(--space-10); color: var(--text-2); font-size: var(--text-body); }
+.ld-h { font-size: var(--text-body); font-weight: var(--weight-semibold); margin-bottom: var(--space-10); }
+.ld-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.ld-row {
+  width: 100%; display: flex; align-items: center; gap: var(--space-12); text-align: left;
+  padding: var(--space-10) var(--space-12); border-radius: var(--radius-lg); color: var(--text);
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.ld-row:hover { background: var(--hover); }
+.ld-row:active { background: var(--press); }
+.ld-row > svg { color: var(--text-3); flex: none; }
+.ld-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ld-name { font-weight: var(--weight-medium); }
+.ld-role { font-size: var(--text-caption); color: var(--text-2); }
+.ld-dir {
+  width: 40px; height: 40px; flex: none; border-radius: 50%; background: var(--inverse-bg); color: var(--inverse-text);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.ld-lan { display: flex; gap: var(--space-16); align-items: center; justify-content: space-between; background: var(--bg-chrome); }
+.ld-lan-text { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+.ld-lan-title { font-size: var(--text-body); display: flex; align-items: center; gap: var(--space-6); }
+.ld-url { margin-top: var(--space-2); word-break: break-all; color: var(--text); }
+.ld-qr { border: 1px solid var(--border); border-radius: var(--radius-lg); background: #fff; flex: none; }
+@media (max-width: 480px) {
+  .ld { padding-top: var(--space-24); }
+  .ld-lan { flex-direction: column-reverse; align-items: flex-start; }
+}

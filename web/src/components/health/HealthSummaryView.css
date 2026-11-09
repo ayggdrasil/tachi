@@ -1,0 +1,29 @@
+.hs { display: flex; flex-direction: column; gap: var(--space-16); }
+.hs-block { display: flex; flex-direction: column; gap: var(--space-6); min-width: 0; }
+.hs-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-8); }
+.hs-head h4 { margin: 0; font-size: var(--text-caption); font-weight: var(--weight-semibold); }
+.hs-big { font-size: 20px; font-weight: var(--weight-semibold); white-space: nowrap; }
+.hs-big small, .hs-sub { font-size: var(--text-small); font-weight: var(--weight-regular); color: var(--text-2); margin-left: 4px; }
+.hs-spark { display: block; overflow: visible; }
+.hs-line { stroke: var(--text); stroke-width: 1.75; }
+.hs-line-2 { stroke: var(--text-2); stroke-dasharray: 3 3; stroke-width: 1.25; }
+.hs-pt { fill: var(--text); }
+.hs-pt-2 { fill: var(--text-2); }
+.hs-axis { display: flex; justify-content: space-between; font-size: var(--text-micro); color: var(--text-2); }
+.hs-key { display: flex; align-items: center; gap: var(--space-6); font-size: var(--text-micro); color: var(--text-2); }
+.hs-key i { width: 14px; height: 0; border-top: 1.75px solid var(--text); display: inline-block; }
+.hs-key i.hs-k2 { border-top: 1.5px dashed var(--text-2); margin-left: var(--space-8); }
+.hs-med { display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); }
+.hs-med-name { font-size: var(--text-caption); }
+.hs-dots { display: inline-flex; gap: 6px; }
+.hs-dot { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid var(--text-3); display: inline-block; }
+.hs-dot-on { background: var(--text); border-color: var(--text); }
+.hs-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-16); }
+.hs-bars { display: flex; align-items: flex-end; gap: 3px; height: 36px; }
+.hs-bars i { flex: 1; background: var(--text); opacity: .75; border-radius: 2px 2px 0 0; min-height: 2px; }
+.hs-bars i:last-child { opacity: 1; }
+.hs-notes { margin: 0; padding: var(--space-10) var(--space-12); list-style: none; background: var(--bg-chrome); border-radius: var(--radius-lg); font-size: var(--text-caption); color: var(--text-2); display: flex; flex-direction: column; gap: 2px; }
+.hs-senior .hs-head h4, .hs-senior .hs-med-name, .hs-senior .hs-notes { font-size: var(--senior-caption); }
+.hs-senior .hs-big { font-size: 26px; }
+.hs-senior .hs-big small, .hs-senior .hs-sub, .hs-senior .hs-axis, .hs-senior .hs-key { font-size: 15px; }
+.hs-senior .hs-dot { width: 16px; height: 16px; }

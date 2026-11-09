@@ -1,0 +1,208 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY, type Simulation } from 'd3-force';
+import type { GraphEdge, GraphNode, GraphNodeLabel } from '../../../../shared/types';
+import './MemoryGraph.css';
+
+interface SimNode { id: string; label: GraphNodeLabel; name: string; x: number; y: number; fx?: number | null; fy?: number | null; vx?: number; vy?: number }
+interface SimLink { id: string; type: string; source: string | SimNode; target: string | SimNode }
+
+const LABELS: { label: GraphNodeLabel; ko: string }[] = [
+  { label: 'Memory', ko: '추억' }, { label: 'Person', ko: '사람' }, { label: 'Place', ko: '장소' },
+  { label: 'Era', ko: '시기' }, { label: 'Event', ko: '사건' }, { label: 'Emotion', ko: '감정' }, { label: 'Topic', ko: '키워드' },
+];
+const REL_KO: Record<string, string> = {
+  APPEARS_IN: '등장', TAKEN_AT: '장소', IN_ERA: '시기', ABOUT: '관련', EVOKES: '떠올림', MENTIONS: '언급', FAMILY_OF: '가족',
+};
+
+function hash(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0) / 4294967295;
+}
+
+function Shape({ label, r = 1 }: { label: GraphNodeLabel; r?: number }) {
+  switch (label) {
+    case 'Memory': return <circle r={9 * r} className="mg-memory" />;
+    case 'Person': return <circle r={7 * r} className="mg-ring" />;
+    case 'Place': return <rect x={-6.5 * r} y={-6.5 * r} width={13 * r} height={13 * r} className="mg-ring" />;
+    case 'Era': return <rect x={-6 * r} y={-6 * r} width={12 * r} height={12 * r} transform="rotate(45)" className="mg-ring" />;
+    case 'Event': return <rect x={-9 * r} y={-5.5 * r} width={18 * r} height={11 * r} rx={4} className="mg-ring" />;
+    case 'Emotion': return <circle r={3.5 * r} className="mg-dot" />;
+    case 'Topic': return <circle r={4.5 * r} className="mg-ring mg-thin" />;
+  }
+}
+
+const trunc = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
+
+export function MemoryGraph({ nodes, edges, highlightIds, height, interactive, compact }: {
+  nodes: GraphNode[]; edges: GraphEdge[]; highlightIds?: string[]; height?: number; interactive?: boolean; compact?: boolean;
+}) {
+  const H = height ?? (compact ? 170 : 280);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [W, setW] = useState(320);
+  const posRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+  const simRef = useRef<Simulation<SimNode, SimLink> | null>(null);
+  const simNodes = useRef<SimNode[]>([]);
+  const [, force] = useState(0);
+  const [hover, setHover] = useState<string | null>(null);
+  const [pulse, setPulse] = useState(false);
+  const dragging = useRef<string | null>(null);
+
+  useEffect(() => {
+    const el = wrapRef.current; if (!el) return;
+    const ro = new ResizeObserver(() => setW(Math.max(160, el.clientWidth)));
+    ro.observe(el); setW(Math.max(160, el.clientWidth));
+    return () => ro.disconnect();
+  }, []);
+
+  const hiKey = (highlightIds ?? []).join('|');
+  const hiSet = useMemo(() => new Set(highlightIds ?? []), [hiKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!hiKey) { setPulse(false); return; }
+    setPulse(true);
+    const t = setTimeout(() => setPulse(false), 2200);
+    return () => clearTimeout(t);
+  }, [hiKey]);
+
+  const graphKey = nodes.map(n => n.id).join('|') + '#' + edges.map(e => e.id).join('|');
+  const pad = 26;
+
+  useEffect(() => {
+    simRef.current?.stop();
+    const ids = new Set(nodes.map(n => n.id));
+    const sn: SimNode[] = nodes.map(n => {
+      const prev = posRef.current.get(n.id);
+      return {
+        id: n.id, label: n.label, name: n.name,
+        x: prev?.x ?? W / 2 + (hash(n.id) - 0.5) * W * 0.6,
+        y: prev?.y ?? H / 2 + (hash(n.id + 'y') - 0.5) * H * 0.6,
+      };
+    });
+    const sl: SimLink[] = edges.filter(e => ids.has(e.source) && ids.has(e.target)).map(e => ({ id: e.id, type: e.type, source: e.source, target: e.target }));
+    const dist = compact ? 46 : 62;
+    const sim = forceSimulation<SimNode>(sn)
+      .force('link', forceLink<SimNode, SimLink>(sl).id(d => d.id).distance(dist).strength(0.6))
+      .force('charge', forceManyBody<SimNode>().strength(compact ? -110 : -170))
+      .force('x', forceX<SimNode>(W / 2).strength(0.08))
+      .force('y', forceY<SimNode>(H / 2).strength(0.12))
+      .force('collide', forceCollide<SimNode>(compact ? 15 : 20))
+      .stop();
+    for (let i = 0; i < 260; i++) sim.tick();
+    simNodes.current = sn; linksRef.current = sl;
+    sn.forEach(n => posRef.current.set(n.id, { x: n.x, y: n.y }));
+    sim.on('tick', () => {
+      simNodes.current.forEach(n => posRef.current.set(n.id, { x: n.x, y: n.y }));
+      force(v => v + 1);
+    });
+    simRef.current = sim;
+    force(v => v + 1);
+    return () => { sim.stop(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graphKey, Math.round(W / 40), H, compact]);
+
+  const linksRef = useRef<SimLink[]>([]);
+
+  const clamp = useCallback((x: number, y: number) => ({
+    x: Math.min(W - pad, Math.max(pad, x)), y: Math.min(H - pad, Math.max(pad, y)),
+  }), [W, H]);
+
+  const onPointerDown = (e: React.PointerEvent, id: string) => {
+    if (!interactive) return;
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    dragging.current = id;
+    const n = simNodes.current.find(x => x.id === id); if (n) { n.fx = n.x; n.fy = n.y; }
+    simRef.current?.alphaTarget(0.25).restart();
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    const id = dragging.current; if (!id) return;
+    const svg = (e.currentTarget as SVGElement).ownerSVGElement ?? (e.currentTarget as SVGSVGElement);
+    const rect = svg.getBoundingClientRect();
+    const p = clamp(e.clientX - rect.left, e.clientY - rect.top);
+    const n = simNodes.current.find(x => x.id === id); if (n) { n.fx = p.x; n.fy = p.y; }
+  };
+  const onPointerUp = () => {
+    const id = dragging.current; if (!id) return;
+    dragging.current = null;
+    const n = simNodes.current.find(x => x.id === id); if (n) { n.fx = null; n.fy = null; }
+    simRef.current?.alphaTarget(0);
+  };
+
+  const pos = (id: string) => {
+    const p = posRef.current.get(id) ?? { x: W / 2, y: H / 2 };
+    return clamp(p.x, p.y);
+  };
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  const links = linksRef.current;
+  const hovered = hover ? byId.get(hover) : undefined;
+  const connectedToHover = new Set<string>();
+  if (hover) links.forEach(l => {
+    const s = typeof l.source === 'string' ? l.source : l.source.id; const t = typeof l.target === 'string' ? l.target : l.target.id;
+    if (s === hover) connectedToHover.add(t); if (t === hover) connectedToHover.add(s);
+  });
+  const usedLabels = new Set(nodes.map(n => n.label));
+
+  return (
+    <div className={`mg ${compact ? 'mg-compact' : ''}`} ref={wrapRef}>
+      <svg className="mg-svg" width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="img"
+        aria-label={`기억 그래프: 노드 ${nodes.length}개, 연결 ${edges.length}개`}
+        onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
+        <g>
+          {links.map(l => {
+            const s = typeof l.source === 'string' ? l.source : l.source.id; const t = typeof l.target === 'string' ? l.target : l.target.id;
+            const a = pos(s), b = pos(t);
+            const hi = hiSet.has(l.id);
+            const active = hover && (s === hover || t === hover);
+            return (
+              <g key={l.id} className={hi ? 'mg-fade' : undefined}>
+                <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={`mg-edge ${active ? 'mg-edge-on' : ''} ${hi && pulse ? 'mg-edge-hi' : ''}`} />
+                {interactive && active && (
+                  <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 3} className="mg-rel" textAnchor="middle">{REL_KO[l.type] ?? l.type}</text>
+                )}
+              </g>
+            );
+          })}
+        </g>
+        <g>
+          {nodes.map(n => {
+            const p = pos(n.id);
+            const hi = hiSet.has(n.id);
+            const dim = hover && hover !== n.id && !connectedToHover.has(n.id);
+            const isMem = n.label === 'Memory';
+            return (
+              <g key={n.id} transform={`translate(${p.x},${p.y})`} className={`mg-node ${hi ? 'mg-fade' : ''} ${dim ? 'mg-dim' : ''} ${interactive ? 'mg-grab' : ''}`}
+                onPointerDown={e => onPointerDown(e, n.id)} onPointerEnter={() => interactive && setHover(n.id)} onPointerLeave={() => setHover(null)}>
+                {hi && pulse && <circle r={16} className="mg-pulse" />}
+                <Shape label={n.label} />
+                <text y={isMem ? 22 : n.label === 'Emotion' ? 15 : 19} textAnchor="middle" className={isMem ? 'mg-label mg-label-mem' : 'mg-label'}>
+                  {trunc(n.name, isMem ? 11 : 8)}
+                </text>
+              </g>
+            );
+          })}
+        </g>
+        {interactive && hovered && (() => {
+          const p = pos(hovered.id);
+          const w = Math.max(40, hovered.name.length * 11 + 16);
+          const tx = Math.min(W - w / 2 - 2, Math.max(w / 2 + 2, p.x));
+          return (
+            <g transform={`translate(${tx},${Math.max(14, p.y - 28)})`} pointerEvents="none">
+              <rect x={-w / 2} y={-11} width={w} height={22} rx={6} className="mg-tip" />
+              <text textAnchor="middle" y={4} className="mg-tip-text">{hovered.name}</text>
+            </g>
+          );
+        })()}
+      </svg>
+      {nodes.length === 0 && <div className="mg-empty">아직 연결된 기억이 없어요</div>}
+      {!compact && (
+        <ul className="mg-legend" aria-label="범례">
+          {LABELS.filter(l => usedLabels.has(l.label) || nodes.length === 0).map(l => (
+            <li key={l.label}>
+              <svg width="20" height="16" viewBox="-10 -8 20 16" aria-hidden><Shape label={l.label} r={0.8} /></svg>
+              <span>{l.ko}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
