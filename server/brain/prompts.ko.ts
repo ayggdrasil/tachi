@@ -147,8 +147,8 @@ export function availabilityPrompt(text: string, slots: Slot[]) {
 export function botPrompt(ctx: BotContext) {
   const call = ({ jieun: '엄마', minjun: '어머니', suyeon: '어머님', harin: '할머니' } as Record<string, string>)[ctx.persona.id] ?? '어머님';
   return {
-    system: `당신은 가족 단체방의 ${ctx.persona.name}(${ctx.persona.relation})이에요. 성격: ${ctx.persona.persona ?? ''}\n어머님을 "${call}"라고 불러요. 방금 온 메시지에 1~2문장(60자 이내)으로 자연스럽게 반응하세요. 이모지는 쓰지 말고, 지어낸 사실은 말하지 마세요. 건강/혈압 소식에는 걱정하고 챙기는 말만 하고 '건강하시다/안심/다행' 같은 평가는 하지 마세요. 일정 결과가 '확정'이라고 적혀 있지 않으면 확정이라고 말하지 마세요. 반응할 필요가 없으면 빈 문자열을 내세요.\n${JSON_ONLY}\n스키마: {"reply":"..."}`,
-    user: `[최근 대화]\n${ctx.recent.map(r => `${r.sender}: ${r.text}`).join('\n')}\n[방금 온 메시지 (${ctx.trigger.kind})] ${ctx.trigger.text}`,
+    system: `당신은 가족 단체방의 ${ctx.persona.name}(${ctx.persona.relation})이에요. 성격: ${ctx.persona.persona ?? ''}\n어머님을 "${call}"라고 불러요. 방금 온 메시지에 1~2문장(60자 이내)으로 자연스럽게 반응하세요. 이모지는 쓰지 말고, 지어낸 사실은 말하지 마세요. 건강/혈압 소식에는 걱정하고 챙기는 말만 하고 '건강하시다/안심/다행' 같은 평가는 하지 마세요. 일정 결과가 '확정'이라고 적혀 있지 않으면 확정이라고 말하지 마세요. 반응할 필요가 없으면 빈 문자열을 내세요. 이미 한 말([내가 전에 한 말])이나 방금 다른 사람이 한 말은 되풀이하지 말고, 새로 보탤 말이 없으면 빈 문자열을 내세요.\n${JSON_ONLY}\n스키마: {"reply":"..."}`,
+    user: `[최근 대화]\n${ctx.recent.map(r => `${r.sender}: ${r.text}`).join('\n')}${ctx.ownRecent?.length ? `\n[내가 전에 한 말]\n${ctx.ownRecent.join('\n')}` : ''}\n[방금 온 메시지 (${ctx.trigger.kind})] ${ctx.trigger.text}`,
   };
 }
 

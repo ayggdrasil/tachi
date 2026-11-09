@@ -12,6 +12,23 @@ export const reminderCategory = (text: string): PrivacyCategory => (HEALTH_RE.te
 export function createReminder(db: Db, r: Omit<Reminder, 'id' | 'createdAt' | 'status' | 'category'> & { category?: PrivacyCategory }, now: Date): Reminder {
   return db.reminders.put({ ...r, category: r.category ?? reminderCategory(r.text), id: `rem-${nanoid(8)}`, status: 'scheduled', createdAt: now.toISOString() });
 }
+// Words that do not change what a reminder is about ("take your pill in the morning" = "Take your pill.").
+const FILLER = new Set(['take', 'your', 'my', 'her', 'the', 'a', 'an', 'to', 'please', 'remind', 'reminder', 'me', 'mom', 'of', 'in', 'at', 'on', 'for',
+  'morning', 'afternoon', 'evening', 'night', 'tonight', 'tomorrow', 'today', 'daily', 'every', 'day',
+  '드시기', '드세요', '먹기', '하기', '챙기기', '챙겨', '드시라고', '아침', '점심', '저녁', '밤', '오전', '오후', '내일', '오늘', '매일']);
+// Korean particles glued to a word ("화분에" = "화분", "약을" = "약")
+const PARTICLE = /(에서|으로|에게|한테|에|을|를|은|는|이|가|도|로|과|와|랑)$/;
+const stem = (w: string): string => (/[가-힣]/.test(w) && w.length > 2 ? w.replace(PARTICLE, '') : w);
+const coreWords = (text: string): Set<string> =>
+  new Set(text.toLowerCase().split(/[^\p{L}\p{N}]+/u).map(stem).filter(w => w && !FILLER.has(w)));
+/** Same reminder in other words: identical core words, or one set contains the other. */
+export function sameReminderText(a: string, b: string): boolean {
+  if (a.trim().toLowerCase() === b.trim().toLowerCase()) return true;
+  const x = coreWords(a), y = coreWords(b);
+  if (!x.size || !y.size) return false;
+  const [small, big] = x.size <= y.size ? [x, y] : [y, x];
+  return [...small].every(w => big.has(w));
+}
 export const scheduledReminders = (db: Db, userId?: string): Reminder[] =>
   db.reminders.all().filter(r => r.status === 'scheduled' && (!userId || r.userId === userId)).sort((a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt));
 export const dueReminders = (db: Db, now: Date): Reminder[] => scheduledReminders(db).filter(r => Date.parse(r.dueAt) <= now.getTime());
@@ -62,7 +79,7 @@ export const reminderCreate: Tool<{ text: string; at: string; repeat: 'none' | '
     if (!due) throw new ToolError('invalid', 'at: unrecognised time');
     if (due.getTime() < now.getTime() - 60000) throw new ToolError('invalid', 'at is in the past');
     if (due.getTime() - now.getTime() > 180 * 86400000) throw new ToolError('invalid', 'at is too far ahead (max 180 days)');
-    const dup = scheduledReminders(ctx.db, target).find(r => r.text === args.text && Math.abs(Date.parse(r.dueAt) - due.getTime()) < 60000);
+    const dup = scheduledReminders(ctx.db, target).find(r => Math.abs(Date.parse(r.dueAt) - due.getTime()) < 60000 && sameReminderText(r.text, args.text));
     const r = dup ?? createReminder(ctx.db, { userId: target, text: args.text, dueAt: due.toISOString(), repeat: args.repeat, createdBy: ctx.callerId }, now);
     if (!dup) ctx.notify?.({ kind: 'reminder_created', reminder: r });
     return {

@@ -98,7 +98,8 @@ export function suggestTrip(memory: Memory): Omit<TripSuggestionPayload, 'type' 
   const nearbyNames = (place?.nearby ?? []).map(placeById).filter((p): p is Place => !!p).map(p => p.name);
   const specific = place && place.kind !== 'city' ? place.name : undefined;
   const highlights = [specific, ...nearbyNames].filter((x): x is string => !!x).filter((x, i, a) => a.indexOf(x) === i).slice(0, 4);
-  while (highlights.length < 3) highlights.push(...templateFor(region).highlights.filter(h => !highlights.includes(h)).slice(0, 1));
+  // top up from the region template; bounded: a template with fewer new highlights must not spin forever
+  for (const h of templateFor(region).highlights) { if (highlights.length >= 3) break; if (!highlights.includes(h)) highlights.push(h); }
   const tag = memory.tags.find(t => /탑|꽃|바다|단풍/.test(t)) ?? memory.tags[0];
   const hook = tag ? `${tag} 앞에 다시 서 보면 어떨까요?` : `그때 그 자리에 다시 서 보면 어떨까요?`;
   return {

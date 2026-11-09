@@ -136,6 +136,7 @@ export interface BotContext {
   senior: User;
   recent: { sender: string; text: string }[];   // last ~8 messages, display names
   trigger: { kind: string; text: string };      // the message being reacted to (kind = MessageKind)
+  ownRecent?: string[];          // this persona's own last lines in the room (beyond `recent`), so it does not repeat itself
 }
 
 // ── Agent (tool-calling loop) ─────────────────────────────────────────────

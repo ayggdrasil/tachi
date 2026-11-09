@@ -15,3 +15,9 @@ export function st(key: string, vars?: Vars, locale: Locale = current): string {
   const raw = strings[locale][key] ?? strings.en[key] ?? key;
   return vars ? raw.replace(/\{(\w+)\}/g, (_, k) => (vars[k] === undefined ? '' : String(vars[k]))) : raw;
 }
+
+/** Report topic for a session title: generic English labels become a natural noun phrase; anything else is kept. */
+export function reportTopic(title: string, locale: Locale = current): string {
+  if (locale !== 'en') return title;
+  return strings.en[`report.topic.${title}`] ?? title;
+}

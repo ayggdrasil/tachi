@@ -152,8 +152,8 @@ export function availabilityPrompt(text: string, slots: Slot[]) {
 export function botPrompt(ctx: BotContext) {
   const call = ({ jieun: 'Mom', minjun: 'Mom', suyeon: 'Mom', harin: 'Grandma' } as Record<string, string>)[ctx.persona.id] ?? 'Mom';
   return {
-    system: `You are ${ctx.persona.name} (${ctx.persona.relation}) in the family group chat. Personality: ${ctx.persona.persona ?? ''}\nYou call her "${call}". React naturally to the message that just arrived in one or two sentences (under 120 characters), in English. No emoji, and do not invent facts. For health or blood pressure news, only express concern and care, never evaluate ("healthy", "stable", "relieved", "good news"). Do not say a schedule is "confirmed" unless the result says so. If no reaction is needed, output an empty string.\n${JSON_ONLY}\nSchema: {"reply":"..."}`,
-    user: `[Recent chat]\n${ctx.recent.map(r => `${r.sender}: ${r.text}`).join('\n')}\n[Message just received (${ctx.trigger.kind})] ${ctx.trigger.text}`,
+    system: `You are ${ctx.persona.name} (${ctx.persona.relation}) in the family group chat. Personality: ${ctx.persona.persona ?? ''}\nYou call her "${call}". React naturally to the message that just arrived in one or two sentences (under 120 characters), in English. No emoji, and do not invent facts. For health or blood pressure news, only express concern and care, never evaluate ("healthy", "stable", "relieved", "good news"). Do not say a schedule is "confirmed" unless the result says so. If no reaction is needed, output an empty string. Never repeat what you already said (see [Your earlier lines]) or what someone else just said; if you have nothing new to add, output an empty string.\n${JSON_ONLY}\nSchema: {"reply":"..."}`,
+    user: `[Recent chat]\n${ctx.recent.map(r => `${r.sender}: ${r.text}`).join('\n')}${ctx.ownRecent?.length ? `\n[Your earlier lines]\n${ctx.ownRecent.join('\n')}` : ''}\n[Message just received (${ctx.trigger.kind})] ${ctx.trigger.text}`,
   };
 }
 

@@ -68,6 +68,20 @@ async function main() {
   check(inputs.at(-1)?.draft?.photoUrl === '/demo-photos/gyeongju-1984.jpg' && !!inputs.at(-1)?.history.some(h => h.role === 'assistant' && h.text.includes('lovely photo')), 'input has the draft (photo) and the recent turns');
   check((inputs.at(-1)?.memories.length ?? 0) > 0 && inputs.at(-1)?.allMemoryTitles.length === 3, 'input has memories and all titles');
 
+  // 2b) a save after only two of her answers is held back: still a draft, and Tachi asks about what is missing
+  //     (when/where and who are known here, so it asks what happened) instead of closing the story
+  script = () => ({ turn: { reply: 'I have saved your memory.', quickReplies: [], actions: [{ type: 'save_memory', memory: {
+    title: 'Spring 1984, Namdaemun Market', story: 'Youngsu and I went to Namdaemun Market in 1984.', summary: 'Market day.', year: 1984,
+    place: 'Namdaemun Market, Seoul', people: [{ name: 'Youngsu Park', relation: 'husband' }], emotions: [], tags: [],
+  } }] } });
+  t0 = Date.now();
+  say('Youngsu and I went together.');
+  const held = await waitFor('held-back save', () => since(t0).find(m => m.senderId === 'tachi' && m.kind === 'text'));
+  await sleep(300);
+  check(ctx.db.memories.all().length === 3 && !since(t0).some(m => m.kind === 'memory_card'), 'photo + two answers: the save is held back (the photo is not an answer)');
+  check(!!held && /what do you remember most/i.test(held.text) && !/saved/i.test(held.text), 'held-back save asks what happened, never claims it was saved');
+  check(ctx.db.kv.get<{ draft: { turns?: number; people?: unknown[] } }>(`agent-draft:${SENIOR_ROOM_ID}`)?.draft.turns === 2, 'draft counts only her two spoken answers');
+
   // 3) the model decides the memory is complete → save_memory persists it exactly like a finished interview
   script = () => ({ turn: {
     reply: 'What a wonderful memory. I will keep it safe.', quickReplies: [],
@@ -91,12 +105,14 @@ async function main() {
   check(!ctx.db.kv.get(`agent-draft:${SENIOR_ROOM_ID}`), 'draft cleared after saving');
   check(!since(t0, FAMILY_ROOM_ID).some(m => m.kind === 'share_card'), 'nothing reached the family before consent');
 
-  // 4) share_memory goes through doShare (consent card flow)
-  script = () => ({ turn: { reply: 'Sending it to the family now.', quickReplies: [], actions: [{ type: 'share_memory', memoryId: saved!.id }] } });
+  // 4) share_memory goes through doShare (consent card flow); the memory saved on the previous turn is not shown again
+  script = () => ({ turn: { reply: 'Sending it to the family now.', quickReplies: [], actions: [{ type: 'share_memory', memoryId: saved!.id }, { type: 'show_memory', memoryId: saved!.id }] } });
   t0 = Date.now();
   say('Yes please, send it.');
   await waitFor('share_card', () => since(t0, FAMILY_ROOM_ID).find(m => m.kind === 'share_card'));
   check(ctx.db.memories.get(saved!.id)?.visibility === 'family', 'share_memory shared via the existing doShare');
+  await sleep(300);
+  check(!since(t0).some(m => m.kind === 'recall_card'), 'no recall card for the memory saved on the previous turn');
 
   // 5) show_memory → recall_card; unknown ids are ignored
   script = () => ({ turn: { reply: 'Here is that day.', quickReplies: [], actions: [{ type: 'show_memory', memoryId: 'mem-haeundae-1988' }, { type: 'show_memory', memoryId: 'mem-nope' }, { type: 'launch_rocket' } as never] } });

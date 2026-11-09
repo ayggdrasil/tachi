@@ -1,4 +1,5 @@
 // English offline composition: recall, share, trips, proactive, report, chat.
+import { reportTopic } from '../../i18n';
 import { PRIVACY_LABELS_EN, dateLabelL, pad2 } from '../../../shared/constants';
 import type {
   ItineraryPayload, Memory, MemoryPerson, PrivacyCategory, PrivacySettings, ProactiveKind, ReportPayload, ReportSession, SessionLog,
@@ -92,7 +93,8 @@ export function suggestTripEn(memory: Memory): Omit<TripSuggestionPayload, 'type
   const nearbyNames = (place?.nearby ?? []).map(placeById).filter((p): p is Place => !!p).map(p => p.nameEn);
   const specific = place && place.kind !== 'city' ? place.nameEn : undefined;
   const highlights = [specific, ...nearbyNames].filter((x): x is string => !!x).filter((x, i, a) => a.indexOf(x) === i).slice(0, 4);
-  while (highlights.length < 3) highlights.push(...templateFor(region).highlights.filter(h => !highlights.includes(h)).slice(0, 1));
+  // top up from the region template; bounded: a template with fewer new highlights must not spin forever
+  for (const h of templateFor(region).highlights) { if (highlights.length >= 3) break; if (!highlights.includes(h)) highlights.push(h); }
   const tag = memory.tags.find(t => /pagoda|blossom|sea|beach|leaves|foliage/i.test(t)) ?? memory.tags[0];
   const hook = tag ? `How about standing in front of the ${tag.replace(/^the /i, '')} again?` : 'How about standing in that very spot again?';
   return {
@@ -154,7 +156,7 @@ export function composeReportEn(sessions: SessionLog[], privacy: PrivacySettings
   if (!rows.length) highlight = 'No conversations yet today. Tachi will check in soon.';
   else {
     const lead = `Mom chatted with Tachi today at ${times.join(', ')}.`;
-    const tail = pub.length ? `She spent a relaxed time talking about ${pub[pub.length - 1].title}.` : 'What she talked about today is private.';
+    const tail = pub.length ? `She spent a relaxed time talking about ${reportTopic(pub[pub.length - 1].title, 'en')}.` : 'What she talked about today is private.';
     highlight = `${lead} ${tail}`;
   }
   return {

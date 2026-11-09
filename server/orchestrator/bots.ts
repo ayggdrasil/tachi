@@ -38,6 +38,16 @@ export function provenanceOf(m?: Message): Partial<MessageMeta> {
   return out;
 }
 
+const words = (t: string): Set<string> => new Set(t.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(w => w.length > 1));
+/** Two lines carry the same idea when most of the shorter one's words are in the other ("I'll drive Mom" ≈ "Thanks. I can drive Mom"). */
+export function sameIdea(a: string, b: string): boolean {
+  const x = words(a), y = words(b);
+  if (!x.size || !y.size) return a.trim() === b.trim();
+  const [small, big] = x.size <= y.size ? [x, y] : [y, x];
+  const shared = [...small].filter(w => big.has(w)).length;
+  return shared / small.size >= 0.7;
+}
+
 /** Is a stored message (still) fully visible to this persona? Hidden / redacted triggers must not be reacted to. */
 function visibleTo(userId: ID, m: Message): boolean {
   const view = messageFor(userId, m);
@@ -53,9 +63,11 @@ export async function botSpeak(
   emitTyping(roomId, user.id);
   // context is what this persona may see right now (privacy-projected), not the raw stored history
   const recent = ctx.db.messages.byRoom(roomId, 8).map(m => messageFor(user.id, m)).map(m => ({ sender: displayName(m.senderId), text: m.text }));
-  const ai = await ctx.brain.botReply({ persona: user, senior: senior(), recent, trigger });
+  const ownRecent = ctx.db.messages.byRoom(roomId, 60).filter(m => m.senderId === user.id && m.text).slice(-4).map(m => m.text);
+  const ai = await ctx.brain.botReply({ persona: user, senior: senior(), recent, trigger, ownRecent });
   const text = (ai.value ?? '').trim();
   if (!text) return null;
+  if (ownRecent.some(prev => sameIdea(prev, text))) return null; // a relative who says the same thing again just stays quiet
   const current = getUser(user.id);
   if (!current?.isBot) return null; // a human claimed this persona meanwhile
   const latest = stored ? ctx.db.messages.get(stored.id) ?? stored : undefined;

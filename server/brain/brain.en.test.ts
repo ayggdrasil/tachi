@@ -413,3 +413,15 @@ test('LLM prompts follow the active locale', async () => {
     b.setLocale('en');
   });
 });
+
+test('trip suggestion for a place with few nearby highlights terminates (used to spin forever and freeze the server)', async () => {
+  const { suggestTripEn } = await import('./heuristics/compose.en');
+  const { suggestTrip } = await import('./heuristics/compose');
+  const m = { id: 'm', ownerId: 'mom', title: 't', story: 's', summary: 's', people: [], emotions: [], tags: [], visibility: 'private', status: 'saved', createdAt: '' } as unknown as Parameters<typeof suggestTripEn>[0];
+  for (const place of ['Namdaemun Market, Seoul', '남대문시장, 서울', 'nowhere in particular']) {
+    const en = suggestTripEn({ ...m, place });
+    const ko = suggestTrip({ ...m, place });
+    assert.ok(en.highlights.length >= 1 && en.highlights.length <= 4, `en highlights for ${place}`);
+    assert.ok(ko.highlights.length >= 1 && ko.highlights.length <= 4, `ko highlights for ${place}`);
+  }
+});

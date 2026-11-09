@@ -18,6 +18,9 @@ import { nowIso, uid, warn } from '../util/misc';
 import type { InterviewState } from '../brain/contract';
 
 const kDraft = (roomId: ID) => `agent-draft:${roomId}`;
+const kJustSaved = (roomId: ID) => `agent-just-saved:${roomId}`;
+/** Her answers before a new memory may be saved (unless she says she is done). */
+const SAVE_AFTER_TURNS = 3;
 const DRAFT_TTL_MS = 6 * 3600 * 1000;
 interface StoredDraft { draft: MemoryDraft; at: string }
 
@@ -160,7 +163,11 @@ export async function agentTurn(room: Room, text: string | undefined, photoUrl: 
   // an unfinished offline interview would be orphaned by the agent: drop it together with its draft row
   const old = ctx.db.kv.get<InterviewState>(kInterview(room.id));
   if (old) { const row = ctx.db.memories.get(old.memoryId); if (row?.status === 'draft') ctx.db.memories.delete(row.id); ctx.db.kv.del(kInterview(room.id)); }
-  if (draft) draft = { ...draft, turns: (draft.turns ?? 0) + 1 };
+  // only her own words count as a story turn: a photo opens the story, it does not tell it
+  if (draft) draft = { ...draft, turns: (draft.turns ?? 0) + (message ? 1 : 0) };
+  // the memory saved on the previous turn is already on screen: no recall card for it on this one
+  const justSaved = ctx.db.kv.get<ID>(kJustSaved(room.id));
+  if (justSaved) ctx.db.kv.del(kJustSaved(room.id));
 
   const pending = getPending(room.id);
   const input: SeniorAgentInput = {
@@ -186,16 +193,20 @@ export async function agentTurn(room: Room, text: string | undefined, photoUrl: 
   if (askMed) { reply = st('senior.askWhichMed'); chips = [st('senior.askWhichMed.c1'), st('senior.askWhichMed.c2')]; }
   else if (RECORD_CLAIM_RE.test(reply) && !actions.some(a => a.type === 'log_health' || a.type === 'save_memory' || a.type === 'update_draft')) reply = stripRecordClaims(reply);
 
-  // A NEW memory is pushed to the DB only once the story has had room to grow: at least two story turns,
-  // or the senior says she is done. An early save becomes a draft and Tachi keeps listening instead.
+  // A NEW memory is pushed to the DB only once the story has had room to grow: three of her answers (when/where,
+  // who, what happened, like the offline interview), or she says she is done. An early save becomes a draft and
+  // Tachi asks about what is still missing instead of closing the story.
   const storyTurns = draft?.turns ?? 0;
-  const saveReady = storyTurns >= 2 || DONE_RE.test(message);
+  const saveReady = storyTurns >= SAVE_AFTER_TURNS || DONE_RE.test(message);
   const early = actions.find(a => a.type === 'save_memory');
   if (early && !saveReady) {
     const idx = actions.indexOf(early);
-    actions[idx] = { type: 'update_draft', draft: cleanDraft((early as { memory?: unknown }).memory) ?? {} } as SeniorAgentAction;
+    const held = cleanDraft((early as { memory?: unknown }).memory) ?? {};
+    actions[idx] = { type: 'update_draft', draft: held } as SeniorAgentAction;
     if (!draft) draft = { turns: 1 };
-    reply = st('senior.agent.tellMore');
+    const known = mergeDraft(draft, held);
+    reply = st(!(known.year || known.era || known.season || known.place) ? 'senior.agent.tellMore.when'
+      : !known.people?.length ? 'senior.agent.tellMore' : 'senior.agent.tellMore.what');
     chips = [];
   }
   const memoryTalk = !!draft || actions.some(a => ['save_memory', 'update_draft', 'show_memory'].includes(a.type));
@@ -225,11 +236,12 @@ export async function agentTurn(room: Room, text: string | undefined, photoUrl: 
           saveDraft(room.id, undefined);
           draft = undefined;
           await commitMemory(room, mem, ai);
+          ctx.db.kv.set(kJustSaved(room.id), mem.id);
           break;
         }
         case 'show_memory': {
           const mem = savedMemory((a as { memoryId?: unknown }).memoryId);
-          if (!mem) break;
+          if (!mem || mem.id === justSaved) break;
           clearProactiveMemory();
           setLastMemory(mem.id);
           await postRecallCard(room.id, mem, `${mem.title} · ${mem.summary}`, ai);

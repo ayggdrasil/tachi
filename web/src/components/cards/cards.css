@@ -153,3 +153,6 @@
 .cd-ts-plan { border-top: 1px solid var(--border); padding-top: var(--space-8); }
 .cd-embedded { border: 0; padding: 0; background: transparent; }
 .senior .cd-ts-hl li, .senior .cd-ts-when, .senior .cd-ts-mem { font-size: var(--senior-caption); }
+
+/* itinerary preview: at most two lines per stop (the full plan is behind "show all") */
+.cd-desc.is-clamped { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

@@ -120,6 +120,12 @@ test('reminders: create (senior + family), privacy-aware list, due + delivery (d
   assert.ok(b.ok);
   const dup = await executeTool('reminder_create', { text: '화분에 물 주기', at: '오후 4시' }, tctx('senior'));
   assert.equal((dup.output!.data as { duplicate: boolean }).duplicate, true);
+  // the same reminder in other words at the same time is not stored twice (offline brain + live model both answered)
+  const reworded = await executeTool('reminder_create', { text: '오후에 화분 물 주기', at: '오후 4시' }, tctx('senior'));
+  assert.equal((reworded.output!.data as { duplicate: boolean }).duplicate, true, 'reworded reminder at the same time is a duplicate');
+  const other = await executeTool('reminder_create', { text: '관절약 드시기', at: '오후 4시' }, tctx('senior'));
+  assert.equal((other.output!.data as { duplicate: boolean }).duplicate, false, 'a different reminder at the same time is kept');
+  { const extra = db.reminders.all().find(r => r.text === '관절약 드시기'); if (extra) markDelivered(db, extra, new Date()); } // keep the list checks below unchanged
   assert.equal((await executeTool('reminder_create', { text: '전화', at: '오후 4시', forUserId: 'jieun' }, tctx('family'))).error?.code, 'forbidden');
   assert.equal((await executeTool('reminder_create', { text: '전화', at: '어제쯤' }, tctx('family'))).error?.code, 'invalid');
   const c = await executeTool('reminder_create', { text: '사진 앨범 정리하기', at: '내일 3시' }, tctx('family', 'jieun', notices));

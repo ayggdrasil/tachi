@@ -125,9 +125,10 @@ function ItineraryPlan({ message, variant, actionSlot, embedded }: CardProps & {
               <i className="cd-tl-dot" aria-hidden />
               <div className="cd-tl-body">
                 <div><span className="cd-time">{s.time}</span> <b className="cd-stop">{s.title}</b></div>
-                <p className="cd-desc">{s.description}</p>
+                {/* preview stays short however much the model wrote, so the card's action stays on screen above the composer */}
+                <p className={`cd-desc${all ? '' : ' is-clamped'}`}>{s.description}</p>
                 {s.travel && <p className="cd-travel">{s.travel}</p>}
-                {s.note && <p className="cd-note"><Accessibility size={13} />{s.note}</p>}
+                {s.note && all && <p className="cd-note"><Accessibility size={13} />{s.note}</p>}
               </div>
             </li>
           ))}
@@ -135,7 +136,7 @@ function ItineraryPlan({ message, variant, actionSlot, embedded }: CardProps & {
         </div>
       )}
       {actionSlot}
-      {hidden > 0 && <button type="button" className="cd-link cd-more" aria-expanded={all} onClick={() => setAll(a => !a)}>{all ? t('trip.collapse') : t('trip.showAll', { n: hidden })}</button>}
+      {(hidden > 0 || (d?.stops ?? []).some(s => s.note)) && <button type="button" className="cd-link cd-more" aria-expanded={all} onClick={() => setAll(a => !a)}>{all ? t('trip.collapse') : hidden > 0 ? t('trip.showAll', { n: hidden }) : t('trip.showDetails')}</button>}
       {p.tips.length > 0 && (
         <>
           <button type="button" className="cd-link cd-more" aria-expanded={tips} onClick={() => setTips(v => !v)}>{tips ? t('trip.hideTips') : t('trip.showTips')}</button>

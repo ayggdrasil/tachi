@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { nanoid } from 'nanoid';
 import { ctx, type Sock } from './ctx';
-import { serverLocale, st } from '../i18n';
+import { reportTopic, serverLocale, st } from '../i18n';
 import { clockNow, getClockOffsetMinutes, nowIso, setClockOffsetMinutes, sleep, uid, wallNow, warn, ymd } from '../util/misc';
 
 // ── ids / channels ──────────────────────────────────────────────────────────
@@ -299,7 +299,7 @@ export function reportHighlight(rows: ReportSession[]): string {
   if (!rows.length) return st('report.none');
   const times = [...new Set(rows.map(r => r.time))].join(', ');
   const lastPublic = [...rows].reverse().find(r => !r.isPrivate);
-  return st('report.highlight', { times, tail: lastPublic ? st('report.highlight.public', { title: lastPublic.title }) : st('report.highlight.private') });
+  return st('report.highlight', { times, tail: lastPublic ? st('report.highlight.public', { title: reportTopic(lastPublic.title) }) : st('report.highlight.private') });
 }
 
 /** Viewer-aware copy of a stored message: anything whose source (memory / trip / category) is no longer visible to a family viewer is redacted. */
