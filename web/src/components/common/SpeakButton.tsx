@@ -18,7 +18,7 @@ export function SpeakButton({ text }: { text: string }) {
     synth.speak(u);
   };
   return (
-    <button type="button" className="speak-btn" aria-pressed={on} aria-label={on ? '읽기 멈추기' : '소리내어 읽기'} onClick={toggle}>
+    <button type="button" className="speak-btn" aria-pressed={on} aria-label="소리내어 읽기" onClick={toggle}>
       {on ? <Square size={16} /> : <Volume2 size={18} />}
     </button>
   );

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useEffect, useMemo, useState } from 'react';
+import { useCallback, useRef, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, CalendarClock, Home, HeartHandshake, MoreHorizontal, UserPlus, X } from 'lucide-react';
 import { FAMILY_ROOM_ID } from '../../../../shared/constants';
@@ -6,6 +6,7 @@ import { initTachi, isEmbedded, rememberPersona, resolvePersona, useTachi } from
 import { MessageList } from '../../components/chat/MessageList';
 import { Composer } from '../../components/chat/Composer';
 import { Avatar } from '../../components/common/Avatar';
+import { useModal } from '../../components/common/useModal';
 import { useIsNarrow } from './useMedia';
 import { Sidebar } from './Sidebar';
 import { ArtifactPanel } from './ArtifactPanel';
@@ -30,7 +31,6 @@ export default function FamilyApp() {
   const users = useTachi(s => s.users);
   const rooms = useTachi(s => s.rooms);
   const messages = useTachi(s => s.messages);
-  const bootError = useTachi(s => s.error);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [view, setView] = useState<'list' | 'chat'>(embedded ? 'chat' : 'list');
@@ -38,6 +38,8 @@ export default function FamilyApp() {
   const [invite, setInvite] = useState(false);
   const [newRoom, setNewRoom] = useState(false);
   const [more, setMore] = useState(false);
+  const moreBox = useRef<HTMLDivElement>(null);
+  const moreBtn = useRef<HTMLButtonElement>(null);
   const [seen, setSeen] = useState<Record<string, number>>({});
 
   const visibleRooms = useMemo(() => rooms.filter(r => r.type !== 'tachi'), [rooms]);
@@ -134,14 +136,25 @@ export default function FamilyApp() {
     return () => window.removeEventListener('keydown', k);
   }, [panel]);
 
+  // "더 보기" menu: outside press / Escape close, focus moves in on open
+  useEffect(() => {
+    if (!more) return;
+    moreBox.current?.querySelector<HTMLElement>('#fam-more-menu button')?.focus({ preventScroll: true });
+    const on = (e: PointerEvent) => { if (!moreBox.current?.contains(e.target as Node)) setMore(false); };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { setMore(false); moreBtn.current?.focus(); } };
+    document.addEventListener('pointerdown', on);
+    document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('pointerdown', on); document.removeEventListener('keydown', key); };
+  }, [more]);
+
   if (status === 'error') {
     return (
       <div className="fam-boot" role="alert">
         <span className="fam-mark">타치</span>
-        <p className="fam-boot-title">연결하지 못했어요</p>
-        <p className="caption muted fam-boot-msg">{bootError || '서버가 켜져 있는지 확인해 주세요.'}</p>
+        <p className="fam-boot-title">연결이 잠시 끊겼어요.</p>
+        <p className="caption muted fam-boot-msg">잠시 후 다시 연결해 주세요.</p>
         <div className="fam-boot-actions">
-          <button className="btn btn-primary" onClick={() => initTachi(personaId, true)}>다시 시도</button>
+          <button className="btn btn-primary" onClick={() => initTachi(personaId, true)}>다시 연결</button>
           <Link to="/" className="btn">다른 가족으로 들어가기</Link>
         </div>
       </div>
@@ -159,8 +172,8 @@ export default function FamilyApp() {
   const panelNode = panel && (
     <div className="fam-panel-body">
       <header className="fam-panel-head">
-        <h2 className="fam-panel-title">{panel.kind === 'mom' ? '어머니 소식' : '모임 계획'}</h2>
-        <button className="btn btn-icon" onClick={() => setPanel(null)} aria-label="패널 닫기"><X size={18} strokeWidth={1.5} /></button>
+        <h2 className="fam-panel-title" id="fam-panel-title">{panel.kind === 'mom' ? '어머니 소식' : '모임 계획'}</h2>
+        <button className="btn btn-icon" data-autofocus onClick={() => setPanel(null)} aria-label="패널 닫기"><X size={18} strokeWidth={1.5} /></button>
       </header>
       <div className="fam-panel-scroll">
         {panel.kind === 'mom' ? <MomPanel /> : <ArtifactPanel artifactId={panel.id} />}
@@ -185,8 +198,8 @@ export default function FamilyApp() {
                 <ArrowLeft size={18} strokeWidth={1.5} />
               </button>
             )}
-            <h1 className="fam-head-title">{room?.title ?? '대화방'}</h1>
-            <div className="fam-stack" aria-label={`참여자 ${members.length}명`}>
+            <h1 className="fam-head-title" title={room?.title}>{room?.title ?? '대화방'}</h1>
+            <div className="fam-stack" role="group" aria-label={`참여자 ${members.length}명`}>
               {members.slice(0, 5).map(u => <span key={u.id} className="fam-stack-i"><Avatar user={u} size={24} /></span>)}
               {members.length > 5 && <span className="fam-stack-more">+{members.length - 5}</span>}
             </div>
@@ -205,15 +218,21 @@ export default function FamilyApp() {
               aria-pressed={panel?.kind === 'mom'} aria-label="어머니 소식">
               <HeartHandshake size={16} strokeWidth={1.5} /><span className="fam-head-label">어머니 소식</span>
             </button>
-            <div className="fam-more">
-              <button className="btn btn-icon" onClick={() => setMore(v => !v)} aria-label="더 보기" aria-expanded={more}><MoreHorizontal size={18} strokeWidth={1.5} /></button>
+            <div className="fam-more" ref={moreBox}>
+              <button ref={moreBtn} className="btn btn-icon" onClick={() => setMore(v => !v)} aria-label="더 보기" aria-expanded={more} aria-controls="fam-more-menu"><MoreHorizontal size={18} strokeWidth={1.5} /></button>
               {more && (
-                <div className="fam-menu fam-more-menu" onMouseLeave={() => setMore(false)}>
+                <div className="fam-menu fam-more-menu" id="fam-more-menu">
                   <p className="caption muted fam-menu-h">참여자 {members.length}명</p>
                   {members.map(u => (
                     <div key={u.id} className="fam-menu-item"><Avatar user={u} size={22} /><span>{u.name} · {u.relation === '본인' ? '어머니' : u.relation}</span></div>
                   ))}
-                  <button className="fam-menu-item fam-menu-close" onClick={() => setMore(false)}>닫기</button>
+                  <div className="fam-menu-tips">
+                    <p className="caption muted fam-menu-h">타치에게 이렇게 물어보세요</p>
+                    <p className="fam-menu-tip">‘타치, 엄마 요즘 혈압 괜찮으셔?’</p>
+                    <p className="fam-menu-tip">‘타치, 모임 시간 잡아줘’</p>
+                    <p className="fam-menu-tip">‘엄마 생신에 다 같이 모이자’라고 하면 모임 기획서를 만들어요</p>
+                  </div>
+                  <button className="fam-menu-item fam-menu-close" onClick={() => { setMore(false); moreBtn.current?.focus(); }}>닫기</button>
                 </div>
               )}
             </div>
@@ -250,13 +269,21 @@ export default function FamilyApp() {
       {panel && !narrow && <aside className="fam-panel" aria-label={panel.kind === 'mom' ? '어머니 소식' : '모임 계획'}>{panelNode}</aside>}
       {panel && narrow && (
         <>
-          <div className="scrim" onClick={() => setPanel(null)} />
-          <aside className="fam-sheet" aria-label={panel.kind === 'mom' ? '어머니 소식' : '모임 계획'}>{panelNode}</aside>
+          <div className="scrim" aria-hidden="true" onClick={() => setPanel(null)} />
+          <PanelSheet onClose={() => { if (!document.querySelector('.dlg-wrap')) setPanel(null); }}>{panelNode}</PanelSheet>
         </>
       )}
 
       {invite && room && <InviteDialog roomId={room.id} onClose={() => setInvite(false)} />}
       {newRoom && <NewRoomDialog onClose={() => setNewRoom(false)} onCreated={selectRoom} />}
     </div>
+  );
+}
+
+function PanelSheet({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useModal(ref, onClose);
+  return (
+    <div className="fam-sheet" role="dialog" aria-modal="true" aria-labelledby="fam-panel-title" ref={ref}>{children}</div>
   );
 }

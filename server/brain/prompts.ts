@@ -58,7 +58,7 @@ export function recallPrompt(m: Memory, query: string) {
 
 export function seniorChatPrompt(history: string, text: string) {
   return {
-    system: `${TACHI_PERSONA}\n일상 대화에 1~2문장으로 답하고, 어머님이 눌러 답하기 쉬운 짧은 선택지(quickReplies, 2~3개, 12자 이내)를 주세요. category는 이 대화의 성격이에요(health 건강/복약/수면, mood 기분, daily 일상).\n${JSON_ONLY}\nreply는 따뜻하게 공감만 하고 "기록했다/저장했다"고 말하지 마세요. 어머님이 약 복용이나 기분을 분명히 말씀하신 경우에만 observation을 채우세요(그 외엔 생략).\n스키마: {"reply":"...","quickReplies":["..",".."],"category":"daily|health|mood","observation":{"medication":{"taken":true,"name":"혈압약","time":"아침|점심|저녁"},"mood":"좋음|보통|조금 우울"}}`,
+    system: `${TACHI_PERSONA}\n일상 대화에 1~2문장으로 답하고, 어머님이 눌러 답하기 쉬운 짧은 선택지(quickReplies, 2~3개, 12자 이내)를 주세요. category는 이 대화의 성격이에요(health 건강/복약/수면, mood 기분, daily 일상).\n${JSON_ONLY}\nreply는 따뜻하게 공감만 하고 "기록했다/저장했다"고 말하지 마세요. 한 번에 질문은 하나만. 어머님이 약 복용이나 기분을 분명히 말씀하신 경우에만 observation을 채우세요(그 외엔 생략). medication의 name/time은 어머님이 말씀 속에서 직접 말한 경우에만 쓰고, mood는 어머님이 직접 쓰신 기분 표현이 있을 때만 쓰세요(추측 금지).\n스키마: {"reply":"...","quickReplies":["..",".."],"category":"daily|health|mood","observation":{"medication":{"taken":true,"name":"혈압약","time":"아침|점심|저녁"},"mood":"좋음|보통|조금 우울"}}`,
     user: `[최근 대화]\n${history || '(없음)'}\n[어머님] ${text}`,
   };
 }
@@ -85,9 +85,9 @@ export function itineraryPrompt(title: string, destination: string, highlights: 
 }
 
 export function proactivePrompt(kind: ProactiveKind, m: Memory | undefined, now: Date) {
-  const when: Record<ProactiveKind, string> = { morning: '아침 안부(09:00). 어젯밤 잠을 여쭙고, 가능하면 지난 추억 하나를 부드럽게 언급', memory: '오후 추억 이야기(14:00). 지난 추억 하나를 떠올리며 이야기를 청해요', evening: '저녁 인사(19:30). 저녁 식사와 저녁 약을 여쭙고 하루를 물어요', ask_photo: '오늘은 옛날 사진 한 장을 보여 달라고 부드럽게 청해요' };
+  const when: Record<ProactiveKind, string> = { morning: '아침 안부(09:00). 어젯밤 잠을 여쭙고, 가능하면 지난 추억 하나를 질문 없이 서술문으로 언급한 뒤 잠에 관한 질문 하나로 끝내요(추억 이야기 청하기는 답변 선택지 \'그 사진 얘기해 줄게\'로만 열어 둠)', memory: '오후 추억 이야기(14:00). 지난 추억 하나를 떠올리며 이야기를 청해요', evening: '저녁 인사(19:30). 저녁 식사와 저녁 약을 여쭙고 하루를 물어요', ask_photo: '오늘은 옛날 사진 한 장을 보여 달라고 부드럽게 청해요' };
   return {
-    system: `${TACHI_PERSONA}\n지금 타치가 먼저 말을 거는 상황이에요: ${when[kind]}. 최대 3문장. 선택지(quickReplies) 2~3개(12자 이내).\n${JSON_ONLY}\n스키마: {"text":"...","quickReplies":["..",".."]}`,
+    system: `${TACHI_PERSONA}\n지금 타치가 먼저 말을 거는 상황이에요: ${when[kind]}. 한 번의 말에는 질문을 정확히 하나만, 문장 맨 끝에 두세요(추억 언급은 질문 없는 서술문). 선택지는 그 질문에 대한 답이어야 하고(quickReplies) 2~3개(12자 이내).\n${JSON_ONLY}\n스키마: {"text":"...","quickReplies":["..",".."]}`,
     user: `[현재 시각] ${now.getHours()}시 ${now.getMinutes()}분\n[언급할 기억] ${m ? memoryBlock(m) : '(없음)'}`,
   };
 }
@@ -125,7 +125,7 @@ export function familyAnswerPrompt(question: string, ctx: FamilyContext) {
 export function gatheringPrompt(input: GatheringInput) {
   const ms = input.members.map(m => `${m.id}:${m.name}(${m.relation})`).join(', ');
   return {
-    system: `${FAMILY_PERSONA}\n가족 모임 계획(아티팩트) 초안을 JSON으로 만드세요. title은 "어머니 생신 · 경주 가족 여행"처럼. background에는 제안 배경과 연결된 추억/여행을 한두 문장. tasks의 assigneeId는 구성원 id 중에서만 고르고, 성격에 맞게 배정해요(KTX·차량은 minjun, 숙소·식당은 suyeon, 케이크·꽃은 harin(있으면) 아니면 jieun, 어머님 복약·컨디션은 jieun). 날짜는 정하지 않아요.\n${JSON_ONLY}\n스키마: {"title":"...","background":"...","purpose":"...","place":"...","agenda":["4~6개"],"tasks":[{"text":"...","assigneeId":"minjun"}],"notes":"..."}`,
+    system: `${FAMILY_PERSONA}\n가족 모임 계획(아티팩트) 초안을 JSON으로 만드세요. 생신·생일·칠순·팔순·환갑이 제안이나 연결된 추억/여행에 명시된 경우에만 생신 모임으로 다뤄요(title "어머니 생신 · 경주 가족 여행", 케이크·꽃 준비 할 일 포함). 그 외 일반 가족 모임·여행(예: 일정에서 '가족과 함께 가기')은 생신/케이크/꽃을 절대 언급하지 말고 중립적으로 title "경주 가족 여행", purpose, 할 일을 써요. 기존 여행 일정에 생신 제안을 합칠 때도 생신 관점을 title/purpose에 담아요. background에는 제안 배경과 연결된 추억/여행을 한두 문장. tasks의 assigneeId는 구성원 id 중에서만 고르고, 성격에 맞게 배정해요(KTX·차량은 minjun, 숙소·식당은 suyeon, (생신일 때만) 케이크·꽃은 harin(있으면) 아니면 jieun, 어머님 복약·컨디션은 jieun). 날짜는 정하지 않아요.\n${JSON_ONLY}\n스키마: {"title":"...","background":"...","purpose":"...","place":"...","agenda":["4~6개"],"tasks":[{"text":"...","assigneeId":"minjun"}],"notes":"..."}`,
     user: `[제안] ${input.proposer.name}: ${input.proposalText}\n[구성원] ${ms}\n[연결된 추억] ${input.linkedMemory ? memoryBlock(input.linkedMemory) : '(없음)'}\n[연결된 여행] ${input.linkedTrip ? `${input.linkedTrip.title} (${input.linkedTrip.destination})` : '(없음)'}`,
   };
 }

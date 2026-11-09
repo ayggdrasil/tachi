@@ -6,13 +6,10 @@
 /* Model switcher */
 .ms { position: relative; display: inline-block; }
 .ms-pill { display: inline-flex; align-items: center; gap: var(--space-6); min-height: 32px; padding: 0 var(--space-10); border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface); font-size: var(--text-small); font-weight: var(--weight-medium); }
-.ms-pill:hover { background: var(--hover); }
 .ms-menu { position: absolute; z-index: 40; top: calc(100% + 6px); right: 0; min-width: 232px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-6); }
 .ms-ro { cursor: default; color: var(--text-2); }
-.ms-ro:hover { background: var(--surface); }
 .ms-list { display: flex; flex-direction: column; gap: 2px; }
 .ms-row { display: flex; align-items: center; gap: var(--space-8); width: 100%; min-height: 40px; padding: 0 var(--space-10); border-radius: var(--radius-lg); text-align: left; font-size: var(--text-caption); }
-.ms-row:hover:not(:disabled) { background: var(--hover); }
 .ms-row:disabled { color: var(--text-3); }
 .ms-row .ms-label { flex: 1; font-weight: var(--weight-medium); }
 .ms-row .ms-sub { font-size: var(--text-micro); color: var(--text-3); }
@@ -20,9 +17,27 @@
 
 /* Toasts */
 .toasts { position: fixed; z-index: 90; left: 0; right: 0; bottom: 24px; display: flex; flex-direction: column; align-items: center; gap: var(--space-8); pointer-events: none; padding: 0 var(--space-16); }
-.toast { background: var(--color-ink-press); color: var(--inverse-text); padding: var(--space-10) var(--space-16); border-radius: var(--radius-pill); font-size: var(--text-caption); font-weight: var(--weight-medium); animation: tachi-fade-up var(--dur-med) var(--ease-out); max-width: 100%; }
+.toast { background: var(--surface-tooltip); color: var(--inverse-text); padding: var(--space-10) var(--space-16); border-radius: var(--radius-pill); font-size: var(--text-caption); font-weight: var(--weight-medium); animation: tachi-fade-up var(--dur-med) var(--ease-out); max-width: 100%; }
 
 .speak-btn { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: var(--radius-lg); color: var(--text-2); }
-.speak-btn:hover { background: var(--hover); }
 .speak-btn[aria-pressed="true"] { color: var(--text); background: var(--hover); }
 .senior .speak-btn { width: 56px; height: 56px; }
+
+.senior .toast { font-size: var(--senior-caption); padding: var(--space-12) var(--space-20); }
+.senior .toasts { bottom: calc(160px + env(safe-area-inset-bottom)); }
+
+/* Segmented control (radiogroup): one component for senior and family */
+.seg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; border: 1px solid var(--border-strong); border-radius: var(--radius-lg); overflow: hidden; }
+.seg button { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-6); font-size: var(--text-caption); font-weight: var(--weight-medium); color: var(--text-2); border-radius: 0; }
+.seg button[aria-checked="true"] { background: var(--inverse-bg); color: var(--inverse-text); }
+.seg button:focus-visible { box-shadow: var(--focus-ring-inset); }
+.seg-senior button { min-height: var(--senior-control); font-size: var(--senior-control-text); }
+@media (pointer: coarse) { .seg button { min-height: var(--target-min); } .seg-senior button { min-height: var(--senior-control); } }
+
+@media (hover: hover) {
+  .ms-pill:hover { background: var(--hover); }
+  .ms-ro:hover { background: var(--surface); }
+  .ms-row:hover:not(:disabled) { background: var(--hover); }
+  .speak-btn:hover { background: var(--hover); }
+  .seg button:hover:not([aria-checked="true"]) { background: var(--hover); }
+}

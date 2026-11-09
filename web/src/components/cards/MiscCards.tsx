@@ -6,7 +6,7 @@ import './cards.css';
 
 export function HealthCard({ message, variant }: CardProps) {
   const p = message.payload as HealthCardPayload;
-  return <article className="cd" aria-label="건강 요약"><HealthSummaryView summary={p.summary} variant={variant} /></article>;
+  return <article className="cd" aria-label="건강 요약"><h3 className="cd-title">최근 7일 건강 기록</h3><HealthSummaryView summary={p.summary} variant={variant} compact /></article>;
 }
 
 export function ReportCard({ message }: CardProps) {

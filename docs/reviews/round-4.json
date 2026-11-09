@@ -1,0 +1,164 @@
+{
+  "model": "gpt-6.1-sol",
+  "effort": "xhigh",
+  "seconds": 329,
+  "usage": {
+    "input_tokens": 219795,
+    "input_tokens_details": {
+      "cache_write_tokens": 219792,
+      "cached_tokens": 0
+    },
+    "output_tokens": 15928,
+    "output_tokens_details": {
+      "reasoning_tokens": 12948
+    },
+    "total_tokens": 235723
+  },
+  "scores": {
+    "demo_readiness": 7.9,
+    "senior_ux": 8,
+    "family_ux": 8,
+    "ai_behavior": 7.7,
+    "robustness": 7.4,
+    "design_fidelity": 8.2,
+    "overall": 7.9
+  },
+  "summary": "The supplied captures show a coherent happy path through memory creation, sharing, recall, scheduling, privacy refusal, and reporting. The reviewed code preserves important corrections, including private-by-default memories, server-authorized sharing actions, non-unanimous scheduling states, and truthful offline attribution. The remaining live-demo weaknesses are stage occlusion on smaller displays, health answers scrolling out of view, and a missing trip-to-family handoff in the scripted presentation. Privacy retraction and observation grounding also have residual gaps that prevent a trustworthy 9+/10 score.",
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "high",
+      "area": "demo",
+      "file": "web/src/pages/demo/DirectorConsole.tsx",
+      "problem": "On smaller presentation displays, automatically revealing the graph covers almost the entire family phone during the memory-sharing portion of the demo.",
+      "evidence": "At a 1024×768 viewport, the 320px rail leaves a 704px stage. The sizing calculation selects graphOverlay with a 320px graph positioned at right:16px, directly over the second phone. The graph opens at a-story/recall and is not automatically dismissed until scheduling, so the family share card and reactions are obscured.",
+      "fix": "Add a compact presentation breakpoint that collapses the rail or moves the graph below the phones. Never position the graph over either active phone; verify the a-story, share, and recall beats at 1024×768 as well as the supplied desktop size."
+    },
+    {
+      "id": "F2",
+      "severity": "high",
+      "area": "demo",
+      "file": "web/src/components/chat/MessageList.tsx",
+      "problem": "The health-Q&A beat loses its actual answer from the visible viewport, leaving the audience with a chart and bot reaction rather than the public-data explanation.",
+      "evidence": "In 10-family-health.png, neither the question nor Tachi's numerical answer is visible. The server posts the answer and health card separately; MessageList pins the new card, then a subsequent bot text switches pinMode to bottom and scrolls again.",
+      "fix": "Treat the question, answer, and supporting health card as one presentation turn. Keep the answer anchored while bot reactions arrive, and use a compact health-card preview so the answer and latest reading remain visible together."
+    },
+    {
+      "id": "F3",
+      "severity": "medium",
+      "area": "demo",
+      "file": "shared/constants.ts",
+      "problem": "The Director script never demonstrates the promised itinerary-to-family gathering handoff.",
+      "evidence": "DEMO_SCRIPT moves directly from trip acceptance to health Q&A. Its later gathering is created by an independent family proposal. In 09-senior-trip.png through 12-senior-gathering.png, the itinerary's '가족과 함께 가기' button remains untouched.",
+      "fix": "Add a senior step sending '가족과 함께 가기' after the itinerary, waiting for the family artifact. Let the subsequent birthday proposal update that artifact, and trim another dwell if necessary to preserve the 90-second budget."
+    },
+    {
+      "id": "F4",
+      "severity": "high",
+      "area": "server",
+      "file": "server/orchestrator/core.ts",
+      "problem": "Separately sharing a trip derived from a private memory still produces a redacted family message, despite the explicit trip consent.",
+      "evidence": "shareTrip sets sharedSeparately=true, but its family itinerary message also receives meta.memoryId through tripMeta. projectMessage checks that memoryId before trip visibility and redacts the message when the source memory is private. Consequently, the trip can be present in Bootstrap.trips while its explicitly shared itinerary is hidden in chat.",
+      "fix": "Separate trip provenance from disclosure of source-memory content. Project the itinerary according to tripVisibleToFamily, and only apply the memory gate to fields that actually expose the memory. Add an end-to-end test that declines memory sharing, accepts its trip, and successfully shares only the itinerary."
+    },
+    {
+      "id": "F5",
+      "severity": "high",
+      "area": "server",
+      "file": "server/orchestrator/bots.ts",
+      "problem": "Memory and health retraction does not cover bot-authored derivatives, and delayed bots can still publish reactions to content that has become private.",
+      "evidence": "botSpeak stores only generatedBy/model/fallback/source metadata, without the triggering memory, trip, or privacy categories. It also passes raw stored recent messages and the captured trigger text to the brain without current-privacy projection. The memory-specific reaction '제가 도망갔죠' is visible in 07-family-invite.png and has no provenance that would retract it with the memory.",
+      "fix": "Carry source-resource and category provenance through bot generation, project recent context for the bot persona, and revalidate the trigger immediately before posting. Cancel or redact pending reactions when their source becomes private, and test retraction both before and after a bot reply."
+    },
+    {
+      "id": "F6",
+      "severity": "high",
+      "area": "server",
+      "file": "server/orchestrator/family.ts",
+      "problem": "Per-memory retraction still fails for paraphrased family answers that omit the memory's exact title and place.",
+      "evidence": "answerProvenance records memoryIds only when the output contains a full memory title or place string. An answer such as a paraphrase about the family's watermelon-filled summer can use the supplied memory summary without matching either string. Making that individual memory private then leaves the answer visible because the memory category itself remains public.",
+      "fix": "Use validated resource citations from the answer generator, or conservatively associate answers with all memory resources supplied in their context. Do not infer privacy provenance solely from output substrings. Add a regression using a paraphrased answer followed by individual-memory retraction."
+    },
+    {
+      "id": "F7",
+      "severity": "medium",
+      "area": "senior-ux",
+      "file": "server/orchestrator/scheduling.ts",
+      "problem": "A natural senior availability answer, '다 돼요', is not accepted in the senior's own chat and can leave scheduling waiting indefinitely on a real phone.",
+      "evidence": "The brain's availability parser supports '다 돼요', but tryMomAvailability rejects it before calling that parser: it matches neither AVAIL_RE nor NEGATIVE_RE, and contains no SLOT_WORD_RE term. Assisted Director phones eventually receive a stand-in answer, masking this failure.",
+      "fix": "Recognize all-availability expressions such as '다 돼요', '전부 가능해요', and '언제나 괜찮아' while a senior poll is awaiting a response. Preserve the existing meal-chat exclusion and add senior-room integration tests rather than testing only the brain parser."
+    },
+    {
+      "id": "F8",
+      "severity": "medium",
+      "area": "family-ux",
+      "file": "server/orchestrator/family.ts",
+      "problem": "Starting scheduling from an older gathering card schedules the newest artifact instead of the artifact the user selected.",
+      "evidence": "handleFamilyAction ignores the stored start_scheduling action's artifactId and calls startScheduling with only the room. startScheduling then uses latestOpenArtifact, which simply returns the room's last artifact. The newly supported multiple-gathering flow makes this mismatch reachable.",
+      "fix": "Pass the stored action's artifactId into startScheduling, validate that it belongs to the room, and update that artifact. Add a regression with two artifacts in one room and start scheduling from the first card."
+    },
+    {
+      "id": "F9",
+      "severity": "medium",
+      "area": "senior-ux",
+      "file": "web/src/components/chat/ActionBar.tsx",
+      "problem": "After sharing, both mutually exclusive choices receive completion checkmarks, visually claiming that the memory was shared and kept private.",
+      "evidence": "06-senior-share.png shows checkmarks beside both '가족에게 공유하기' and '나만 간직할게요'. doShare calls markActionDone(card) for every action, and ActionBar renders a Check for every done action. Trip acceptance uses the same pattern.",
+      "fix": "Represent the selected outcome separately from disabled alternatives. Show one clear result such as '가족에게 공유했어요', and remove or disable the unchosen alternative without a completion checkmark."
+    },
+    {
+      "id": "F10",
+      "severity": "medium",
+      "area": "design",
+      "file": "web/src/components/graph/MemoryGraph.tsx",
+      "problem": "The memory-save graph is too compressed to function as readable proof of the memory graph.",
+      "evidence": "05-senior-a-story.png shows crowded labels around a truncated central title, with labels and connections competing for the same space. MemoryCard requests a 110px graph, compact labels are 12px, and radialLayout excludes the central memory label from its overlap-resolution pass.",
+      "fix": "Use a simplified compact graph containing the memory, people, place, and year, with readable labels and explicit spacing around the center. Put secondary emotion/topic nodes in an expandable full graph, and verify the rendered layout at 390px rather than only node counts."
+    },
+    {
+      "id": "F11",
+      "severity": "medium",
+      "area": "ai",
+      "file": "server/brain/heuristics/family.ts",
+      "problem": "The offline gathering draft invents a birthday even when the senior simply chooses to travel with family.",
+      "evidence": "draftGathering always returns a birthday purpose and a '생신 케이크·꽃 준비' task. With a linked trip, the title can correctly say '가족 모임', while the purpose still says '어머님 생신을 온 가족이 함께 축하'. Without a linked trip, birthday also defaults to true for an ordinary travel proposal.",
+      "fix": "Derive birthday status only from explicit birthday context. Generate neutral purposes and tasks for ordinary gatherings, reserving cake, flowers, and birthday wording for birthday proposals. Test the itinerary's '가족과 함께 가기' path without a birthday message."
+    },
+    {
+      "id": "F12",
+      "severity": "medium",
+      "area": "ai",
+      "file": "server/brain/heuristics/observe.ts",
+      "problem": "The observation merge still permits unsupported mood and medication details to become persisted health facts.",
+      "evidence": "mergeObservation accepts llm.mood whenever deterministic mood extraction is absent. It also accepts LLM medication name/time when only the taken boolean has deterministic support. The round-3 tests explicitly accept mood='좋음' for '약 안 먹었어' and blood-pressure-drug/morning details for '약 먹었어'; applyObservation persists these fields.",
+      "fix": "Persist only observations grounded in the senior's statement or a uniquely identified existing medication record. Require explicit mood evidence, and ask a confirmation question when medication name or dose time is ambiguous instead of accepting model-added details."
+    },
+    {
+      "id": "F13",
+      "severity": "medium",
+      "area": "design",
+      "file": "web/src/components/cards/cards.css",
+      "problem": "At the central memory-save moment, the uploaded photo is reduced to a narrow crop that cuts off the people and weakens the emotional payoff.",
+      "evidence": "05-senior-a-story.png shows only a horizontal strip of the original photograph. The senior-specific .cd-photo-mem rule limits it to 56px with object-fit:cover, whereas the uploaded photograph was clearly visible during the interview.",
+      "fix": "Preserve the photograph's composition with a larger contained preview or a photo/title summary row that can expand. Recover vertical space by simplifying the compact graph and resolved controls rather than cropping the memory's primary artifact."
+    },
+    {
+      "id": "F14",
+      "severity": "medium",
+      "area": "a11y",
+      "file": "web/src/pages/senior/MemoryAlbum.tsx",
+      "problem": "The senior memory sheet declares itself modal but does not manage focus or provide keyboard dismissal.",
+      "evidence": "MemorySheet renders role='dialog' and aria-modal=true without moving focus, trapping Tab, handling Escape, or restoring focus. The family Dialog implements these behaviors, but the senior sheet does not, leaving background navigation reachable while the sheet is open.",
+      "fix": "Reuse the established dialog focus-management behavior for MemorySheet, including initial focus on its close control, Escape dismissal, background inertness, and focus restoration to the originating memory tile."
+    },
+    {
+      "id": "F15",
+      "severity": "low",
+      "area": "copy",
+      "file": "server/brain/heuristics/compose.ts",
+      "problem": "The opening proactive greeting asks two different questions at once instead of the promised single short question.",
+      "evidence": "01-senior-proactive.png asks both whether the senior slept well and whether she will tell the old-photo story. The offline morning template contains four sentences and two question marks; continueMemory similarly asks for a scene and its companions together.",
+      "fix": "End the opening greeting with one question and offer replies that answer that question. Introduce the memory follow-up after the senior responds, and apply the same one-question rule to proactive continuation."
+    }
+  ]
+}

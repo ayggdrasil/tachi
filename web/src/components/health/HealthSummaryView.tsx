@@ -25,7 +25,8 @@ function Spark({ series, width = 220, height = 64, labels }: { series: { name: s
 const md = (d: string) => { const t = new Date(d); return isNaN(+t) ? d.slice(5) : `${t.getMonth() + 1}/${t.getDate()}`; };
 const avg = (a: number[]) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
 
-export function HealthSummaryView({ summary, variant }: { summary: HealthSummary; variant: 'senior' | 'family' }) {
+export function HealthSummaryView({ summary, variant, headingLevel = 4, compact }: { summary: HealthSummary; variant: 'senior' | 'family'; headingLevel?: 3 | 4; compact?: boolean }) {
+  const H = headingLevel === 3 ? 'h3' : 'h4';
   const bp = summary.bloodPressure;
   const last = bp[bp.length - 1];
   const dates = Array.from(new Set(summary.medications.map(m => m.date))).sort();
@@ -40,9 +41,9 @@ export function HealthSummaryView({ summary, variant }: { summary: HealthSummary
   const missed = recorded - taken;
 
   return (
-    <div className={`hs hs-${variant}`}>
+    <div className={`hs hs-${variant}${compact ? ' hs-compact' : ''}`}>
       <section className="hs-block">
-        <div className="hs-head"><h4>혈압</h4>{last && <span className="hs-big">{last.systolic}/{last.diastolic}<small> mmHg · {md(last.date)}</small></span>}</div>
+        <div className="hs-head"><H className="hs-h">혈압</H>{last && <span className="hs-big">{last.systolic}/{last.diastolic}<small> mmHg · {md(last.date)}</small></span>}</div>
         {bp.length > 0 ? (
           <>
             <Spark series={[{ name: 'sys', values: bp.map(b => b.systolic) }, { name: 'dia', values: bp.map(b => b.diastolic), dashed: true }]}
@@ -54,7 +55,7 @@ export function HealthSummaryView({ summary, variant }: { summary: HealthSummary
       </section>
 
       <section className="hs-block">
-        <div className="hs-head"><h4>복약 (최근 7일)</h4><span className="hs-sub">{taken}/{recorded}회 복용{missed > 0 ? ` · 거름 ${missed}회` : ''}</span></div>
+        <div className="hs-head"><H className="hs-h">복약 (최근 7일)</H><span className="hs-sub">{taken}/{recorded}회 복용{missed > 0 ? ` · 거름 ${missed}회` : ''}</span></div>
         {names.map(name => (
           <div className="hs-med" key={name}>
             <span className="hs-med-name">{name}</span>
@@ -76,11 +77,11 @@ export function HealthSummaryView({ summary, variant }: { summary: HealthSummary
 
       <section className="hs-grid">
         <div className="hs-block">
-          <div className="hs-head"><h4>수면</h4><span className="hs-big">{sleepAvg ? sleepAvg.toFixed(1) : '-'}<small>시간 평균</small></span></div>
+          <div className="hs-head"><H className="hs-h">수면</H><span className="hs-big">{sleepAvg ? sleepAvg.toFixed(1) : '-'}<small>시간 평균</small></span></div>
           <div className="hs-bars" aria-hidden>{summary.sleepHours.map(s => <i key={s.date} style={{ height: `${(s.hours / maxSleep) * 100}%` }} />)}</div>
         </div>
         <div className="hs-block">
-          <div className="hs-head"><h4>걸음 수</h4><span className="hs-big">{lastSteps ? lastSteps.count.toLocaleString('ko-KR') : '-'}<small>보 오늘</small></span></div>
+          <div className="hs-head"><H className="hs-h">걸음 수</H><span className="hs-big">{lastSteps ? lastSteps.count.toLocaleString('ko-KR') : '-'}<small>보 오늘</small></span></div>
           <div className="hs-bars" aria-hidden>{summary.steps.map(s => <i key={s.date} style={{ height: `${(s.count / maxSteps) * 100}%` }} />)}</div>
         </div>
       </section>

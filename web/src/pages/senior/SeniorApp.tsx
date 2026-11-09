@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { MessageCircle, Images, Settings } from 'lucide-react';
+import { MessageCircle, Images, Settings, CircleHelp } from 'lucide-react';
 import { initTachi, isEmbedded, resolvePersona, useTachi } from '../../lib/store';
 import { Toasts } from '../../components/common/Toasts';
 import { SeniorChat } from './SeniorChat';
 import { MemoryAlbum } from './MemoryAlbum';
 import { PrivacySettings } from './PrivacySettings';
+import { HelpSheet } from './HelpSheet';
 import './senior.css';
 
 type Tab = 'chat' | 'album' | 'settings';
@@ -16,6 +17,7 @@ const TABS: { id: Tab; label: string; Icon: typeof MessageCircle }[] = [
 
 export default function SeniorApp() {
   const [tab, setTab] = useState<Tab>('chat');
+  const [help, setHelp] = useState(false);
   const status = useTachi(s => s.status);
   const error = useTachi(s => s.error);
   const persona = resolvePersona('mom') ?? 'mom';
@@ -31,7 +33,7 @@ export default function SeniorApp() {
             <span className="sa-word">타치</span>
             <span className="sa-status"><i aria-hidden />{status === 'ready' ? '함께 있어요' : status === 'error' ? '연결 안 됨' : '연결 중…'}</span>
           </div>
-          <button type="button" className="sa-icon-btn" aria-label="설정" onClick={() => setTab('settings')}><Settings size={24} /></button>
+          <button type="button" className="sa-icon-btn" aria-label="도움말" aria-haspopup="dialog" onClick={() => setHelp(true)}><CircleHelp size={24} /></button>
         </header>
 
         <main className="sa-main">
@@ -60,6 +62,7 @@ export default function SeniorApp() {
           ))}
         </nav>
       </div>
+      {help && <HelpSheet onClose={() => setHelp(false)} />}
       <Toasts />
     </div>
   );

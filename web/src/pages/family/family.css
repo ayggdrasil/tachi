@@ -1,16 +1,16 @@
 /* Shared dialog-body styles (invite / new room) */
-.fam-search { display: flex; align-items: center; gap: var(--space-8); padding: 0 var(--space-12); border: 1px solid var(--border); border-radius: var(--radius-lg); margin-bottom: var(--space-8); color: var(--text-3); }
-.fam-search:focus-within { border-color: var(--color-graphite-ink); box-shadow: var(--focus-ring); }
+.fam-search { display: flex; align-items: center; gap: var(--space-8); padding: 0 var(--space-12); border: 1px solid var(--border-field, var(--border-strong)); border-radius: var(--radius-lg); margin-bottom: var(--space-8); color: var(--text-3); }
+.fam-search:focus-within { border-color: var(--ink); box-shadow: var(--focus-ring); }
 .fam-search-input { flex: 1; min-height: 40px; border: 0; outline: none; background: transparent; color: var(--text); box-shadow: none; border-radius: 0; }
 .fam-search-input:focus, .fam-search-input:focus-visible { outline: none; box-shadow: none; border: 0; }
 .fam-contacts { list-style: none; margin: 0 0 var(--space-8); padding: 0; display: flex; flex-direction: column; }
 .fam-contact { display: flex; align-items: center; gap: var(--space-12); padding: var(--space-8) 0; }
 .fam-check { cursor: pointer; padding: var(--space-6) var(--space-8); border-radius: var(--radius-lg); }
-.fam-check:hover { background: var(--hover); }
-.fam-check input { width: 16px; height: 16px; accent-color: var(--color-graphite-ink); margin: 0; }
+@media (hover: hover) { .fam-check:hover { background: var(--hover); } }
+.fam-check input { width: 16px; height: 16px; accent-color: var(--ink); margin: 0; }
 .fam-contact-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .fam-contact-name { font-weight: var(--weight-medium); }
 .fam-initial { width: 36px; height: 36px; border-radius: 50%; background: var(--bg-chrome); border: 1px solid var(--border); display: inline-flex; align-items: center; justify-content: center; font-weight: var(--weight-medium); color: var(--text-2); flex: none; }
-.fam-none { padding: var(--space-16) 0; text-align: center; }
+.fam-contacts-empty { padding: var(--space-16) 0; text-align: center; }
 .fam-foot { text-align: center; padding-top: var(--space-4); }
 .fam-mb { margin-bottom: var(--space-16); margin-top: var(--space-4); }

@@ -109,6 +109,13 @@ async function mergeIntoArtifact(a: Artifact, roomId: ID, proposer: User, member
   if (!fresh.background?.trim()) { fresh.background = `${proposer.name}님이 "${text.replace(/[!.]+$/, '')}"라고 제안했어요.`; changes.push('배경'); }
   const line = `${proposer.name}: ${text.replace(/[!.]+$/, '')}`;
   if (!(fresh.notes ?? '').includes(line)) { fresh.notes = [fresh.notes, `• ${line}`].filter(Boolean).join('\n').slice(0, 2000); changes.push('제안 메모'); }
+  // the proposal brings a birthday angle the plan did not have yet
+  if (/생신|생일/.test(text) && !/생신|생일/.test(`${fresh.title} ${fresh.purpose ?? ''}`)) {
+    const region = (fresh.place ?? '').replace(/\s*일대$/, '').trim();
+    fresh.title = `어머니 생신 · ${region && !/협의/.test(region) ? `${region} 가족 여행` : '가족 모임'}`;
+    fresh.purpose = '어머님 생신을 온 가족이 함께 축하하고, 예전 추억의 장소를 다시 걸으며 새 추억을 만들어요.';
+    changes.push('생신 일정');
+  }
   let m;
   if (changes.length) {
     fresh.updatedBy = TACHI_ID;
@@ -154,8 +161,8 @@ export async function handleGatheringChoice(userId: ID, msg: Message, actionId: 
   } else if (actionId === 'new_gathering') {
     await createGathering(room.id, proposer, proposal, { forceNew: true });
   } else return;
-  markActionDone(stored, 'revise_gathering');
-  markActionDone(stored, 'new_gathering');
+  markActionDone(stored, 'revise_gathering', actionId);
+  markActionDone(stored, 'new_gathering', actionId);
 }
 
 export async function createGathering(
@@ -194,7 +201,7 @@ export async function createGathering(
   emitArtifact(art);
   const m = await tachiSay(roomId, {
     kind: 'artifact',
-    text: `${art.title} — 모임 기획서를 만들어 봤어요. 함께 다듬어 주세요.`,
+    text: `${art.title} 모임 기획서를 만들어 봤어요. 함께 다듬어 주세요.`,
     payload: { type: 'artifact', artifactId: art.id },
     actions: [
       { id: 'start_scheduling', label: '일정 조율 시작', style: 'primary', data: { artifactId: art.id } },

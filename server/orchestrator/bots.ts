@@ -1,8 +1,8 @@
 // Unclaimed family personas act as AI bots (4.9).
 import { BOT_SLOT_PREFS, KIN_RELATIONS, SENIOR_ID, TACHI_ID } from '../../shared/constants';
-import type { ID, Message, Poll, User } from '../../shared/types';
+import type { ID, Message, MessageMeta, Poll, User } from '../../shared/types';
 import { ctx } from './ctx';
-import { displayName, emitTyping, getDemo, getUser, isAssistedOnly, later, post, senior } from './core';
+import { displayName, emitTyping, getDemo, getUser, isAssistedOnly, later, messageFor, post, senior } from './core';
 import { rand, shuffle } from '../util/misc';
 import { submitAvailability } from './scheduling';
 
@@ -20,18 +20,48 @@ function candidates(roomId: ID, excludeId?: ID): User[] {
     .filter((u): u is User => !!u && u.isBot && u.role === 'family');
 }
 
-export async function botSpeak(roomId: ID, user: User, trigger: { kind: string; text: string }): Promise<Message | null> {
+/** Provenance of a trigger message: what memory / trip / privacy category a reaction to it would be derived from. */
+export function provenanceOf(m?: Message): Partial<MessageMeta> {
+  if (!m) return {};
+  const p = m.payload;
+  const out: Partial<MessageMeta> = {};
+  const memoryId = m.meta?.memoryId ?? (p && (p.type === 'share_card' || p.type === 'memory_card' || p.type === 'recall_card') ? p.memoryId : undefined);
+  const tripId = m.meta?.tripId ?? (p && (p.type === 'trip_suggestion' || p.type === 'itinerary') ? p.tripId : undefined);
+  const category = m.meta?.category ?? (m.kind === 'health_card' || p?.type === 'health_card' ? 'health' : undefined);
+  if (memoryId) out.memoryId = memoryId;
+  if (tripId) out.tripId = tripId;
+  if (category) out.category = category;
+  if (m.meta?.categoriesUsed?.length) out.categoriesUsed = [...m.meta.categoriesUsed];
+  if (m.meta?.memoryIdsUsed?.length) out.memoryIdsUsed = [...m.meta.memoryIdsUsed];
+  if (m.meta?.tripIdsUsed?.length) out.tripIdsUsed = [...m.meta.tripIdsUsed];
+  return out;
+}
+
+/** Is a stored message (still) fully visible to this persona? Hidden / redacted triggers must not be reacted to. */
+function visibleTo(userId: ID, m: Message): boolean {
+  const view = messageFor(userId, m);
+  return view.text === m.text && view.kind === m.kind;
+}
+
+export async function botSpeak(
+  roomId: ID, user: User, trigger: { kind: string; text: string }, triggerMsg?: Message,
+): Promise<Message | null> {
   if (!user.isBot) return null;
+  const stored = triggerMsg ? ctx.db.messages.get(triggerMsg.id) ?? triggerMsg : undefined;
+  if (stored && !visibleTo(user.id, stored)) return null;
   emitTyping(roomId, user.id);
-  const recent = ctx.db.messages.byRoom(roomId, 8).map(m => ({ sender: displayName(m.senderId), text: m.text }));
+  // context is what this persona may see right now (privacy-projected), not the raw stored history
+  const recent = ctx.db.messages.byRoom(roomId, 8).map(m => messageFor(user.id, m)).map(m => ({ sender: displayName(m.senderId), text: m.text }));
   const ai = await ctx.brain.botReply({ persona: user, senior: senior(), recent, trigger });
   const text = (ai.value ?? '').trim();
   if (!text) return null;
   const current = getUser(user.id);
   if (!current?.isBot) return null; // a human claimed this persona meanwhile
+  const latest = stored ? ctx.db.messages.get(stored.id) ?? stored : undefined;
+  if (latest && !visibleTo(user.id, latest)) return null; // the trigger became private while the brain was thinking
   return post(roomId, {
     senderId: user.id, text,
-    meta: { generatedBy: 'bot', model: ai.model, fallback: ai.fallback, source: ai.source ?? (ai.fallback ? 'heuristic' : 'llm') },
+    meta: { ...provenanceOf(latest), generatedBy: 'bot', model: ai.model, fallback: ai.fallback, source: ai.source ?? (ai.fallback ? 'heuristic' : 'llm') },
   });
 }
 
@@ -51,7 +81,7 @@ export function reactBots(roomId: ID, trigger: Message, as?: { kind: string; tex
   let chosen = pool.filter(() => Math.random() < 0.6).slice(0, 2);
   if (!chosen.length && fromTachi && pool.length) chosen = [pool[0]];
   chosen.forEach((u, i) => {
-    later(rand(1200, 3500) + i * 900, async () => { await botSpeak(roomId, u, as ?? { kind: trigger.kind, text: trigger.text }); });
+    later(rand(1200, 3500) + i * 900, async () => { await botSpeak(roomId, u, as ?? { kind: trigger.kind, text: trigger.text }, trigger); });
   });
 }
 

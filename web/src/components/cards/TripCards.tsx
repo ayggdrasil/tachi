@@ -1,15 +1,19 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Accessibility, MapPin } from 'lucide-react';
 import { SpeakButton } from '../common/SpeakButton';
 import type { ItineraryPayload, TripSuggestionPayload } from '../../../../shared/types';
 import type { CardProps } from './types';
 import './cards.css';
 
-export function TripSuggestionCard({ message, actionSlot }: CardProps) {
+export function TripSuggestionCard({ message, variant, actionSlot }: CardProps) {
   const p = message.payload as TripSuggestionPayload;
   return (
     <article className="cd" aria-label={message.text || p.title}>
-      <div className="cd-row cd-between"><h3 className="cd-title">{p.title}</h3><span className="badge">{p.durationLabel}</span></div>
+      <div className="cd-row cd-between"><h3 className="cd-title">{p.title}</h3>
+        <span className="cd-row">
+          <span className="badge">{p.durationLabel}</span>
+          {variant === 'senior' && <SpeakButton text={`${p.title}. ${p.reason}`} />}
+        </span></div>
       <p className="cd-warm">{p.reason}</p>
       <ul className="cd-list">
         {p.highlights.map(h => <li key={h}><MapPin size={14} />{h}</li>)}
@@ -35,6 +39,7 @@ export function ItineraryCard({ message, variant, actionSlot }: CardProps) {
   const [day, setDay] = useState(0);
   const [all, setAll] = useState(false);
   const [tips, setTips] = useState(false);
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const di = Math.min(day, p.days.length - 1);
   const d = p.days[di];
   const route = d ? routeSummary(d.stops) : null;
@@ -49,13 +54,24 @@ export function ItineraryCard({ message, variant, actionSlot }: CardProps) {
       <div className="cd-row cd-between"><h3 className="cd-title">{p.title}</h3>{senior && <SpeakButton text={readText} />}</div>
       <p className="cd-meta">{[p.destination, p.days.length > 1 ? `${p.days.length}일 일정` : '당일 일정', p.dateLabel].filter(Boolean).join(' · ')}</p>
       {p.days.length > 1 && (
-        <div className="cd-tabs" role="tablist">
-          {p.days.map((x, i) => <button key={i} type="button" role="tab" aria-selected={i === di} className="cd-tab" onClick={() => { setDay(i); setAll(false); }}>{x.label}</button>)}
+        <div className="cd-tabs" role="tablist" aria-label="일차">
+          {p.days.map((x, i) => (
+            <button key={i} ref={el => { tabRefs.current[i] = el; }} type="button" role="tab" id={`it-${message.id}-${i}`} aria-controls={`itp-${message.id}`}
+              aria-selected={i === di} tabIndex={i === di ? 0 : -1} className="cd-tab"
+              onClick={() => { setDay(i); setAll(false); }}
+              onKeyDown={e => {
+                if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+                e.preventDefault();
+                const n = (i + (e.key === 'ArrowRight' ? 1 : -1) + p.days.length) % p.days.length;
+                setDay(n); setAll(false); tabRefs.current[n]?.focus();
+              }}>{x.label}</button>
+          ))}
         </div>
       )}
       {p.days.length === 1 && <p className="cd-label">{p.days[0].label}</p>}
       {d && route && !all && <p className="cd-route"><b>{route.from}</b> {route.depart}<span aria-hidden> → </span><span className="sr-only"> 에서 </span><b>{route.to}</b> {route.arrive}{route.mode ? ` · ${route.mode}` : ''}</p>}
       {d && (
+        <div role={p.days.length > 1 ? 'tabpanel' : undefined} id={p.days.length > 1 ? `itp-${message.id}` : undefined} aria-labelledby={p.days.length > 1 ? `it-${message.id}-${di}` : undefined}>
         <ol className="cd-tl">
           {stops.map((s, i) => (
             <li key={i}>
@@ -69,6 +85,7 @@ export function ItineraryCard({ message, variant, actionSlot }: CardProps) {
             </li>
           ))}
         </ol>
+        </div>
       )}
       {actionSlot}
       {hidden > 0 && <button type="button" className="cd-link cd-more" aria-expanded={all} onClick={() => setAll(a => !a)}>{all ? '일정 접기' : `전체 일정 보기 (+${hidden})`}</button>}

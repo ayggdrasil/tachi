@@ -43,14 +43,19 @@ function sideRoomFor(userId: ID, title: string, pollId: ID): Room {
   return room;
 }
 
-export async function startScheduling(familyRoomId: ID, asker: { id: ID }, opts: { slots?: Slot[]; repoll?: boolean } = {}): Promise<void> {
+export async function startScheduling(familyRoomId: ID, asker: { id: ID }, opts: { slots?: Slot[]; repoll?: boolean; artifactId?: ID } = {}): Promise<void> {
   const family = ctx.db.rooms.get(familyRoomId);
   if (!family) return;
   if (openPoll(familyRoomId)) {
     await tachiSay(familyRoomId, { text: '지금 일정을 조율하고 있어요. 조금만 기다려 주세요.' });
     return;
   }
-  const artifact: Artifact | undefined = latestOpenArtifact(familyRoomId);
+  let artifact: Artifact | undefined;
+  if (opts.artifactId) {
+    const picked = ctx.db.artifacts.get(opts.artifactId);
+    if (!picked || picked.roomId !== familyRoomId) throw new Error('artifact not in this room');
+    artifact = picked;
+  } else artifact = latestOpenArtifact(familyRoomId);
   const title = artifact?.title ?? '가족 모임';
   const participants = family.memberIds.filter(id => id !== TACHI_ID && getUser(id));
   const slots = opts.slots ?? buildCandidateSlots(now());
@@ -259,6 +264,7 @@ export async function handleSideMessage(room: Room, userId: ID, text?: string): 
 const NEGATIVE_RE = /(다|모두|전부|아무\s*때도)\s*(안|어려|못)|안 돼요?$|못 가/;
 const AVAIL_RE = /(토요일|일요일|토|일|주말|\d+\s*일|이번|다음\s*주|아무\s*때|언제든|다 괜찮|다 좋)/;
 const stripMeal = (t: string) => t.replace(/(오늘|내일)?\s*(아침|점심|저녁)\s*(먹|드|식사|뭐)\S*/g, '');
+const ALL_AVAIL_RE = /(다|전부|모두|언제(나|든|라도)?|아무\s*(때|날)(나|든)?|어느\s*(때|날)(나|든)?)\s*(돼|되|가능|괜찮|좋|상관)|아무\s*(때|날)나|상관\s*없/;
 const SLOT_WORD_RE = /(점심|저녁|오전|오후|아침)/;
 
 /** True while the schedule_request is the latest thing in the senior's room (a direct reply to it). */
@@ -272,9 +278,13 @@ function directReply(poll: Poll): boolean {
 /** The senior may answer an open poll by typing in her own room (only when she hasn't answered). */
 export async function tryMomAvailability(text: string): Promise<boolean> {
   const poll = ctx.db.polls.all().filter(p => p.status === 'open' && p.participantIds.includes(SENIOR_ID) && !p.responses[SENIOR_ID]).at(-1);
-  if (!poll || !(AVAIL_RE.test(stripMeal(text)) || NEGATIVE_RE.test(text) || (SLOT_WORD_RE.test(stripMeal(text)) && directReply(poll)))) return false;
+  if (!poll) return false;
+  const stripped = stripMeal(text);
+  const allAvail = ALL_AVAIL_RE.test(stripped) && !NEGATIVE_RE.test(text) && directReply(poll);
+  if (!(AVAIL_RE.test(stripped) || NEGATIVE_RE.test(text) || allAvail || (SLOT_WORD_RE.test(stripped) && directReply(poll)))) return false;
   const ai = await withTyping(SENIOR_ROOM_ID, () => ctx.brain.parseAvailability(text, poll.slots));
   if (!ai.value.length) {
+    if (allAvail) { await submitAvailability(poll.id, SENIOR_ID, poll.slots.map(x => x.id)); return true; }
     if (!NEGATIVE_RE.test(text)) return false;
     await submitAvailability(poll.id, SENIOR_ID, []);
     return true;

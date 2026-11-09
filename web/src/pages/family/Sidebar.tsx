@@ -19,13 +19,15 @@ interface Props {
 export function Sidebar({ me, family, rooms, activeId, unread, onSelect, onNew, onSwitchPersona, full }: Props) {
   const [menu, setMenu] = useState(false);
   const box = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!menu) return;
-    const on = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setMenu(false); };
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenu(false); };
-    document.addEventListener('mousedown', on);
+    box.current?.querySelector<HTMLElement>('#fam-persona-menu [aria-pressed="true"]')?.focus({ preventScroll: true });
+    const on = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setMenu(false); };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { setMenu(false); triggerRef.current?.focus(); } };
+    document.addEventListener('pointerdown', on);
     document.addEventListener('keydown', key);
-    return () => { document.removeEventListener('mousedown', on); document.removeEventListener('keydown', key); };
+    return () => { document.removeEventListener('pointerdown', on); document.removeEventListener('keydown', key); };
   }, [menu]);
 
   const byRecent = (a: Room, b: Room) => (b.lastMessageAt ?? b.createdAt).localeCompare(a.lastMessageAt ?? a.createdAt);
@@ -36,7 +38,7 @@ export function Sidebar({ me, family, rooms, activeId, unread, onSelect, onNew, 
     <li key={r.id}>
       <button className={`fam-room ${r.id === activeId ? 'is-on' : ''}`} onClick={() => onSelect(r.id)} aria-current={r.id === activeId ? 'page' : undefined}>
         <span className="fam-room-title">{r.title}</span>
-        {r.pollId && <span className="badge">일정 조율</span>}
+        {r.pollId && !r.title.includes('일정 조율') && <span className="badge">일정 조율</span>}
         {unread[r.id] > 0 && <span className="fam-unread" aria-label={`읽지 않은 메시지 ${unread[r.id]}개`}>{unread[r.id]}</span>}
       </button>
     </li>
@@ -47,16 +49,16 @@ export function Sidebar({ me, family, rooms, activeId, unread, onSelect, onNew, 
       <div className="fam-side-head">
         <span className="fam-mark">타치</span>
         <div className="fam-persona" ref={box}>
-          <button className="fam-persona-btn" onClick={() => setMenu(v => !v)} aria-haspopup="menu" aria-expanded={menu}>
+          <button ref={triggerRef} className="fam-persona-btn" onClick={() => setMenu(v => !v)} aria-expanded={menu} aria-controls="fam-persona-menu">
             {me && <Avatar user={me} size={22} />}
             <span>{me ? `${me.shortName} · ${me.relation}` : '연결 중'}</span>
             <ChevronDown size={14} strokeWidth={1.5} aria-hidden />
           </button>
           {menu && (
-            <ul className="fam-menu" role="menu">
+            <ul className="fam-menu" id="fam-persona-menu">
               {family.map(u => (
-                <li key={u.id} role="none">
-                  <button role="menuitemradio" aria-checked={u.id === me?.id} className="fam-menu-item" onClick={() => { setMenu(false); onSwitchPersona(u.id); }}>
+                <li key={u.id}>
+                  <button aria-pressed={u.id === me?.id} className="fam-menu-item" onClick={() => { setMenu(false); onSwitchPersona(u.id); }}>
                     <Avatar user={u} size={22} />
                     <span>{u.shortName} · {u.relation}</span>
                     {u.id === me?.id && <Check size={14} strokeWidth={1.5} aria-hidden />}

@@ -2,7 +2,7 @@
 import type { ArtifactTask, ItineraryPayload, MemoryPerson, ModelOption, PrivacyCategory, TripStop } from '../../shared/types';
 import { findPlaces, placeById, resolvePlace, templateFor } from '../data/places';
 import type { AIResult, Brain, ExtractedMemory, FamilyAnswer, GatheringDraft, SeniorIntent } from './contract';
-import { BANNED_HEALTH_WORDS, enforceBpWarning, questionCategory, assistArtifact as hAssist, answerFamily as hAnswer, botReply as hBot, draftGathering as hDraft } from './heuristics/family';
+import { BANNED_HEALTH_WORDS, enforceBpWarning, questionCategory, assistArtifact as hAssist, answerFamily as hAnswer, botReply as hBot, draftGathering as hDraft, isBirthdayContext, BIRTHDAY_RE } from './heuristics/family';
 import { composeReport as hReport, planItinerary as hPlan, proactiveMessage as hProactive, recallReply as hRecall, seniorChat as hChat, shareSummary as hShare, suggestTrip as hSuggest } from './heuristics/compose';
 import { extractFromState, planNext, startTurn, SLOT_QUESTION } from './heuristics/interview';
 import { availability, familyIntent, seniorIntent } from './heuristics/intents';
@@ -164,7 +164,7 @@ export function createBrain(): Brain {
       return {
         reply, quickReplies: c.or(qr.length ? qr : undefined, h.quickReplies), category: c.or(['health', 'mood', 'daily'].includes(cat) ? cat : undefined, h.category),
         // explicit statements are also extracted deterministically, so a missed LLM observation never loses a fact
-        ...(() => { const o = mergeObservation(observation, h.observation); return o ? { observation: o } : {}; })(),
+        ...(() => { const o = mergeObservation(observation, h.observation, text); return o ? { observation: o } : {}; })(),
       };
     }),
 
@@ -252,9 +252,12 @@ export function createBrain(): Brain {
         text: String(t.text).slice(0, 80), ...(typeof t.assigneeId === 'string' && ids.has(t.assigneeId) ? { assigneeId: t.assigneeId } : {}),
       })).slice(0, 8) : [];
       const agenda = strArr(j.agenda, 8, 80);
+      // Birthday wording / cake-flower tasks only for explicit birthday context; otherwise reject model-invented ones.
+      const bday = isBirthdayContext(input);
+      const clean = <T,>(v: T | undefined, txt: (x: T) => string): T | undefined => (v !== undefined && !bday && (BIRTHDAY_RE.test(txt(v)) || /케이크/.test(txt(v))) ? undefined : v);
       return {
-        title: c.or(str(j.title, 40), h.title), background: c.or(str(j.background, 300), h.background), purpose: c.or(str(j.purpose, 200), h.purpose),
-        place: c.or(str(j.place, 40), h.place), agenda: c.or(agenda.length >= 2 ? agenda : undefined, h.agenda), tasks: c.or(tasks.length >= 2 ? tasks : undefined, h.tasks),
+        title: c.or(clean(str(j.title, 40), x => x), h.title), background: c.or(str(j.background, 300), h.background), purpose: c.or(clean(str(j.purpose, 200), x => x), h.purpose),
+        place: c.or(str(j.place, 40), h.place), agenda: c.or(agenda.length >= 2 ? agenda : undefined, h.agenda), tasks: c.or(clean(tasks.length >= 2 ? tasks : undefined, ts => ts.map(t => t.text).join(' ')), h.tasks),
         notes: c.or(str(j.notes, 300), h.notes),
       };
     }),

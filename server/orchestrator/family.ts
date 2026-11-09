@@ -64,18 +64,22 @@ export function kinMayAsk(room: Room, asker: User): boolean {
 const SENSITIVITY: PrivacyCategory[] = ['health', 'mood', 'memory', 'trip', 'daily'];
 
 /** Which categories / resources an answer actually drew on, derived from the context it was given and its text. */
-export function answerProvenance(fctx: FamilyContext, text: string, asked: PrivacyCategory | undefined, showHealthCard?: boolean): {
+export function answerProvenance(fctx: FamilyContext, text: string, asked: PrivacyCategory | undefined, showHealthCard?: boolean, question = ''): {
   categories: PrivacyCategory[]; memoryIds: string[]; tripIds: string[];
 } {
   const used = new Set<PrivacyCategory>();
   if (asked) used.add(asked);
   if (fctx.health && (showHealthCard || /혈압|맥박|수면|걸음|복약|약|건강|병원|컨디션/.test(text))) used.add('health');
   if (fctx.moodToday && (text.includes(fctx.moodToday) || /기분|마음|컨디션|감정|외로|우울/.test(text))) used.add('mood');
-  const memoryIds = fctx.memories.filter(m => (m.title && text.includes(m.title)) || (m.place && m.place.length >= 2 && text.includes(m.place))).map(m => m.id);
+  // Conservative: an answer about memories / trips is tied to EVERY memory / trip in its context (no substring inference alone).
+  const exactMem = fctx.memories.some(m => (m.title && text.includes(m.title)) || (m.place && m.place.length >= 2 && text.includes(m.place)));
+  const aboutMemory = asked === 'memory' || exactMem || /추억|사진|기억|옛날|어릴|젊을|그때|예전|옛적/.test(text);
+  const memoryIds = aboutMemory ? fctx.memories.map(m => m.id) : [];
   if (memoryIds.length) used.add('memory');
-  const tripIds = ctx.db.trips.all()
-    .filter(t => t.status !== 'declined' && tripVisibleToFamily(t) && (text.includes(t.suggestion.title) || (t.suggestion.destination.length >= 2 && text.includes(t.suggestion.destination))))
-    .map(t => t.id);
+  const ctxTrips = ctx.db.trips.all().filter(t => t.status !== 'declined' && tripVisibleToFamily(t));
+  const exactTrip = ctxTrips.some(t => text.includes(t.suggestion.title) || (t.suggestion.destination.length >= 2 && text.includes(t.suggestion.destination)));
+  const aboutTrip = exactTrip || /여행|나들이|일정|코스|다녀/.test(text) || /여행|나들이|일정|코스/.test(question);
+  const tripIds = aboutTrip ? ctxTrips.map(t => t.id) : [];
   if (tripIds.length) used.add('trip');
   for (const s of fctx.recentSessions) if (s.title && text.includes(s.title)) used.add(s.category);
   return { categories: SENSITIVITY.filter(c => used.has(c)), memoryIds, tripIds };
@@ -97,13 +101,13 @@ async function answer(room: Room, asker: User, question: string): Promise<void> 
   let fctx = buildFamilyContext(asker);
   let ai = await withTyping(room.id, () => ctx.brain.answerFamily(question, fctx));
   let asked = questionCategory(question, ai.value.showHealthCard);
-  let prov = answerProvenance(fctx, ai.value.text, asked && fctx.privacy[asked] === 'family' ? asked : undefined, ai.value.showHealthCard);
+  let prov = answerProvenance(fctx, ai.value.text, asked && fctx.privacy[asked] === 'family' ? asked : undefined, ai.value.showHealthCard, question);
   // privacy may have changed while the provider was thinking: revalidate everything the answer used; rebuild + re-ask once
   if (!stillPublic(prov)) {
     fctx = buildFamilyContext(asker);
     ai = await withTyping(room.id, () => ctx.brain.answerFamily(question, fctx));
     asked = questionCategory(question, ai.value.showHealthCard);
-    prov = answerProvenance(fctx, ai.value.text, asked && fctx.privacy[asked] === 'family' ? asked : undefined, ai.value.showHealthCard);
+    prov = answerProvenance(fctx, ai.value.text, asked && fctx.privacy[asked] === 'family' ? asked : undefined, ai.value.showHealthCard, question);
     if (!stillPublic(prov)) {
       await tachiSay(room.id, { text: PRIVATE_NOTICE, meta: { ...(prov.categories[0] ? { category: prov.categories[0] } : {}), source: 'rule' } });
       return;
@@ -126,7 +130,10 @@ export async function handleFamilyAction(room: Room, userId: string, msg: Messag
   if (actionId === 'start_scheduling') {
     if (act?.done) return;
     markActionDone(msg, 'start_scheduling');
-    await startScheduling(room.id, { id: userId });
+    const aid = typeof act?.data?.artifactId === 'string' ? act.data.artifactId : undefined;
+    const art = aid ? ctx.db.artifacts.get(aid) : undefined;
+    if (aid && (!art || art.roomId !== room.id)) throw new Error('artifact not in this room');
+    await startScheduling(room.id, { id: userId }, aid ? { artifactId: aid } : {});
   } else if (actionId === 'revise_gathering' || actionId === 'new_gathering') {
     await handleGatheringChoice(userId, msg, actionId);
   } else if (actionId === 'pick_slots') {

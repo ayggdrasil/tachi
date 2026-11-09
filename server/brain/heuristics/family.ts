@@ -117,6 +117,13 @@ export function answerFamily(question: string, ctx: FamilyContext): FamilyAnswer
 }
 
 // ── gathering ──────────────────────────────────────────────────────────────
+export const BIRTHDAY_RE = /생신|생일|칠순|팔순|환갑/;
+/** Birthday only from explicit context: the proposal text or the linked memory/trip text. */
+export function isBirthdayContext(input: GatheringInput): boolean {
+  const { proposalText, linkedMemory, linkedTrip } = input;
+  return BIRTHDAY_RE.test([proposalText, linkedMemory?.title, linkedMemory?.summary, linkedTrip?.title].filter(Boolean).join(' '));
+}
+
 export function draftGathering(input: GatheringInput): GatheringDraft {
   const { proposalText, proposer, members, linkedMemory, linkedTrip } = input;
   const text = proposalText;
@@ -128,8 +135,8 @@ export function draftGathering(input: GatheringInput): GatheringDraft {
   const lt = tripOk ? linkedTrip : undefined;
   const lm = memOk ? linkedMemory : undefined;
   const dest = pl?.region ?? lt?.destination ?? memRegion ?? '';
-  const birthday = /생신|생일/.test(text) || !lt;
-  const title = birthday ? `어머니 생신 · ${dest ? `${dest} 가족 여행` : '가족 모임'}` : `가족 모임 · ${dest || '나들이'}`;
+  const birthday = isBirthdayContext(input);
+  const title = birthday ? `어머니 생신 · ${dest ? `${dest} 가족 여행` : '가족 모임'}` : dest ? `${dest} 가족 여행` : '가족 모임';
   const bg: string[] = [`${proposer.name}님이 "${text.replace(/[!.]+$/, '')}"라고 제안해서 시작된 모임이에요.`];
   if (lm) bg.push(`어머님이 들려주신 "${lm.title}" 추억이 계기가 됐어요.`);
   if (lt) bg.push(`타치가 제안한 "${lt.title}" 일정을 바탕으로 준비해요.`);
@@ -137,18 +144,22 @@ export function draftGathering(input: GatheringInput): GatheringDraft {
   const tpl = dest ? templateFor(dest) : undefined;
   const agenda = tpl
     ? [...tpl.days[0].stops.slice(1, 4).map(s => `첫째 날 · ${s.title}`), ...tpl.days[1].stops.slice(1, 3).map(s => `둘째 날 · ${s.title}`)]
-    : ['모임 장소 도착과 인사', '가족 식사', '기념 사진 촬영', '어머님께 감사 인사'];
+    : ['모임 장소 도착과 인사', '가족 식사', '기념 사진 촬영', birthday ? '어머님께 생신 축하 인사' : '어머님께 감사 인사'];
   const has = (id: string) => members.some(m => m.id === id);
   const tasks: GatheringDraft['tasks'] = [
     { text: 'KTX·차량 예약', ...(has('minjun') ? { assigneeId: 'minjun' } : {}) },
     { text: '숙소·식당 예약 (계단 적고 앉아서 먹는 곳)', ...(has('suyeon') ? { assigneeId: 'suyeon' } : {}) },
-    { text: '생신 케이크·꽃 준비', ...(has('harin') ? { assigneeId: 'harin' } : has('jieun') ? { assigneeId: 'jieun' } : {}) },
+    birthday
+      ? { text: '생신 케이크·꽃 준비', ...(has('harin') ? { assigneeId: 'harin' } : has('jieun') ? { assigneeId: 'jieun' } : {}) }
+      : { text: '가족 단체 사진·기념품 준비', ...(has('harin') ? { assigneeId: 'harin' } : has('jieun') ? { assigneeId: 'jieun' } : {}) },
     { text: '어머님 복약·컨디션 챙기기', ...(has('jieun') ? { assigneeId: 'jieun' } : {}) },
   ];
   return {
     title,
     background: bg.join(' '),
-    purpose: '어머님 생신을 온 가족이 함께 축하하고, 예전 추억의 장소를 다시 걸으며 새 추억을 만들어요.',
+    purpose: birthday
+      ? '어머님 생신을 온 가족이 함께 축하하고, 예전 추억의 장소를 다시 걸으며 새 추억을 만들어요.'
+      : '온 가족이 함께 시간을 보내고, 예전 추억의 장소를 다시 걸으며 새 추억을 만들어요.',
     place,
     agenda,
     tasks,

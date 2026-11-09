@@ -123,14 +123,14 @@ export function proactiveMessage(kind: ProactiveKind, memory?: Memory, now = new
   switch (kind) {
     case 'morning':
       return memory
-        ? { text: `어머님, 좋은 아침이에요. 어젯밤은 잘 주무셨어요? 문득 ${ref} 사진이 생각났어요. 오늘 그 이야기 들려주실래요?`, quickReplies: ['잘 잤어', '그 사진 얘기해 줄게', '조금 설쳤어'] }
-        : { text: '어머님, 좋은 아침이에요. 어젯밤은 잘 주무셨어요? 아침 약도 잊지 말고 챙겨 드세요.', quickReplies: ['잘 잤어', '조금 설쳤어', '약 먹었어'] };
+        ? { text: `어머님, 좋은 아침이에요. 문득 ${ref} 사진이 떠올랐어요. 어젯밤은 잘 주무셨어요?`, quickReplies: ['잘 잤어', '조금 설쳤어', '그 사진 얘기해 줄게'] }
+        : { text: '어머님, 좋은 아침이에요. 아침 약도 잊지 말고 챙겨 드세요. 어젯밤은 잘 주무셨어요?', quickReplies: ['잘 잤어', '조금 설쳤어'] };
     case 'memory':
       return memory
-        ? { text: `어머님, 점심은 맛있게 드셨어요? ${ref} 이야기가 문득 떠올랐어요. 그때 어땠는지 조금만 들려주세요.`, quickReplies: ['그래, 얘기해 줄게', '다음에 할게'] }
-        : { text: '어머님, 점심은 맛있게 드셨어요? 오늘은 옛날 사진 한 장 보여주실래요?', quickReplies: ['그래, 보여줄게', '다음에 할게'] };
+        ? { text: `어머님, 좋은 오후예요. ${ref} 이야기가 문득 떠올랐어요. 그때 어땠는지 조금만 들려주실래요?`, quickReplies: ['그래, 얘기해 줄게', '다음에 할게'] }
+        : { text: '어머님, 좋은 오후예요. 오늘은 옛날 사진 한 장 보여주실래요?', quickReplies: ['그래, 보여줄게', '다음에 할게'] };
     case 'evening':
-      return { text: '어머님, 저녁 드셨어요? 저녁 약도 잊지 말고 챙겨 드세요. 오늘 하루는 어떠셨어요?', quickReplies: ['잘 먹었어', '약 먹었어', '오늘은 좀 피곤해'] };
+      return { text: '어머님, 저녁 시간이에요. 저녁 약도 잊지 말고 챙겨 드세요. 저녁은 맛있게 드셨어요?', quickReplies: ['잘 먹었어', '약 먹었어', '오늘은 좀 피곤해'] };
     case 'ask_photo':
       return { text: '어머님, 오늘은 옛날 사진 한 장 보여주실래요? 사진 속 이야기가 듣고 싶어요.', quickReplies: ['그래, 보여줄게', '나중에 할게'] };
   }

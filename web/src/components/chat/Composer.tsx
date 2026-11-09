@@ -34,6 +34,8 @@ export function Composer({ roomId, variant, placeholder, allowPhoto = true }: {
   const recRef = useRef<SR>(null);
   const baseText = useRef('');
   const popRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const sampleRef = useRef<HTMLDivElement>(null);
 
   const SRctor: SR = typeof window !== 'undefined' ? ((window as unknown as Record<string, unknown>).SpeechRecognition ?? (window as unknown as Record<string, unknown>).webkitSpeechRecognition) : null;
 
@@ -45,10 +47,15 @@ export function Composer({ roomId, variant, placeholder, allowPhoto = true }: {
 
   useEffect(() => {
     if (!showSamples) return;
-    const onDown = (e: MouseEvent) => { if (!popRef.current?.contains(e.target as Node)) setShowSamples(false); };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
+    const onDown = (e: PointerEvent) => { if (!popRef.current?.contains(e.target as Node)) setShowSamples(false); };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
   }, [showSamples]);
+
+  // Opening the popover moves focus to the first thumbnail.
+  const popOpen = showSamples && samples.length > 0;
+  useEffect(() => { if (popOpen) sampleRef.current?.querySelector<HTMLElement>('.cp-thumb')?.focus(); }, [popOpen]);
+  const closeSamples = () => { setShowSamples(false); triggerRef.current?.focus(); };
 
   useEffect(() => () => { window.clearTimeout(errTimer.current); try { recRef.current?.abort?.(); } catch { /* noop */ } }, []);
 
@@ -108,7 +115,8 @@ export function Composer({ roomId, variant, placeholder, allowPhoto = true }: {
   const pickSample = (url: string) => { setShowSamples(false); tachi.sendPhotoUrl(roomId, url); };
 
   const samplePop = showSamples && samples.length > 0 && (
-    <div className="cp-pop" role="dialog" aria-label="예시 사진">
+    <div className="cp-pop" id="cp-samples" role="group" aria-label="예시 사진" ref={sampleRef}
+      onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); closeSamples(); } }}>
       <p className="cp-pop-t">예시 사진</p>
       <div className="cp-thumbs">
         {samples.map(u => (
@@ -131,15 +139,18 @@ export function Composer({ roomId, variant, placeholder, allowPhoto = true }: {
               <Camera size={24} />{uploading ? '사진을 올리는 중…' : '사진 보여주기'}
             </button>
             {samples.length > 0 && (
-              <button type="button" className="btn cp-sample-btn" aria-label="예시 사진 보기" aria-expanded={showSamples} onClick={() => setShowSamples(v => !v)}><Images size={22} /></button>
+              <button ref={triggerRef} type="button" className="btn cp-sample-btn" aria-label="예시 사진 보기" aria-expanded={showSamples} aria-controls="cp-samples" onClick={() => setShowSamples(v => !v)}><Images size={20} aria-hidden /><span className="cp-sample-l">예시</span></button>
             )}
             {samplePop}
           </div>
         )}
         {errEl}
         <div className="cp-row">
+          {allowPhoto && (
+            <button type="button" className="cp-round cp-cam-compact" aria-label="사진 보여주기" disabled={uploading} onClick={() => fileRef.current?.click()}><Camera size={24} aria-hidden /></button>
+          )}
           {SRctor && (
-            <button type="button" className={`cp-round ${listening ? 'cp-on' : ''}`} aria-pressed={listening} aria-label={listening ? '듣기 멈추기' : '말로 입력하기'} onClick={toggleMic}>
+            <button type="button" className={`cp-round ${listening ? 'cp-on' : ''}`} aria-pressed={listening} aria-label="말로 입력하기" onClick={toggleMic}>
               {listening ? <Square size={22} /> : <Mic size={26} />}
             </button>
           )}
@@ -161,7 +172,7 @@ export function Composer({ roomId, variant, placeholder, allowPhoto = true }: {
           <button type="button" className="btn btn-icon" aria-label="사진 보내기" disabled={uploading} onClick={() => fileRef.current?.click()}><ImageIcon size={20} /></button>
         )}
         {allowPhoto && samples.length > 0 && (
-          <button type="button" className="btn btn-icon" aria-label="예시 사진" aria-expanded={showSamples} onClick={() => setShowSamples(v => !v)}><Images size={20} /></button>
+          <button ref={triggerRef} type="button" className="btn btn-icon" aria-label="예시 사진" aria-expanded={showSamples} aria-controls="cp-samples" onClick={() => setShowSamples(v => !v)}><Images size={20} /></button>
         )}
         {samplePop}
         <textarea ref={taRef} className="cp-ta" rows={1} value={text} onChange={e => onChange(e.target.value)} onKeyDown={onKeyDown}

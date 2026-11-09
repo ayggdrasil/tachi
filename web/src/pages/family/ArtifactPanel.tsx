@@ -213,8 +213,10 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
             const as = t.assigneeId ? users[t.assigneeId] : undefined;
             return (
               <li key={t.id} className="ap-task">
-                <input type="checkbox" className="ap-check" checked={t.done} aria-label={`${t.text} 완료`}
-                  onChange={() => tachi.artifactTask(artifact.id, 'toggle', { taskId: t.id })} />
+                <label className="ap-check-hit">
+                  <input type="checkbox" className="ap-check" checked={t.done} aria-label={`${t.text} 완료`}
+                    onChange={() => tachi.artifactTask(artifact.id, 'toggle', { taskId: t.id })} />
+                </label>
                 <span className={`ap-task-text ${t.done ? 'is-done' : ''}`}>{t.text}</span>
                 <span className="ap-assign">
                   {as ? <Avatar user={as} size={22} /> : <span className="ap-noassign" aria-hidden />}

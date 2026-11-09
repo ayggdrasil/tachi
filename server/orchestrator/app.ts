@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import multer from 'multer';
+import compression from 'compression';
 import QRCode from 'qrcode';
 import { nanoid } from 'nanoid';
 import { Server } from 'socket.io';
@@ -70,10 +71,11 @@ export async function createApp(opts: AppOptions = {}) {
   if (savedModel) { try { ctx.brain.setActiveModel(savedModel); } catch { /* unavailable now */ } }
 
   // ── REST ──
+  app.use(compression()); // skips already-compressed images (compressible-type filter)
   app.use(express.json({ limit: '1mb' }));
   // uploaded photos are capability URLs (unguessable, rotated when the memory goes private): never cache them
   app.use('/uploads', express.static(uploadsDir, { index: false, dotfiles: 'ignore', setHeaders: res => { res.setHeader('Cache-Control', 'private, no-store'); } }));
-  app.use('/demo-photos', express.static(photosDir));
+  app.use('/demo-photos', express.static(photosDir, { maxAge: '1d', setHeaders: res => { res.setHeader('Cache-Control', 'public, max-age=86400'); } }));
 
   const upload = multer({
     storage: multer.diskStorage({
@@ -128,9 +130,17 @@ export async function createApp(opts: AppOptions = {}) {
 
   if (process.env.NODE_ENV === 'production') {
     const dist = path.join(ROOT, 'dist');
-    app.use(express.static(dist));
+    app.use(express.static(dist, {
+      index: false,
+      setHeaders: (res, file) => {
+        const rel = path.relative(dist, file).split(path.sep);
+        if (rel[0] === 'assets') res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); // hashed filenames
+        else res.setHeader('Cache-Control', 'no-cache');
+      },
+    }));
     app.get('/{*splat}', (req, res, next) => {
       if (req.path.startsWith('/api/') || req.path.startsWith('/socket.io')) { next(); return; }
+      res.setHeader('Cache-Control', 'no-cache');
       res.sendFile(path.join(dist, 'index.html'), err => { if (err) next(); });
     });
   }

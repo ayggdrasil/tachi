@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Lock } from 'lucide-react';
 import type { Memory, ReportPayload } from '../../../../shared/types';
 import { FAMILY_ROOM_ID } from '../../../../shared/constants';
@@ -16,11 +16,24 @@ const TABS: { id: Tab; label: string }[] = [
 
 export function MomPanel() {
   const [tab, setTab] = useState<Tab>('memory');
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const i = TABS.findIndex(t => t.id === tab);
+    let n = -1;
+    if (e.key === 'ArrowRight') n = (i + 1) % TABS.length;
+    else if (e.key === 'ArrowLeft') n = (i - 1 + TABS.length) % TABS.length;
+    else if (e.key === 'Home') n = 0;
+    else if (e.key === 'End') n = TABS.length - 1;
+    if (n < 0) return;
+    e.preventDefault();
+    setTab(TABS[n].id);
+    tabsRef.current?.querySelector<HTMLElement>(`#mp-tab-${TABS[n].id}`)?.focus();
+  };
   return (
     <div className="mp">
-      <div className="mp-tabs" role="tablist" aria-label="어머니 소식">
+      <div className="mp-tabs" role="tablist" aria-label="어머니 소식" ref={tabsRef} onKeyDown={onKey}>
         {TABS.map(t => (
-          <button key={t.id} role="tab" id={`mp-tab-${t.id}`} aria-selected={tab === t.id} aria-controls={`mp-pane-${t.id}`}
+          <button key={t.id} role="tab" id={`mp-tab-${t.id}`} aria-selected={tab === t.id} tabIndex={tab === t.id ? 0 : -1} aria-controls={`mp-pane-${t.id}`}
             className={`mp-tab ${tab === t.id ? 'is-on' : ''}`} onClick={() => setTab(t.id)}>{t.label}</button>
         ))}
       </div>
@@ -91,7 +104,7 @@ function HealthTab() {
       </div>
     );
   }
-  return <HealthSummaryView summary={health} variant="family" />;
+  return <HealthSummaryView summary={health} variant="family" headingLevel={3} />;
 }
 
 function ReportTab() {

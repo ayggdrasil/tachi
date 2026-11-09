@@ -39,10 +39,14 @@ export function ScheduleRequestCard({ message, variant }: CardProps) {
   const [sel, setSel] = useState<string[]>(p.selectedSlotIds ?? []);
   // idle → pending (spinner) → sent (disabled until the server marks it answered) | failed (retry allowed)
   const [phase, setPhase] = useState<'idle' | 'pending' | 'sent' | 'failed'>('idle');
+  const [more, setMore] = useState(false);
   const senior = variant === 'senior';
   const answered = !!p.answered || phase === 'sent';
   const busy = phase === 'pending';
   const chosen = p.answered ? (p.selectedSlotIds ?? []) : sel;
+  // Seniors see at most 4 choices at first; the rest sit behind one link (selected ones always stay visible).
+  const limited = senior && !answered && !more && p.slots.length > 4;
+  const shown = limited ? p.slots.filter((s, i) => i < 4 || chosen.includes(s.id)) : p.slots;
   const toggle = (id: string) => setSel(s => (s.includes(id) ? s.filter(x => x !== id) : [...s, id]));
   const send = (slotIds: string[]) => {
     setPhase('pending');
@@ -53,15 +57,17 @@ export function ScheduleRequestCard({ message, variant }: CardProps) {
   const none = () => { setSel([]); send([]); };
   return (
     <article className="cd" aria-label="가능한 시간 선택">
-      <h3 className="cd-title">{p.artifactTitle}, 가능한 시간을 골라 주세요</h3>
+      <h3 className="cd-title">{p.artifactTitle}</h3>
+      <p className="cd-meta">가능한 시간을 모두 골라 주세요</p>
       <div className={`cd-slots ${senior ? 'cd-slots-s' : ''}`}>
-        {p.slots.map(s => (
+        {shown.map(s => (
           <button key={s.id} type="button" className="chip cd-slot" aria-pressed={chosen.includes(s.id)} disabled={answered || busy}
             onClick={() => toggle(s.id)}>
             {chosen.includes(s.id) && <Check size={14} />}{s.label}
           </button>
         ))}
       </div>
+      {limited && <button type="button" className="cd-link cd-more" aria-expanded={more} onClick={() => setMore(true)}>다른 시간 더 보기 (+{p.slots.length - shown.length})</button>}
       {answered ? (
         <p className="cd-cap"><Check size={13} /> {chosen.length === 0 ? '이번엔 모두 어려워요' : `보냈어요 · ${chosen.length}개 선택`}</p>
       ) : (

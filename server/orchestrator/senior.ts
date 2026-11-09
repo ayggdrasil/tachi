@@ -207,8 +207,8 @@ async function continueMemory(room: Room, mem: Memory, text: string): Promise<vo
   }, ai);
   const where = mem.place ? `${mem.place}에서 ` : '';
   await tachiSay(room.id, {
-    text: `${where}가장 기억에 남는 장면이 어떤 거였어요? 그때 누구와 함께 계셨는지도 들려주세요.`,
-    quickReplies: ['가족이랑 함께였지', '그날 날씨가 참 좋았어'],
+    text: `${where}그날 가장 기억에 남는 장면은 어떤 거였어요?`,
+    quickReplies: ['바다에서 놀던 거', '수박 먹던 거', '잘 기억이 안 나'],
     meta: memMeta(mem.id),
   });
   logSeniorSession('memory', '추억 떠올리기', `${mem.title} 이야기를 다시 떠올리셨어요.`, mem.id);
@@ -299,7 +299,7 @@ export async function doShare(roomId: ID, memoryId: ID, opts: { refuse?: boolean
   const card = await cardMessage(roomId, 'memory_card', 'memoryId', memoryId);
   if (mem.sharedAt && memoryVisibleToFamily(mem)) {
     setPending(roomId, null);
-    if (card) markActionDone(card);
+    if (card) markActionDone(card, undefined, 'share_memory');
     await tachiSay(roomId, { text: '이 추억은 이미 가족방에 전해 드렸어요.', meta: memMeta(mem.id) });
     return;
   }
@@ -341,7 +341,7 @@ export async function doShare(roomId: ID, memoryId: ID, opts: { refuse?: boolean
   syncTripVisibility(mem.id, 'family');
   setPending(roomId, null);
   setLastMemory(mem.id);
-  if (card) markActionDone(card); // committed
+  if (card) markActionDone(card, undefined, 'share_memory'); // committed
   reactBots(FAMILY_ROOM_ID, shared);
   await tachiSay(roomId, { text: '가족방에 전해 드렸어요.', meta: memMeta(mem.id) });
   scheduleOffer(roomId, mem, 1500);
@@ -357,7 +357,7 @@ async function skipShare(roomId: ID, memoryId: ID): Promise<void> {
   }
   setPending(roomId, null);
   const card = await cardMessage(roomId, 'memory_card', 'memoryId', memoryId);
-  if (card) markActionDone(card);
+  if (card) markActionDone(card, undefined, 'skip_share');
   await tachiSay(roomId, { text: '알겠어요. 이 추억은 어머님만 보실 수 있게 비공개로 간직할게요.', meta: { ...memMeta(memoryId), source: 'rule' } });
 }
 
@@ -437,7 +437,7 @@ export async function offerTrip(roomId: ID, mem: Memory): Promise<void> {
   emitTrip(trip);
   void startPlan(tripId, suggestion); // plan in the background so the acceptance feels instant
   const m = await tachiSay(roomId, {
-    kind: 'trip_suggestion', text: `${suggestion.title} — ${suggestion.reason}`, payload: suggestion,
+    kind: 'trip_suggestion', text: `${suggestion.title}. ${suggestion.reason}`, payload: suggestion,
     actions: [
       { id: 'accept_trip', label: '좋아요, 가볼래요', style: 'primary', data: { tripId } },
       { id: 'decline_trip', label: '다음에요', data: { tripId } },
@@ -456,7 +456,7 @@ export async function acceptTrip(roomId: ID, tripId: ID): Promise<void> {
   if (!trip || trip.status === 'declined') return;
   const offer = await cardMessage(roomId, 'trip_suggestion', 'tripId', tripId);
   if (trip.itinerary) { // idempotent retry
-    if (offer) markActionDone(offer);
+    if (offer) markActionDone(offer, undefined, 'accept_trip');
     if (getPending(roomId)?.type === 'trip_confirm') setPending(roomId, null);
     return;
   }
@@ -476,7 +476,7 @@ export async function acceptTrip(roomId: ID, tripId: ID): Promise<void> {
     ],
     meta: tripMeta(tripId, trip.memoryId),
   }, ai);
-  if (offer) markActionDone(offer); // committed
+  if (offer) markActionDone(offer, undefined, 'accept_trip'); // committed
   setPending(roomId, { type: 'itinerary', tripId, messageId: posted.id });
 }
 
@@ -486,7 +486,7 @@ async function declineTrip(roomId: ID, tripId: ID): Promise<void> {
   plans.delete(tripId);
   setPending(roomId, null);
   const offer = await cardMessage(roomId, 'trip_suggestion', 'tripId', tripId);
-  if (offer) markActionDone(offer);
+  if (offer) markActionDone(offer, undefined, 'decline_trip');
   await tachiSay(roomId, { text: '네, 다음에 또 좋은 곳 알려드릴게요.', meta: tripMeta(tripId, trip?.memoryId) });
 }
 

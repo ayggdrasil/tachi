@@ -115,7 +115,10 @@ test('recall, share, trip, itinerary', async () => {
 test('proactive messages', async () => {
   const hae: Memory = { ...memory, id: 'm0', title: '1988년 해운대', year: 1988, place: '해운대' };
   const m = (await brain.proactiveMessage({ kind: 'morning', memory: hae, senior: mom, now: new Date() })).value;
-  assert.match(m.text, /어머님, 좋은 아침이에요\. 어젯밤은 잘 주무셨어요\? 문득 1988년 해운대 사진이 생각났어요/);
+  assert.match(m.text, /어머님, 좋은 아침이에요\. 문득 1988년 해운대 사진이 떠올랐어요\. 어젯밤은 잘 주무셨어요\?$/);
+  assert.equal((m.text.match(/[?？]/g) ?? []).length, 1); // F15: exactly one question
+  assert.ok(m.quickReplies.includes('그 사진 얘기해 줄게') && m.quickReplies.includes('잘 잤어'));
+  for (const k of ['morning', 'memory', 'evening', 'ask_photo'] as const) assert.ok(((await brain.proactiveMessage({ kind: k, memory: hae, senior: mom, now: new Date() })).value.text.match(/[?？]/g) ?? []).length <= 1, k);
   assert.match((await brain.proactiveMessage({ kind: 'evening', senior: mom, now: new Date() })).value.text, /저녁 약/);
   assert.match((await brain.proactiveMessage({ kind: 'ask_photo', senior: mom, now: new Date() })).value.text, /사진/);
 });
@@ -496,7 +499,7 @@ test('R3-F11: observations merge field by field, deterministic statement wins', 
   });
   await withFakeProvider(() => '{"reply":"그러셨군요","quickReplies":["응"],"category":"health","observation":{"mood":"좋음"}}', async b => {
     const r = await b.seniorChat([], '약 안 먹었어', mom);
-    assert.deepEqual(r.value.observation, { medication: { taken: false }, mood: '좋음' });
+    assert.deepEqual(r.value.observation, { medication: { taken: false } }); // F12: no explicit mood words -> mood dropped
   });
   await withFakeProvider(() => '{"reply":"그러셨군요","quickReplies":["응"],"category":"health","observation":{"medication":{"taken":true,"name":"혈압약"}}}', async b => {
     const r = await b.seniorChat([], '오늘 날씨 좋다', mom);
@@ -504,8 +507,25 @@ test('R3-F11: observations merge field by field, deterministic statement wins', 
   });
   await withFakeProvider(() => '{"reply":"좋네요","quickReplies":["응"],"category":"health","observation":{"medication":{"taken":true,"name":"혈압약","time":"아침"}}}', async b => {
     const r = await b.seniorChat([], '약 먹었어', mom);
-    assert.deepEqual(r.value.observation, { medication: { taken: true, name: '혈압약', time: '아침' } });
+    assert.deepEqual(r.value.observation, { medication: { taken: true } }); // F12: model-added name/time not accepted
   });
+  await withFakeProvider(() => '{"reply":"좋네요","quickReplies":["응"],"category":"mood","observation":{"mood":"좋음"}}', async b => {
+    assert.equal((await b.seniorChat([], '오늘 날씨가 참 맑아', mom)).value.observation, undefined);
+    assert.deepEqual((await b.seniorChat([], '오늘은 정말 행복하구나', mom)).value.observation, { mood: '좋음' });
+  });
+});
+
+test('F11: birthday only from explicit context', async () => {
+  const members = ['jieun', 'minjun', 'suyeon', 'mom'].map(user);
+  const trip = { title: '다시 찾는 경주, 1박 2일', destination: '경주' };
+  const d = (await brain.draftGathering({ proposalText: '가족과 함께 가기', proposer: user('minjun'), members, senior: mom, linkedTrip: trip })).value;
+  assert.equal(d.title, '경주 가족 여행');
+  assert.doesNotMatch(JSON.stringify(d), /생신|케이크|꽃/);
+  const n = (await brain.draftGathering({ proposalText: '다 같이 부산 가자', proposer: user('minjun'), members, senior: mom })).value;
+  assert.doesNotMatch(JSON.stringify(n), /생신|케이크|꽃/);
+  const b = (await brain.draftGathering({ proposalText: '엄마 칠순 기념으로 경주 가자', proposer: user('minjun'), members, senior: mom, linkedTrip: trip })).value;
+  assert.match(b.title, /생신/);
+  assert.ok(b.tasks.some(t => t.text.includes('케이크')));
 });
 
 test('R3-F13: missed-dose copy is prescription-neutral', async () => {

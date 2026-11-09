@@ -107,11 +107,12 @@ function relaxRects(sn: { id: string; name: string; label: GraphNodeLabel; x: nu
   }
 }
 
-export function MemoryGraph({ nodes, edges, highlightIds, height, interactive, compact }: {
-  nodes: GraphNode[]; edges: GraphEdge[]; highlightIds?: string[]; height?: number; interactive?: boolean; compact?: boolean;
+export function MemoryGraph({ nodes, edges, highlightIds, height, interactive, compact, large }: {
+  nodes: GraphNode[]; edges: GraphEdge[]; highlightIds?: string[]; height?: number; interactive?: boolean; compact?: boolean; large?: boolean;
 }) {
   const H = height ?? (compact ? 220 : 280);
-  const fs = compact ? 12 : 13;
+  const fs = large ? (compact ? 14 : 15) : (compact ? 12 : 13);
+  const maxChars = large && compact ? 6 : 8;
   const wrapRef = useRef<HTMLDivElement>(null);
   const [W, setW] = useState(320);
   const posRef = useRef<Map<string, { x: number; y: number }>>(new Map());
@@ -146,7 +147,7 @@ export function MemoryGraph({ nodes, edges, highlightIds, height, interactive, c
     simRef.current?.stop();
     const ids = new Set(nodes.map(n => n.id));
     if (compact) {
-      const { pos: rp, labels } = radialLayout(nodes, edges, W, H, fs, 8);
+      const { pos: rp, labels } = radialLayout(nodes, edges, W, H, fs, maxChars);
       labelRef.current = labels;
       rp.forEach((p, id) => posRef.current.set(id, p));
       simNodes.current = []; simRef.current = null;
@@ -183,7 +184,7 @@ export function MemoryGraph({ nodes, edges, highlightIds, height, interactive, c
     force(v => v + 1);
     return () => { sim.stop(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graphKey, Math.round(W / 40), H, compact]);
+  }, [graphKey, Math.round(W / 40), H, compact, large]);
 
   const linksRef = useRef<SimLink[]>([]);
 
@@ -227,7 +228,7 @@ export function MemoryGraph({ nodes, edges, highlightIds, height, interactive, c
   const usedLabels = new Set(nodes.map(n => n.label));
 
   return (
-    <div className={`mg ${compact ? 'mg-compact' : ''} ${interactive ? 'mg-interactive' : ''}`} ref={wrapRef}>
+    <div className={`mg ${compact ? 'mg-compact' : ''} ${large ? 'mg-large' : ''} ${interactive ? 'mg-interactive' : ''}`} ref={wrapRef}>
       <svg className="mg-svg" width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="img"
         aria-label={`기억 그래프: 노드 ${nodes.length}개, 연결 ${edges.length}개`}
         onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
@@ -261,7 +262,9 @@ export function MemoryGraph({ nodes, edges, highlightIds, height, interactive, c
                 {(() => {
                   const lp = compact ? labelRef.current.get(n.id) : undefined;
                   const cls = isMem ? 'mg-label mg-label-mem' : 'mg-label';
-                  const txt = trunc(n.name, compact ? (isMem ? 7 : 8) : isMem ? 11 : 8);
+                  const txt = trunc(n.name, compact ? (isMem ? (large ? 9 : 7) : maxChars) : isMem ? 11 : 8);
+                  // Compact: the card title above already names the centre memory, so its label never competes for space.
+                  if (compact && isMem) return <title>{n.name}</title>;
                   return lp
                     ? <text x={lp.x - p.x} y={lp.y - p.y} textAnchor={lp.anchor} className={cls}>{txt}<title>{n.name}</title></text>
                     : <text y={isMem ? 22 : n.label === 'Emotion' ? 16 : 20} textAnchor="middle" className={cls}>{txt}<title>{n.name}</title></text>;
@@ -272,7 +275,7 @@ export function MemoryGraph({ nodes, edges, highlightIds, height, interactive, c
         </g>
         {interactive && hovered && (() => {
           const p = pos(hovered.id);
-          const w = Math.max(40, hovered.name.length * 11 + 16);
+          const w = Math.max(40, hovered.name.length * (large ? 13 : 11) + 16);
           const tx = Math.min(W - w / 2 - 2, Math.max(w / 2 + 2, p.x));
           return (
             <g transform={`translate(${tx},${Math.max(14, p.y - 28)})`} pointerEvents="none">
@@ -283,7 +286,7 @@ export function MemoryGraph({ nodes, edges, highlightIds, height, interactive, c
         })()}
       </svg>
       <ul className="sr-only mg-text" aria-label="기억 그래프 목록">
-        {edges.map(e => <li key={e.id}>{byId.get(e.source)?.name ?? e.source}, {REL_KO[e.type] ?? e.type} → {byId.get(e.target)?.name ?? e.target}</li>)}
+        {edges.map(e => <li key={e.id}>{byId.get(e.source)?.name ?? e.source} → {byId.get(e.target)?.name ?? e.target} ({REL_KO[e.type] ?? e.type})</li>)}
       </ul>
       {nodes.length === 0 && <div className="mg-empty">아직 연결된 기억이 없어요</div>}
       {!compact && (

@@ -43,7 +43,7 @@ export function InviteDialog({ roomId, onClose }: { roomId: string; onClose: () 
             </li>
           );
         })}
-        {list.length === 0 && <li className="caption faint fam-none">찾는 분이 없어요.</li>}
+        {list.length === 0 && <li className="caption faint fam-contacts-empty">찾는 분이 없어요.</li>}
       </ul>
       <p className="caption faint fam-foot">데모용 가상 전화번호부예요</p>
     </Dialog>

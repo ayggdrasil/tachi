@@ -9,6 +9,7 @@ import { Avatar } from '../../components/common/Avatar';
 import { MemoryGraph } from '../../components/graph/MemoryGraph';
 import { Dialog } from '../family/Dialog';
 import { useLan } from './useLan';
+import { applyTheme } from '../../styles/theme';
 import './DirectorConsole.css';
 
 const PHONE_W = 390;
@@ -75,7 +76,7 @@ export default function DirectorConsole() {
   const [skip, setSkip] = useState<Record<string, string>>({});
 
   const [theme, setTheme] = useState<'light' | 'dark'>(() => new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light');
-  useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
+  useEffect(() => { applyTheme(theme); }, [theme]);
   const toggleTheme = () => { setTheme(t => (t === 'dark' ? 'light' : 'dark')); setFrameKey(k => k + 1); };
   const themeQ = `&theme=${theme}`;
   const error = useTachi(s => s.error);
@@ -319,15 +320,46 @@ export default function DirectorConsole() {
   const engineLabel = engine === 'kuzu' ? 'Kùzu 그래프 DB' : engine === 'memory' ? '메모리 그래프 (대체 모드)' : engine ? engine : '그래프 엔진 확인 중…';
   const phones = 2 + (third === 'side' ? 1 : 0);
   const availH = box.h - PAD * 2 - 40 - LABEL_H;
-  const fitScale = (w: number) => Math.min(1, availH / PHONE_H, w / (phones * PHONE_W));
+  const fitScale = (w: number, extraH = 0) => Math.min(1, (availH - extraH) / PHONE_H, w / (phones * PHONE_W));
   const graphW = Math.round(Math.min(520, Math.max(320, box.w * 0.36)));
   const minScale = box.w >= 1100 ? 0.72 : 0.62;
   const colScale = fitScale(box.w - PAD * 2 - GAP * phones - graphW);
-  // three columns only while phones stay readable; otherwise the graph floats over the stage's right side
-  const graphOverlay = third === 'graph' && colScale < minScale;
-  const scale = Math.max(0.3, third === 'graph' && !graphOverlay ? colScale : fitScale(box.w - PAD * 2 - GAP * (phones - 1)));
-  const graphBoxH = graphOverlay ? Math.max(360, box.h - 88 - LABEL_H) : PHONE_H * scale;
-  const overlayW = Math.min(graphW, Math.max(280, box.w - 32));
+  // three columns only while phones stay readable; otherwise the graph becomes a short strip BELOW the phones
+  // (it never covers an active phone)
+  const graphBelow = third === 'graph' && colScale < minScale;
+  const STRIP_H = 176;
+  const scale = Math.max(0.3, third === 'graph' && !graphBelow ? colScale
+    : fitScale(box.w - PAD * 2 - GAP * (phones - 1), graphBelow ? STRIP_H + GAP : 0));
+  const graphBoxH = graphBelow ? STRIP_H - LABEL_H : PHONE_H * scale;
+  const phonesW = phones * PHONE_W * scale + GAP * (phones - 1);
+
+  const graphSection = third === 'graph' && (
+    <section className={`dc-graph ${graphBelow ? 'is-below' : ''}`} style={graphBelow ? { width: phonesW, height: STRIP_H } : { width: graphW, height: graphBoxH + LABEL_H }} aria-label="기억 그래프">
+              <div className="dc-label">기억 그래프 · {engineLabel} · 노드 {nodes.length} · 관계 {edges.length}{fresh.length > 0 ? ` · 방금 +${fresh.length}` : ''}</div>
+              <div className="dc-graph-box" style={{ height: graphBoxH }}>
+                <MemoryGraph nodes={nodes} edges={edges} highlightIds={fresh} height={graphBelow ? Math.max(100, graphBoxH - 8) : Math.max(160, graphBoxH - 56 - (recall ? 150 : 0))} interactive />
+                {recall ? (
+                  <div className="dc-recall" aria-label="회상 근거">
+                    <div className="dc-recall-h"><b>회상 근거</b><span className="caption muted"> · {recall.memory?.title}</span></div>
+                    <div className="dc-chips">
+                      <span className="caption faint">키워드</span>
+                      {recall.matched.map(k => <span key={k} className="dc-chip">{k}</span>)}
+                    </div>
+                    <div className="dc-chips">
+                      <span className="caption faint">경로</span>
+                      {recall.path.nodes.map((n, i) => (
+                        <span key={n.id + i} className="dc-chip-wrap">
+                          <span className="dc-chip is-node">{n.name}</span>
+                          {recall.path.edges[i] && <span className="dc-chip-rel caption faint">{recall.path.edges[i].type ?? '→'}</span>}
+                        </span>
+                      ))}
+                    </div>
+                    {recall.cypher && <pre className="dc-cypher mono">{recall.cypher}</pre>}
+                  </div>
+                ) : <div className="dc-recall caption faint">‘불국사’ 회상 단계에서 매칭된 경로와 Cypher가 여기 나타나요.</div>}
+              </div>
+    </section>
+  );
 
   const statusLabel = status === 'ready' ? '연결됨' : status === 'error' ? '연결 오류' : '연결 중';
   const modelLabel = models?.options.find(o => o.key === models.active)?.label ?? '—';
@@ -340,11 +372,11 @@ export default function DirectorConsole() {
 
   if (status === 'error' && /키/.test(error ?? '')) {
     return (
-      <main className="dc-keyerr" role="alert" style={{ minHeight: '100dvh', display: 'grid', placeItems: 'center', padding: 24, textAlign: 'center', background: 'var(--bg)', color: 'var(--text)' }}>
+      <main className="dc-keyerr" role="alert">
         <div>
-          <h1 style={{ fontSize: 'var(--text-h2, 22px)', marginBottom: 8 }}>디렉터 키가 필요해요.</h1>
+          <h1>디렉터 키가 필요해요.</h1>
           <p className="muted">서버 시작 화면에 표시된 주소로 열어 주세요.</p>
-          <p style={{ marginTop: 16 }}><Link to="/" className="btn">처음으로</Link></p>
+          <p className="dc-keyerr-cta"><Link to="/" className="btn">처음으로</Link></p>
         </div>
       </main>
     );
@@ -354,9 +386,8 @@ export default function DirectorConsole() {
     <div className="dc">
       <aside className="dc-rail" aria-label="컨트롤 레일">
         <header className="dc-status">
-          <h1 className="sr-only">타치 디렉터 콘솔</h1>
           <div className="dc-status-top">
-            <Link to="/" className="dc-brand">타치 · 디렉터</Link>
+            <h1 className="dc-title"><Link to="/" className="dc-brand">타치 · 디렉터</Link></h1>
             <span className="dc-conn"><span className={`dc-dot ${status === 'ready' ? 'is-on' : ''}`} aria-hidden />{statusLabel}</span>
           </div>
           <p className="caption muted">노드 {nodes.length} · 관계 {edges.length} · {modelLabel}</p>
@@ -503,6 +534,7 @@ export default function DirectorConsole() {
           <button className="chip" aria-pressed={showSide && !showGraph} onClick={() => { setManualStage(true); setShowGraph(false); setShowSide(v => !v || showGraph); }}>민준 · 사이드 챗</button>
           <button className="chip" aria-pressed={showGraph} onClick={() => { setManualStage(true); setShowGraph(v => !v); }}>기억 그래프</button>
         </div>
+        <div className={`dc-body ${graphBelow ? 'is-below' : ''}`}>
         <div className="dc-frames" style={{ gap: GAP }}>
           <Phone scale={scale} label="어머니 · 시니어 앱" name="김순자" src={`/senior?as=mom&embed=1${themeQ}`} k={frameKey} />
           <Phone scale={scale} label="딸 지은 · 가족방" name="김지은" src={`/family?as=jieun&embed=1${themeQ}`} k={frameKey} />
@@ -511,34 +543,9 @@ export default function DirectorConsole() {
               src={(sideRoomId ? `/family?as=minjun&embed=1&room=${encodeURIComponent(sideRoomId)}` : '/family?as=minjun&embed=1') + themeQ}
               caption={sideRoomId ? undefined : '일정 조율이 시작되면 사이드 챗이 열려요'} />
           )}
-          {third === 'graph' && (
-            <section className={`dc-graph ${graphOverlay ? 'is-overlay' : ''}`} style={graphOverlay ? { width: overlayW, height: graphBoxH + LABEL_H } : { width: graphW, height: graphBoxH + LABEL_H }} aria-label="기억 그래프">
-              <div className="dc-label">기억 그래프 · {engineLabel}</div>
-              <div className="dc-graph-box" style={{ height: graphBoxH }}>
-                <MemoryGraph nodes={nodes} edges={edges} highlightIds={fresh} height={Math.max(160, graphBoxH - 56 - (recall ? 150 : 0))} interactive />
-                {recall ? (
-                  <div className="dc-recall" aria-label="회상 근거">
-                    <div className="dc-recall-h"><b>회상 근거</b><span className="caption muted"> · {recall.memory?.title}</span></div>
-                    <div className="dc-chips">
-                      <span className="caption faint">키워드</span>
-                      {recall.matched.map(k => <span key={k} className="dc-chip">{k}</span>)}
-                    </div>
-                    <div className="dc-chips">
-                      <span className="caption faint">경로</span>
-                      {recall.path.nodes.map((n, i) => (
-                        <span key={n.id + i} className="dc-chip-wrap">
-                          <span className="dc-chip is-node">{n.name}</span>
-                          {recall.path.edges[i] && <span className="dc-chip-rel caption faint">{recall.path.edges[i].type ?? '→'}</span>}
-                        </span>
-                      ))}
-                    </div>
-                    {recall.cypher && <pre className="dc-cypher mono">{recall.cypher}</pre>}
-                  </div>
-                ) : <div className="dc-recall caption faint">‘불국사’ 회상 단계에서 매칭된 경로와 Cypher가 여기 나타나요.</div>}
-                <div className="dc-graph-stats caption muted">노드 {nodes.length} · 관계 {edges.length}{fresh.length > 0 ? ` · 방금 +${fresh.length}` : ''}</div>
-              </div>
-            </section>
-          )}
+          {!graphBelow && graphSection}
+        </div>
+        {graphBelow && graphSection}
         </div>
       </main>
 

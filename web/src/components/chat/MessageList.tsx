@@ -15,13 +15,14 @@ const CARD_KINDS = new Set(['memory_card', 'recall_card', 'trip_suggestion', 'it
 /** Cards that render their own actions inside (right under the primary content) so they stay above the fold. */
 const INLINE_ACTIONS = new Set(['memory_card', 'itinerary', 'trip_suggestion']);
 const TEXT_ABOVE = new Set(['recall_card']);
+const reducedMotion = () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 function ModelLine({ message, variant }: { message: Message; variant: 'senior' | 'family' }) {
   // Seniors never see technical provenance; the family variant shows what actually produced the text.
   if (variant === 'senior') return null;
   const m = message.meta; if (!m?.model && !m?.fallback && !m?.source) return null;
-  const line = m.source === 'rule' ? '규칙 응답'
-    : m.source === 'heuristic' || m.fallback ? '오프라인 응답'
+  const line = m.source === 'rule' ? '자동 안내'
+    : m.source === 'heuristic' || m.fallback ? '기본 응답'
     : m.model ?? '타치';
   return <span className="ml-model">{line}</span>;
 }
@@ -47,21 +48,21 @@ export function MessageList({ roomId, variant, onOpenArtifact, onOpenRoom, empty
 
   const toBottom = (smooth: boolean) => {
     const el = scrollRef.current; if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth && !reducedMotion() ? 'smooth' : 'auto' });
   };
-  const pinMode = useRef<'bottom' | 'card'>('bottom');
+  const pinMode = useRef<'bottom' | 'card' | 'answer'>('bottom');
   const toCard = (id: string) => {
     const el = scrollRef.current; if (!el) return;
     const row = el.querySelector<HTMLElement>(`[data-mid="${CSS.escape(id)}"]`); if (!row) return toBottom(true);
     const top = row.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 8;
-    el.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    el.scrollTo({ top: Math.max(0, top), behavior: reducedMotion() ? 'auto' : 'smooth' });
   };
   const lastTop = useRef(0);
   const onScroll = () => {
     const el = scrollRef.current; if (!el) return;
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
     // Only an upward scroll by the user unpins; smooth programmatic scrolls and late-growing content never do.
-    if (dist < 80) { atBottom.current = true; setShowNew(false); }
+    if (dist < 80) { atBottom.current = true; setShowNew(false); if (pinMode.current === 'answer') pinMode.current = 'bottom'; }
     else if (el.scrollTop < lastTop.current - 4) atBottom.current = false;
     lastTop.current = el.scrollTop;
   };
@@ -82,6 +83,12 @@ export function MessageList({ roomId, variant, onOpenArtifact, onOpenRoom, empty
     if (first) { toBottom(false); return; }
     if (!grew) return;
     const isCard = !!last && CARD_KINDS.has(last.kind) && last.senderId !== meId;
+    // A health Q&A is one presentation turn: Tachi's numeric answer (the text right before the card) and the card stay together.
+    const answer = last?.kind === 'health_card' ? messages[messages.length - 2] : undefined;
+    const answerId = answer && answer.senderId === TACHI_ID && answer.kind === 'text' ? answer.id : undefined;
+    if (answerId && atBottom.current) { pinMode.current = 'answer'; toCard(answerId); return; }
+    // Later bot reactions never re-pin: the answer stays where it is, with a "새 메시지" pill.
+    if (pinMode.current === 'answer' && last && last.senderId !== meId) { setShowNew(true); return; }
     pinMode.current = isCard ? 'card' : 'bottom';
     if (isCard && atBottom.current) toCard(last.id);
     else if (atBottom.current || last?.senderId === meId) toBottom(true);
@@ -102,6 +109,7 @@ export function MessageList({ roomId, variant, onOpenArtifact, onOpenRoom, empty
   return (
     <div className={`ml-wrap ml-${variant}`}>
       <div className="ml" ref={scrollRef} onScroll={onScroll} role="log" aria-live="polite" aria-relevant="additions" aria-label="대화">
+        <h2 className="sr-only">{senior ? '타치와 나눈 대화' : '대화 내용'}</h2>
         {messages.length === 0 && <div className="ml-empty">{emptyHint ?? <p className="faint">아직 대화가 없어요</p>}</div>}
         {messages.map(m => {
           const showDate = !prev || dateKey(prev.createdAt) !== dateKey(m.createdAt);
@@ -126,7 +134,7 @@ export function MessageList({ roomId, variant, onOpenArtifact, onOpenRoom, empty
                 <div className="ml-sys"><CardRenderer message={{ ...m, kind: 'system' }} variant={variant} /></div>
               ) : (
                 <div data-mid={m.id} className={`ml-row ${mine ? 'ml-me' : 'ml-other'} ${head ? 'ml-head' : ''}`}>
-                  {!mine && <div className="ml-av">{head && <Avatar user={sender} size={senior ? 36 : 30} />}</div>}
+                  {!mine && <div className="ml-av">{head && <Avatar user={sender} size={senior ? 36 : 30} decorative />}</div>}
                   <div className="ml-col">
                     {!mine && head && <div className="ml-name">{isTachi ? '타치' : sender?.shortName ?? m.senderId}<GenBadge message={m} /><span className="ml-time">{koreanTime(date)}</span></div>}
                     {!head && !mine && m.meta?.generatedBy && <div className="ml-name"><GenBadge message={m} /></div>}
@@ -134,9 +142,9 @@ export function MessageList({ roomId, variant, onOpenArtifact, onOpenRoom, empty
                     {m.kind === 'text' && (
                       <div className={`ml-text ${mine ? 'ml-bubble' : isTachi ? 'ml-tachi' : 'ml-light'}`}>
                         {m.text}
-                        {senior && isTachi && <span className="ml-speak"><SpeakButton text={m.text} /></span>}
                       </div>
                     )}
+                    {m.kind === 'text' && senior && isTachi && <div className="ml-tools"><SpeakButton text={m.text} /></div>}
                     {m.kind !== 'text' && TEXT_ABOVE.has(m.kind) && m.text && (
                       <div className="ml-text ml-tachi">{m.text}</div>
                     )}
@@ -157,7 +165,7 @@ export function MessageList({ roomId, variant, onOpenArtifact, onOpenRoom, empty
         })}
         {showTyping && (
           <div className="ml-row ml-other ml-head" aria-hidden={false}>
-            <div className="ml-av"><Avatar user={typer} size={senior ? 36 : 30} /></div>
+            <div className="ml-av"><Avatar user={typer} size={senior ? 36 : 30} decorative /></div>
             <div className="ml-col"><div className="ml-typing"><i /><i /><i /><span>{typingText}</span></div></div>
           </div>
         )}

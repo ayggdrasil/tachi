@@ -1,7 +1,7 @@
 .mp { display: flex; flex-direction: column; min-height: 0; }
 .mp-tabs { display: flex; gap: var(--space-4); padding: var(--space-8) var(--space-16); border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); z-index: 1; }
 .mp-tab { padding: var(--space-6) var(--space-12); border-radius: var(--radius-lg); font-size: var(--text-caption); font-weight: var(--weight-medium); color: var(--text-2); }
-.mp-tab:hover { background: var(--hover); }
+@media (hover: hover) { .mp-tab:hover { background: var(--hover); } }
 .mp-tab.is-on { background: var(--hover); color: var(--text); font-weight: var(--weight-semibold); }
 .mp-pane { padding: var(--space-16); display: flex; flex-direction: column; gap: var(--space-16); }
 .mp-empty { padding: var(--space-8) 0; }

@@ -65,6 +65,7 @@ export interface CardAction {
   style?: 'primary' | 'secondary';
   data?: Record<string, unknown>;
   done?: boolean;         // set by server after the action was taken (buttons render disabled)
+  chosen?: boolean;       // the alternative the user actually picked (others in the group are just closed)
 }
 
 export interface MessageMeta {

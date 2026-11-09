@@ -218,9 +218,11 @@ export async function tachiSay(roomId: ID, input: Omit<PostInput, 'senderId'>, a
   return out;
 }
 
-export function markActionDone(m: Message, actionId?: string): Message {
+/** Mark actions done. With `chosenId`, that alternative is recorded as the user's pick (the UI shows one outcome line). */
+export function markActionDone(m: Message, actionId?: string, chosenId?: string): Message {
   if (!m.actions) return m;
-  m.actions = m.actions.map(a => (actionId === undefined || a.id === actionId ? { ...a, done: true } : a));
+  m.actions = m.actions.map(a => (actionId === undefined || a.id === actionId
+    ? { ...a, done: true, ...(chosenId && a.id === chosenId ? { chosen: true } : {}) } : a));
   return updateMessage(m);
 }
 
@@ -310,8 +312,10 @@ export function projectMessage(viewerId: ID, m: Message): Message {
     if (sensitivePayload || tagged || m.kind === 'health_card' || m.kind === 'report') return redact(m, KIN_ONLY_TEXT);
   }
 
-  // 1. memory provenance (meta or card payload)
-  const memoryId = m.meta?.memoryId ?? (p && (p.type === 'share_card' || p.type === 'memory_card' || p.type === 'recall_card') ? p.memoryId : undefined);
+  // 1. memory provenance (meta or card payload). A message that is about a trip is gated by the TRIP (step 2), not by the memory it
+  //    was derived from: the trip's own consent (sharedSeparately) must survive; only memory-exposing payloads below use the memory gate.
+  const aboutTrip = !!m.meta?.tripId || (!!p && (p.type === 'trip_suggestion' || p.type === 'itinerary'));
+  const memoryId = (aboutTrip ? undefined : m.meta?.memoryId) ?? (p && (p.type === 'share_card' || p.type === 'memory_card' || p.type === 'recall_card') ? p.memoryId : undefined);
   if (memoryId) {
     const mem = ctx.db.memories.get(memoryId);
     if (!memoryVisibleToFamily(mem)) {

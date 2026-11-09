@@ -48,17 +48,24 @@ export function validateObservation(v: unknown): SeniorObservation | undefined {
   return out.medication || out.mood ? out : undefined;
 }
 
+// Explicit mood wording per label: an LLM mood is accepted only when the senior's own words contain it.
+const MOOD_EVIDENCE: Record<string, RegExp> = {
+  '좋음': /기분\s*(?:이\s*)?(?:좋|최고)|행복|신나|즐거/,
+  '보통': /그저\s*그래|그냥\s*그래|보통|그럭저럭/,
+  '조금 우울': /우울|속상|외로|쓸쓸|허전|슬프/,
+};
+
 /**
- * Field-by-field merge. Deterministic extraction of explicit statements wins on conflict; an LLM medication
- * fact with no deterministic support is dropped (unconfirmed); the LLM may add mood or name/time detail.
+ * Field-by-field merge of grounded facts only. Medication taken/name/time come from the deterministic extraction
+ * of the senior's own words (model-added name/time are never accepted); an LLM medication fact with no deterministic
+ * support is dropped. Mood needs explicit mood wording in the text: deterministic extraction, or an LLM mood whose
+ * label matches an explicit mood word in `text`.
  */
-export function mergeObservation(llm: SeniorObservation | undefined, det: SeniorObservation | undefined): SeniorObservation | undefined {
+export function mergeObservation(llm: SeniorObservation | undefined, det: SeniorObservation | undefined, text = ''): SeniorObservation | undefined {
   const out: SeniorObservation = {};
-  if (det?.medication) {
-    const l = llm?.medication && llm.medication.taken === det.medication.taken ? llm.medication : undefined;
-    out.medication = { ...(l ?? {}), ...det.medication };
-  }
-  const mood = det?.mood ?? llm?.mood;
+  if (det?.medication) out.medication = { ...det.medication };
+  const llmMood = llm?.mood && MOOD_EVIDENCE[llm.mood]?.test(text) && !/안\s*(?:좋|우울|속상|외로|슬프)|별로/.test(text) ? llm.mood : undefined;
+  const mood = det?.mood ?? llmMood;
   if (mood) out.mood = mood;
   return out.medication || out.mood ? out : undefined;
 }

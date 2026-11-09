@@ -18,11 +18,13 @@ img { max-width: 100%; display: block; }
 button, input, textarea, select { font: inherit; color: inherit; }
 button { cursor: pointer; background: none; border: 0; padding: 0; }
 button:disabled { cursor: default; }
+::placeholder { color: var(--text-3); opacity: 1; }
 :focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-lg); }
 h1, h2, h3, h4, p { margin: 0; }
+h1, h2, h3, h4 { text-wrap: balance; }
 h1, h2 { font-size: var(--text-heading); line-height: var(--leading-heading); font-weight: var(--weight-semibold); }
 h3 { font-size: var(--text-body); font-weight: var(--weight-semibold); }
-::selection { background: var(--color-graphite-ink); color: var(--color-pure-white); }
+::selection { background: var(--inverse-bg); color: var(--inverse-text); }
 
 /* ── Primitives ─────────────────────────────────────────────────────────── */
 .btn {
@@ -33,12 +35,14 @@ h3 { font-size: var(--text-body); font-weight: var(--weight-semibold); }
   font-size: var(--text-caption); font-weight: var(--weight-medium);
   transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
-.btn:hover:not(:disabled) { background: var(--hover); border-color: var(--border-strong); }
+@media (hover: hover) {
+  .btn:hover:not(:disabled) { background: var(--hover); border-color: var(--border-strong); }
+  .btn-primary:hover:not(:disabled) { background: var(--inverse-bg-hover); border-color: var(--inverse-bg-hover); }
+  }
 .btn:active:not(:disabled) { background: var(--press); }
 .btn:disabled { color: var(--text-3); }
 .btn-primary { background: var(--inverse-bg); color: var(--inverse-text); border-color: var(--inverse-bg); }
-.btn-primary:hover:not(:disabled) { background: var(--color-ink-press); border-color: var(--color-ink-press); }
-.btn-primary:disabled { background: var(--color-edge-gray); border-color: var(--color-edge-gray); color: var(--text-3); }
+.btn-primary:disabled { background: var(--fill-disabled); border-color: var(--fill-disabled); color: var(--text-3); }
 .btn-ghost { border-color: transparent; background: transparent; }
 .btn-icon { min-height: 36px; width: 36px; padding: 0; border-color: transparent; background: transparent; }
 
@@ -49,7 +53,7 @@ h3 { font-size: var(--text-body); font-weight: var(--weight-semibold); }
   background: var(--surface); font-size: var(--text-caption); font-weight: var(--weight-medium);
   white-space: nowrap; transition: background var(--dur-fast) var(--ease-out);
 }
-.chip:hover { background: var(--hover); }
+@media (hover: hover) { .chip:hover { background: var(--hover); } }
 .chip[aria-pressed="true"] { background: var(--inverse-bg); color: var(--inverse-text); border-color: var(--inverse-bg); }
 
 .badge {
@@ -72,17 +76,17 @@ h3 { font-size: var(--text-body); font-weight: var(--weight-semibold); }
 
 .input {
   width: 100%; min-height: 40px; padding: var(--space-8) var(--space-12);
-  border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface);
+  border: 1px solid var(--border-field); border-radius: var(--radius-lg); background: var(--surface);
   transition: border-color var(--dur-fast) var(--ease-out);
 }
-.input:focus { outline: none; border-color: var(--color-graphite-ink); }
+.input:focus { outline: none; border-color: var(--ink); }
 
 .scrim { position: fixed; inset: 0; background: var(--scrim); z-index: 50; }
 
 /* ── Senior scale ────────────────────────────────────────────────────────── */
 .senior { font-size: var(--senior-body); line-height: var(--senior-leading); }
-.senior .btn { min-height: var(--senior-control); font-size: var(--senior-caption); padding: 0 var(--space-20); }
-.senior .chip { min-height: var(--senior-chip); font-size: var(--senior-caption); padding: 0 var(--space-16); }
+.senior .btn { min-height: var(--senior-control); font-size: var(--senior-control-text); padding: 0 var(--space-20); }
+.senior .chip { min-height: var(--senior-chip); font-size: var(--senior-control-text); padding: 0 var(--space-16); }
 .senior .caption { font-size: var(--senior-caption); }
 
 @keyframes tachi-fade-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
@@ -91,4 +95,9 @@ h3 { font-size: var(--text-body); font-weight: var(--weight-semibold); }
   /* Entrances become plain fades (no travel); pulses become a gentle steady state. */
   @keyframes tachi-fade-up { from { opacity: 0; } to { opacity: 1; } }
   @keyframes tachi-pulse { 0%, 100% { opacity: .75; } 50% { opacity: 1; } }
+}
+
+@media (pointer: coarse) {
+  .btn, .chip, .input { min-height: var(--target-min); }
+  .btn-icon { min-height: var(--target-min); width: var(--target-min); }
 }
