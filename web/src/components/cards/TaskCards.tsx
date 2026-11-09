@@ -55,7 +55,7 @@ export function TaskCard({ message }: CardProps) {
       <div className="cd-row">
         {p.status && <TaskStatusChip status={p.status} />}
         {assignee && <span className="cd-who"><Avatar user={assignee} size={20} decorative /><span className="cd-meta">{t('task.owner', { name: assignee.shortName })}</span></span>}
-        {p.dueAt && <span className="cd-meta">· {t('task.due', { due: dueLabel(p.dueAt, locale) })}</span>}
+        {p.dueAt && <span className="cd-meta">{t('task.due', { due: dueLabel(p.dueAt, locale) })}</span>}
       </div>
       {p.links && p.links.length > 0 && (
         <ul className="cd-links" aria-label={t('task.links')}>

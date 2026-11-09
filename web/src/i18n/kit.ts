@@ -27,7 +27,7 @@ const en: Record<string, string> = {
   "task.stage.escalate": "Still open",
   "task.stage.done": "To-do done",
   "task.owner": "{name} is on it",
-  "task.due": "by {due}",
+  "task.due": "Due {due}",
   "task.links": "Booking links",
   "task.newTab": "(opens in a new tab)",
   "task.openTasks": "Open to-dos",

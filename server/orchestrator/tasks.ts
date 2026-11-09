@@ -349,7 +349,7 @@ export async function handleTaskAction(userId: ID, msg: Message, actionId: strin
     const by = director ? (t.assigneeId ?? TACHI_ID) : userId;
     if (isOpen(t)) {
       completeTask(t, by, st('task.result.booked', { name: name(by) }));
-      record(t, { kind: 'reply', by, reply: 'done', roomId: room.id, note: st('task.btn.booked') });
+      record(t, { kind: 'reply', by, reply: 'done', roomId: room.id, note: st('task.note.booked') });
       save(a, by);
       settleCards(t.id);
       await tachiSay(room.id, { kind: 'task_card', text: st('task.booked', { task: short(t), who: honor(by) }), payload: cardFor(a, t, 'done') });
