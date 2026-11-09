@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Tachi — an AI companion that keeps a senior's memories alive and connects the family.",
+  "description": "Tachi \u2014 an AI companion that keeps a senior's memories alive and connects the family.",
   "scripts": {
     "dev": "concurrently -k -n server,web -c gray,black \"npm:dev:server\" \"npm:dev:web\"",
     "dev:server": "tsx watch --clear-screen=false server/index.ts",
@@ -13,10 +13,10 @@
     "demo": "npm run build && npm run start",
     "reset": "tsx server/scripts/reset.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "tsx --test server/**/*.test.ts"
+    "test": "tsx --test server/brain/brain.test.ts server/graph/graph.test.ts server/brain/providers/anthropic.test.ts && tsx server/scripts/flows.test.ts && tsx server/scripts/security.test.ts && tsx server/scripts/p0.test.ts && tsx server/scripts/smoke.ts"
   },
   "engines": {
-    "node": ">=20.10"
+    "node": ">=20.12"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

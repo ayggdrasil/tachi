@@ -2,15 +2,15 @@ import { readFileSync, statSync } from 'node:fs';
 import { extname } from 'node:path';
 import type { ModelOption } from '../../shared/types';
 import type { ChatTurn } from './contract';
-import { anthropicComplete } from './providers/anthropic';
+import { LLMStopError, anthropicComplete } from './providers/anthropic';
 import { openaiComplete } from './providers/openai';
 import type { LLMImage, LLMRequest } from './providers/types';
 
 export const llmTimeoutMs = (): number => {
   const n = Number(process.env.TACHI_LLM_TIMEOUT_MS);
-  return Number.isFinite(n) && n > 0 ? n : 12_000;
+  return Number.isFinite(n) && n > 0 ? n : 7_000;
 };
-export const LLM_TIMEOUT_MS = 12_000;
+export const LLM_TIMEOUT_MS = 7_000;
 
 // ── per-provider circuit breaker ───────────────────────────────────────────
 const BREAKER_THRESHOLD = 2;
@@ -29,17 +29,22 @@ function recordFailure(provider: string, e: unknown): void {
   }
   breakers.set(provider, b);
 }
+/** Open a provider's breaker immediately (failed preflight), so the first live step does not wait on a dead provider. */
+export function openCircuit(provider: string, reason?: string): void {
+  breakers.set(provider, { failures: BREAKER_THRESHOLD, openUntil: Date.now() + BREAKER_COOLDOWN_MS });
+  console.warn(`[brain] ${provider} circuit opened${reason ? ` (${reason})` : ''}; using demo heuristic for ${BREAKER_COOLDOWN_MS / 1000}s`);
+}
 export const resetCircuit = (provider?: string): void => { if (provider) breakers.delete(provider); else breakers.clear(); };
 
 const MAX_IMAGE_BYTES = 4.5 * 1024 * 1024;
 
-export interface CompleteInput { system: string; turns: ChatTurn[]; images?: LLMImage[]; json?: boolean; maxTokens: number }
+export interface CompleteInput { system: string; turns: ChatTurn[]; images?: LLMImage[]; json?: boolean; maxTokens: number; timeoutMs?: number }
 
 export async function complete(option: ModelOption, input: CompleteInput): Promise<string> {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), llmTimeoutMs());
+  const timer = setTimeout(() => ctrl.abort(), input.timeoutMs ?? llmTimeoutMs());
   try {
-    const req: LLMRequest = input;
+    const { timeoutMs: _t, ...req } = input as CompleteInput & LLMRequest;
     let out: string;
     if (option.provider === 'anthropic') out = await anthropicComplete(option.modelId, req, ctrl.signal);
     else if (option.provider === 'openai') out = await openaiComplete(option.modelId, req, ctrl.signal);
@@ -47,6 +52,7 @@ export async function complete(option: ModelOption, input: CompleteInput): Promi
     breakers.delete(option.provider);
     return out;
   } catch (e) {
+    if (e instanceof LLMStopError) console.warn(`[brain] ${option.provider} ${e.reason}: ${e.message}`);
     recordFailure(option.provider, e);
     throw e;
   } finally { clearTimeout(timer); }

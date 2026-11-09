@@ -5,13 +5,15 @@ import type {
   TripSuggestionPayload, User,
 } from '../../../shared/types';
 import { PLACES, findPlaces, placeById, templateFor, type Place } from '../../data/places';
+import type { SeniorObservation } from '../contract';
+import { medicationObservation, observe } from './observe';
 import { callName, hash, hasBatchim, pick } from './ko';
 
 export const PRIVATE_SESSION_TEXT = '비공개 대화예요';
 
-export function peopleCalls(people: MemoryPerson[]): string[] {
+export function peopleCalls(people: MemoryPerson[], audience: 'senior' | 'children' = 'senior'): string[] {
   return people.map(p => {
-    if (p.relation === '남편') return '남편분';
+    if (p.relation === '남편') return audience === 'children' ? '아버님' : '남편분';
     if (['딸', '아들', '손녀', '손자', '며느리'].includes(p.relation ?? '') && /^[가-힣]{3}$/.test(p.name)) return callName(p.name);
     return p.name;
   });
@@ -61,7 +63,7 @@ export function recallReply(memory: Memory, query: string): string {
 export function shareSummary(memory: Memory): { title: string; summary: string } {
   const s: string[] = [];
   s.push(`어머님께서 오늘 ${memory.title} 이야기를 들려주셨어요.`);
-  if (memory.people.length) { const ev = memory.event ?? '하루'; s.push(`${withCompanions(peopleCalls(memory.people))} 함께한 ${ev}${hasBatchim(ev) ? '이었' : '였'}대요.`); }
+  if (memory.people.length) { const ev = memory.event ?? '하루'; s.push(`${withCompanions(peopleCalls(memory.people, 'children'))} 함께한 ${ev}${hasBatchim(ev) ? '이었' : '였'}대요.`); }
   else if (memory.place) s.push(`${memory.place}에서의 하루였대요.`);
   const v = vividSentence(memory);
   if (v) s.push(`"${v.replace(/[.]+$/, '')}" 하시며 그때를 떠올리셨어요.`);
@@ -163,14 +165,25 @@ export function composeReport(sessions: SessionLog[], privacy: PrivacySettings, 
 }
 
 // ── senior small talk ──────────────────────────────────────────────────────
-export function seniorChat(text: string): { reply: string; quickReplies: string[]; category: PrivacyCategory } {
+export function seniorChat(text: string): { reply: string; quickReplies: string[]; category: PrivacyCategory; observation?: SeniorObservation } {
+  const r = seniorChatCore(text);
+  const observation = observe(text.trim());
+  return observation ? { ...r, observation } : r;
+}
+
+function seniorChatCore(text: string): { reply: string; quickReplies: string[]; category: PrivacyCategory } {
   const t = text.trim();
   const bp = t.match(/(\d{2,3})\s*(?:에|\/|-|,|하고)\s*(\d{2,3})/);
-  if (/혈압/.test(t) && bp) return { reply: `혈압 ${bp[1]}에 ${bp[2]}이시군요. 잘 기록해 둘게요. 오늘도 무리하지 마세요.`, quickReplies: ['고마워', '약 먹었어'], category: 'health' };
+  if (/혈압/.test(t) && bp) return { reply: `혈압 ${bp[1]}에 ${bp[2]}이시군요. 말씀해 주셔서 고마워요. 오늘도 무리하지 마세요.`, quickReplies: ['고마워', '약 먹었어'], category: 'health' };
   if (/아파|아프|쑤시|저리|시려|무릎|허리|어지|두통|열이|병원|기침/.test(t)) return { reply: pick(t, ['어머, 많이 불편하시겠어요. 오늘은 무리하지 말고 편히 쉬세요.', '그러셨군요. 따뜻하게 하고 쉬시는 게 좋겠어요. 심하면 꼭 병원에 가세요.']), quickReplies: ['좀 쉴게', '병원 가볼까'], category: 'health' };
-  if (/약\s*(?:먹|챙|드)|약을|복약/.test(t)) return { reply: '약 잘 챙기셨군요. 정말 잘하셨어요. 기록해 둘게요.', quickReplies: ['고마워', '옛날 사진 볼래'], category: 'health' };
+  if (/약\s*(?:먹|챙|드)|약을|복약|깜빡|약.*(?:못|안)/.test(t)) {
+    const o = medicationObservation(t);
+    const reply = o?.taken === false ? '그러셨군요. 생각나셨을 때 천천히 챙겨 드세요. 제가 곁에서 살펴볼게요.' : o?.taken ? '말씀해 주셔서 고마워요. 약 잘 챙기셨군요.' : '약 이야기 고마워요. 복용은 의사 선생님 안내대로 챙겨 주세요.';
+    return { reply, quickReplies: ['고마워', '옛날 사진 볼래'], category: 'health' };
+  }
   if (/잠|잤|못 잤|설쳤|불면/.test(t)) return { reply: /못|설쳤|불면/.test(t) ? '잠을 설치셨군요. 오늘은 낮에 잠깐 쉬어 가세요.' : '푹 주무셨다니 다행이에요. 오늘도 기분 좋게 시작해요.', quickReplies: ['고마워', '옛날 사진 볼래'], category: 'health' };
   if (/외로|쓸쓸|우울|슬프|허전|심심/.test(t)) return { reply: '그런 날도 있지요. 제가 곁에 있을게요. 괜찮으시면 옛날 이야기 들려주세요.', quickReplies: ['사진 볼래', '고마워'], category: 'mood' };
+  if (/그저\s*그래|그냥\s*그래|그럭저럭|기분이?\s*보통/.test(t)) return { reply: '그런 날도 있지요. 오늘 하루 편안하게 보내세요.', quickReplies: ['사진 볼래', '고마워'], category: 'mood' };
   if (/기분\s*좋|행복|즐거|신나|좋은\s*날|좋아/.test(t)) return { reply: '기분이 좋으시다니 저도 기뻐요. 오늘 어떤 일이 있었어요?', quickReplies: ['사진 볼래', '그냥 좋아'], category: 'mood' };
   if (/밥|식사|먹었|점심|저녁|아침/.test(t)) return { reply: '따뜻한 식사가 제일이지요. 맛있게 드셨나요?', quickReplies: ['맛있게 먹었어', '입맛이 없어'], category: 'daily' };
   if (/날씨|비가|비 오|추워|더워|눈이/.test(t)) return { reply: '날씨 따라 몸도 마음도 달라지지요. 겉옷 챙기시고 따뜻하게 계세요.', quickReplies: ['고마워', '옛날 사진 볼래'], category: 'daily' };

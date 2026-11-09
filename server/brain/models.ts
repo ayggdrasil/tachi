@@ -17,6 +17,7 @@ export function buildOptions(): ModelOption[] {
 
 export class ModelRegistry {
   private activeKey: ModelKey;
+  private health = new Map<ModelKey, { healthy: boolean; latencyMs: number }>();
   constructor() {
     const opts = buildOptions();
     const env = process.env.TACHI_DEFAULT_MODEL as ModelKey | undefined;
@@ -24,10 +25,14 @@ export class ModelRegistry {
     this.activeKey = envOpt ? envOpt.key
       : (['claude-sonnet', 'gpt-terra', 'demo'] as ModelKey[]).find(k => opts.find(o => o.key === k)?.available) ?? 'demo';
   }
-  state(): ModelState { return { active: this.activeKey, options: buildOptions() }; }
+  recordHealth(key: ModelKey, healthy: boolean, latencyMs: number): void { this.health.set(key, { healthy, latencyMs }); }
+  private options(): ModelOption[] {
+    return buildOptions().map(o => { const h = this.health.get(o.key); return h ? { ...o, healthy: h.healthy, latencyMs: h.latencyMs } : o; });
+  }
+  state(): ModelState { return { active: this.activeKey, options: this.options() }; }
   setActive(key: ModelKey): ModelState {
-    if (MODEL_DEFS.some(d => d.key === key)) this.activeKey = key;
+    if (buildOptions().some(o => o.key === key && o.available)) this.activeKey = key;
     return this.state();
   }
-  active(): ModelOption { const o = buildOptions(); return o.find(x => x.key === this.activeKey) ?? o[o.length - 1]; }
+  active(): ModelOption { const o = this.options(); return o.find(x => x.key === this.activeKey) ?? o[o.length - 1]; }
 }

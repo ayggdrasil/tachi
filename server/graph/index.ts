@@ -71,12 +71,24 @@ class Store implements GraphStore {
     }
   }
 
-  async clear() {
+  /** Whole-operation mutation queue: clear/upsert/linkFamily never interleave their statements. */
+  private mutChain: Promise<unknown> = Promise.resolve();
+  private mutate<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.mutChain.then(fn, fn);
+    this.mutChain = next.catch(() => undefined);
+    return next;
+  }
+
+  clear(): Promise<void> { return this.mutate(() => this.clearNow()); }
+
+  private async clearNow() {
     await this.mirror.clear();
     if (this.primary !== this.mirror) { try { await this.primary.clear(); } catch (e) { console.warn('[graph] clear failed', e); this.current = this.mirror; } }
   }
 
-  async upsertMemory(memory: Memory): Promise<GraphDelta> {
+  upsertMemory(memory: Memory): Promise<GraphDelta> { return this.mutate(() => this.upsertNow(memory)); }
+
+  private async upsertNow(memory: Memory): Promise<GraphDelta> {
     const delta = memoryToDelta(memory);
     await this.mirror.upsert(memory, delta);
     if (this.primary !== this.mirror) {
@@ -85,7 +97,9 @@ class Store implements GraphStore {
     return delta;
   }
 
-  async linkFamily(personName: string, relation: string, seniorName: string) {
+  linkFamily(personName: string, relation: string, seniorName: string): Promise<void> { return this.mutate(() => this.linkNow(personName, relation, seniorName)); }
+
+  private async linkNow(personName: string, relation: string, seniorName: string) {
     await this.mirror.linkFamily(personName, relation, seniorName);
     if (this.primary !== this.mirror) { try { await this.primary.linkFamily(personName, relation, seniorName); } catch { this.current = this.mirror; } }
   }

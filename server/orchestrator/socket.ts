@@ -1,6 +1,6 @@
 // Socket.IO wiring: hello/claims/presence, event handlers, privacy/model/demo controls.
-import { DIRECTOR_ID } from '../../shared/constants';
-import type { Memory, ProactiveKind, Visibility } from '../../shared/types';
+import { DIRECTOR_ID, SENIOR_ID } from '../../shared/constants';
+import type { Memory, ModelKey, ProactiveKind, Visibility } from '../../shared/types';
 import { ctx, type IO, type Sock } from './ctx';
 import { buildBootstrap } from './bootstrap';
 import {
@@ -73,6 +73,25 @@ function requireDirector(sock: Sock): boolean {
   return false;
 }
 
+/** Ping the model's provider (not awaited by callers); publishes healthy/latency via model:update and warns the Director when it fails. */
+export async function preflightModel(key?: ModelKey): Promise<void> {
+  const gen = ctx.gen;
+  try {
+    const st = ctx.brain.getModelState();
+    const target = key ?? st.active;
+    const opt = st.options.find(o => o.key === target);
+    if (!opt || opt.provider === 'mock' || !opt.available) return;
+    const r = await ctx.brain.preflight(target);
+    if (gen !== ctx.gen) return;
+    const after = ctx.brain.getModelState();
+    ctx.io.emit('model:update', after);
+    if (!r.ok && after.active === target) {
+      warn(`preflight failed for ${target}: ${r.error ?? '?'}`);
+      ctx.io.to(userChannel(DIRECTOR_ID)).emit('toast', { text: '선택한 모델이 응답하지 않아 오프라인 브레인으로 대신 답해요' });
+    }
+  } catch (e) { warn('preflight crashed:', e); }
+}
+
 export function attachSocketHandlers(io: IO): void {
   io.on('connection', (rawSock: Sock) => {
     // every handler runs under the demo generation that was current when the event arrived
@@ -96,6 +115,13 @@ export function attachSocketHandlers(io: IO): void {
             ack({ error: '디렉터 키가 필요해요.' });
             return;
           }
+          // optional owner credential for the senior persona (demo default: unset = open)
+          const seniorKey = process.env.TACHI_SENIOR_KEY;
+          if (userId === SENIOR_ID && seniorKey && p.key !== seniorKey && !(dirKey && p.key === dirKey)) {
+            warn('hello refused: senior key missing/wrong');
+            ack({ error: '어머니 화면을 열려면 키가 필요해요.' });
+            return;
+          }
           if (sock.data.userId && sock.data.userId !== userId) release(sock);
           for (const r of [...sock.rooms]) if (r !== sock.id) void sock.leave(r);
           sock.data.userId = userId;
@@ -117,7 +143,17 @@ export function attachSocketHandlers(io: IO): void {
       const u = uid();
       if (u && p) safe('message:send', () => handleIncoming(u, p.roomId, { text: p.text, photoUrl: p.photoUrl }), sock);
     });
-    sock.on('action', p => { const u = uid(); if (u && p) safe('action', () => handleAction(u, p), sock); });
+    sock.on('action', (p, ack) => {
+      const reply = (r: { ok: boolean; error?: string }) => { if (typeof ack === 'function') ack(r); };
+      const u = uid();
+      if (!u || !p) { reply({ ok: false, error: '먼저 연결해 주세요.' }); return; }
+      if (ctx.resetting) { sock.emit('toast', { text: BUSY }); reply({ ok: false, error: BUSY }); return; }
+      runWithGen(ctx.gen, () => handleAction(u, p)).then(reply).catch(e => {
+        warn('action failed:', e);
+        sock.emit('toast', { text: '요청을 처리하지 못했어요. 다시 시도해 주세요.' });
+        reply({ ok: false, error: '요청을 처리하지 못했어요.' });
+      });
+    });
     sock.on('typing', p => { const u = uid(); if (u && p?.roomId) sock.to(roomChannel(p.roomId)).emit('typing', { roomId: p.roomId, userId: u }); });
 
     sock.on('room:create', (p, ack) => {
@@ -129,7 +165,7 @@ export function attachSocketHandlers(io: IO): void {
     sock.on('room:invite', p => {
       const u = uid();
       const room = p && ctx.db.rooms.get(p.roomId);
-      if (u && room && (u === DIRECTOR_ID || room.memberIds.includes(u))) safe('room:invite', () => inviteContact(p.roomId, p.contactId), sock);
+      if (u && room && (u === DIRECTOR_ID || room.memberIds.includes(u))) safe('room:invite', () => inviteContact(p.roomId, p.contactId, u), sock);
     });
 
     sock.on('artifact:update', p => { const u = uid(); if (u && p) safe('artifact:update', () => updateArtifact(u, p.artifactId, p.patch), sock); });
@@ -150,13 +186,21 @@ export function attachSocketHandlers(io: IO): void {
     sock.on('memory:visibility', p => { const u = uid(); if (u && p) safe('memory:visibility', () => setMemoryVisibility(u, p.memoryId, p.visibility), sock); });
 
     sock.on('model:set', p => {
+      if (!requireDirector(sock)) return;
       safe('model:set', () => {
+        const wanted = ctx.brain.getModelState().options.find(o => o.key === p?.key);
+        if (!wanted || !wanted.available) { sock.emit('toast', { text: '사용할 수 없는 모델이에요.' }); return; }
         const state = ctx.brain.setActiveModel(p.key);
         ctx.db.kv.set('model', state.active);
         io.emit('model:update', state);
+        void preflightModel(p.key); // never blocks the switch
       }, sock);
     });
 
+    sock.on('demo:invite', p => {
+      if (!p || !requireDirector(sock)) return;
+      safe('demo:invite', () => inviteContact(p.roomId, p.contactId, DIRECTOR_ID), sock);
+    });
     sock.on('demo:proactive', p => { if (requireDirector(sock)) safe('demo:proactive', () => fireProactive((p?.kind as ProactiveKind | undefined) ?? undefined), sock); });
     sock.on('demo:report', () => { if (requireDirector(sock)) safe('demo:report', () => postReport(false), sock); });
     sock.on('demo:reset', () => { if (requireDirector(sock)) safe('demo:reset', () => resetDemo(), sock); });

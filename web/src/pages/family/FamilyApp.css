@@ -40,7 +40,8 @@ button.fam-menu-item:hover { background: var(--hover); }
 .fam-stack-i:first-child { margin-left: 0; }
 .fam-stack-more { margin-left: var(--space-4); font-size: var(--text-small); color: var(--text-2); }
 .fam-spacer { flex: 1; }
-.fam-head-btn { min-height: 36px; padding: 0 var(--space-10); }
+.fam-head-btn { min-height: 44px; min-width: 44px; padding: 0 var(--space-10); }
+.fam-head .btn-icon { min-height: 44px; width: 44px; }
 .fam-head-btn.is-on { background: var(--hover); }
 .fam-more { position: relative; }
 .fam-more-menu { right: 0; padding: var(--space-6); }

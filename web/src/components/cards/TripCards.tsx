@@ -18,19 +18,19 @@ export function TripSuggestionCard({ message }: CardProps) {
   );
 }
 
-export function ItineraryCard({ message, variant }: CardProps) {
+export function ItineraryCard({ message, variant, actionSlot }: CardProps) {
   const p = message.payload as ItineraryPayload;
   const [day, setDay] = useState(0);
   const [all, setAll] = useState(false);
   const [tips, setTips] = useState(false);
   const di = Math.min(day, p.days.length - 1);
   const d = p.days[di];
-  const stops = d ? (all ? d.stops : d.stops.slice(0, 3)) : [];
-  const hidden = d ? d.stops.length - 3 : 0;
+  const stops = d ? (all ? d.stops : d.stops.slice(0, 2)) : [];
+  const hidden = d ? d.stops.length - 2 : 0;
   const senior = variant === 'senior';
   const readText = d ? `${p.title}. ${d.label}. ` + d.stops.map(s => `${s.time}, ${s.title}. ${s.description}`).join(' ') : p.title;
   return (
-    <article className="cd cd-trip" aria-label={p.title}>
+    <article className="cd cd-trip cd-compact" aria-label={p.title}>
       <div className="cd-row cd-between"><h3 className="cd-title">{p.title}</h3>{senior && <SpeakButton text={readText} />}</div>
       <p className="cd-meta">{[p.destination, p.days.length > 1 ? `${p.days.length}일 일정` : '당일 일정', p.dateLabel].filter(Boolean).join(' · ')}</p>
       {p.days.length > 1 && (
@@ -54,6 +54,7 @@ export function ItineraryCard({ message, variant }: CardProps) {
           ))}
         </ol>
       )}
+      {actionSlot}
       {hidden > 0 && <button type="button" className="cd-link cd-more" aria-expanded={all} onClick={() => setAll(a => !a)}>{all ? '일정 접기' : `전체 일정 보기 (+${hidden})`}</button>}
       {p.tips.length > 0 && (
         <>

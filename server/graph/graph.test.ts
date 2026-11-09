@@ -97,3 +97,20 @@ test('kuzu persists across reopen', async () => {
     assert.equal((await g.search(['다보탑']))[0].memoryId, 'm1');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+for (const engine of ['kuzu', 'memory'] as const) {
+  test(`clear concurrent with upsert runs after the whole upsert (${engine})`, async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tachi-graph-'));
+    if (engine === 'memory') process.env.TACHI_GRAPH_ENGINE = 'memory';
+    try {
+      const g = createGraphStore({ dataDir: dir });
+      await g.init();
+      assert.equal(g.engine, engine);
+      const up = g.upsertMemory(m1);
+      const link = g.linkFamily('김지은', '딸', '김순자');
+      const cl = g.clear();
+      await Promise.all([up, link, cl]);
+      assert.deepEqual(await g.stats().then(s => [s.nodes, s.edges]), [0, 0]);
+    } finally { delete process.env.TACHI_GRAPH_ENGINE; rmSync(dir, { recursive: true, force: true }); }
+  });
+}

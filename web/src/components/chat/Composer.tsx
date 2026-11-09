@@ -23,6 +23,9 @@ export function Composer({ roomId, variant, placeholder, allowPhoto = true }: {
   const [text, setText] = useState('');
   const [uploading, setUploading] = useState(false);
   const [listening, setListening] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const errTimer = useRef<number | undefined>(undefined);
+  const showErr = (m: string) => { setErr(m); window.clearTimeout(errTimer.current); errTimer.current = window.setTimeout(() => setErr(null), 6000); };
   const [samples, setSamples] = useState<string[]>([]);
   const [showSamples, setShowSamples] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -47,7 +50,7 @@ export function Composer({ roomId, variant, placeholder, allowPhoto = true }: {
     return () => document.removeEventListener('mousedown', onDown);
   }, [showSamples]);
 
-  useEffect(() => () => { try { recRef.current?.abort?.(); } catch { /* noop */ } }, []);
+  useEffect(() => () => { window.clearTimeout(errTimer.current); try { recRef.current?.abort?.(); } catch { /* noop */ } }, []);
 
   useEffect(() => {
     const ta = taRef.current; if (!ta) return;
@@ -75,8 +78,9 @@ export function Composer({ roomId, variant, placeholder, allowPhoto = true }: {
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]; e.target.value = '';
     if (!f) return;
-    setUploading(true);
-    try { await tachi.sendPhoto(roomId, f); } catch { /* toast would be nice; keep calm */ } finally { setUploading(false); }
+    if (f.size > 15 * 1024 * 1024) { showErr('사진이 너무 커요. 다른 사진을 골라 주세요'); return; }
+    setErr(null); setUploading(true);
+    try { await tachi.sendPhoto(roomId, f); } catch { showErr('사진을 보내지 못했어요. 다시 눌러 주세요'); } finally { setUploading(false); }
   };
 
   const toggleMic = () => {
@@ -91,9 +95,14 @@ export function Composer({ roomId, variant, placeholder, allowPhoto = true }: {
       setText(baseText.current + s);
     };
     rec.onend = () => setListening(false);
-    rec.onerror = () => setListening(false);
+    rec.onerror = (ev: { error?: string }) => {
+      setListening(false);
+      if (ev?.error === 'aborted' || ev?.error === 'no-speech') { if (ev.error === 'no-speech') showErr('잘 못 들었어요. 다시 한 번 눌러 주세요.'); return; }
+      showErr(ev?.error === 'not-allowed' || ev?.error === 'service-not-allowed'
+        ? '마이크 사용을 허락해 주시면 말로도 할 수 있어요. 지금은 글자로 적어 주세요.' : '잘 못 들었어요. 다시 한 번 눌러 주세요.');
+    };
     recRef.current = rec;
-    try { rec.start(); setListening(true); } catch { setListening(false); }
+    try { setErr(null); rec.start(); setListening(true); } catch { setListening(false); showErr('잘 못 들었어요. 다시 한 번 눌러 주세요.'); }
   };
 
   const pickSample = (url: string) => { setShowSamples(false); tachi.sendPhotoUrl(roomId, url); };
@@ -109,6 +118,7 @@ export function Composer({ roomId, variant, placeholder, allowPhoto = true }: {
     </div>
   );
 
+  const errEl = err && <p className={`cp-err ${senior ? 'cp-err-s' : ''}`} role="alert">{err}</p>;
   const fileInput = <input ref={fileRef} type="file" accept="image/*" hidden onChange={onFile} />;
 
   if (senior) {
@@ -126,6 +136,7 @@ export function Composer({ roomId, variant, placeholder, allowPhoto = true }: {
             {samplePop}
           </div>
         )}
+        {errEl}
         <div className="cp-row">
           {SRctor && (
             <button type="button" className={`cp-round ${listening ? 'cp-on' : ''}`} aria-pressed={listening} aria-label={listening ? '듣기 멈추기' : '말로 입력하기'} onClick={toggleMic}>
@@ -144,6 +155,7 @@ export function Composer({ roomId, variant, placeholder, allowPhoto = true }: {
     <div className="cp cp-family">
       {fileInput}
       {uploading && <p className="cp-up">사진을 올리는 중…</p>}
+      {errEl}
       <div className="cp-row" ref={popRef}>
         {allowPhoto && (
           <button type="button" className="btn btn-icon" aria-label="사진 보내기" disabled={uploading} onClick={() => fileRef.current?.click()}><ImageIcon size={20} /></button>

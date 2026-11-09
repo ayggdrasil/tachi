@@ -1,45 +1,20 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowDown, Check } from 'lucide-react';
+import { ArrowDown } from 'lucide-react';
 import type { CardAction, Message, User } from '../../../../shared/types';
 import { SYSTEM_ID, TACHI_ID, dayHeaderLabel, koreanTime } from '../../../../shared/constants';
 import { selectRoomMessages, tachi, useTachi } from '../../lib/store';
 import { Avatar } from '../common/Avatar';
 import { SpeakButton } from '../common/SpeakButton';
 import { CardRenderer } from '../cards/CardRenderer';
+import { ActionBar } from './ActionBar';
 import './MessageList.css';
 
 interface Props { roomId: string; variant: 'senior' | 'family'; onOpenArtifact?: (artifactId: string) => void; onOpenRoom?: (roomId: string) => void; emptyHint?: React.ReactNode }
 
 const CARD_KINDS = new Set(['memory_card', 'recall_card', 'trip_suggestion', 'itinerary', 'share_card', 'artifact', 'schedule_request', 'schedule_result', 'health_card', 'report']);
+/** Cards that render their own actions inside (right under the primary content) so they stay above the fold. */
+const INLINE_ACTIONS = new Set(['memory_card', 'itinerary']);
 const TEXT_ABOVE = new Set(['recall_card', 'trip_suggestion']);
-
-function ActionBar({ message, onOpenArtifact }: { message: Message; onOpenArtifact?: (id: string) => void }) {
-  const [clicked, setClicked] = useState<Set<string>>(new Set());
-  const actions = message.actions ?? [];
-  if (actions.length === 0) return null;
-  const run = (a: CardAction) => {
-    if (a.id === 'open_artifact') {
-      const id = (a.data?.artifactId as string | undefined) ?? (message.payload?.type === 'artifact' ? message.payload.artifactId : undefined);
-      if (id) onOpenArtifact?.(id);
-      return;
-    }
-    setClicked(s => new Set(s).add(a.id));
-    tachi.action(message.roomId, message.id, a.id, a.data);
-  };
-  return (
-    <div className="ml-actions">
-      {actions.map(a => {
-        const done = !!a.done;
-        const disabled = done || (clicked.has(a.id) && a.id !== 'open_artifact');
-        return (
-          <button key={a.id} type="button" className={`btn ${a.style === 'primary' && !done ? 'btn-primary' : ''}`} disabled={disabled} onClick={() => run(a)}>
-            {done && <Check size={16} />}{a.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
 
 function ModelLine({ message, variant }: { message: Message; variant: 'senior' | 'family' }) {
   // Seniors never see technical provenance; the family variant shows what actually produced the text.
@@ -139,7 +114,11 @@ export function MessageList({ roomId, variant, onOpenArtifact, onOpenRoom, empty
           prev = m;
           const isLast = m === lastMsg;
           const date = new Date(m.createdAt);
-          const body = m.kind === 'text' ? null : <CardRenderer message={m} variant={variant} onOpenArtifact={onOpenArtifact} onOpenRoom={onOpenRoom} />;
+          const inline = INLINE_ACTIONS.has(m.kind) && (m.actions?.length ?? 0) > 0;
+          const body = m.kind === 'text' ? null : (
+            <CardRenderer message={m} variant={variant} onOpenArtifact={onOpenArtifact} onOpenRoom={onOpenRoom}
+              actionSlot={inline ? <ActionBar message={m} onOpenArtifact={onOpenArtifact} inline /> : undefined} />
+          );
           return (
             <Fragment key={m.id}>
               {showDate && <div className="ml-date"><span>{dayHeaderLabel(date)}</span></div>}
@@ -163,7 +142,7 @@ export function MessageList({ roomId, variant, onOpenArtifact, onOpenRoom, empty
                     )}
                     {body && <div className="ml-card">{body}</div>}
                     {senior && mine && m.meta?.generatedBy === 'assisted' && <span className="ml-auto-cap">자동 응답</span>}
-                    <ActionBar message={m} onOpenArtifact={onOpenArtifact} />
+                    {!inline && <ActionBar message={m} onOpenArtifact={onOpenArtifact} />}
                     {isTachi && <ModelLine message={m} variant={variant} />}
                     {isTachi && isLast && m.quickReplies && m.quickReplies.length > 0 && (
                       <div className="ml-chips">

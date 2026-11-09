@@ -16,7 +16,7 @@ export async function openaiComplete(modelId: string, req: LLMRequest, signal: A
       }
     }
   }
-  const body: Record<string, unknown> = { model: modelId, messages, max_completion_tokens: req.maxTokens };
+  const body: Record<string, unknown> = { model: modelId, messages, max_completion_tokens: Math.max(req.maxTokens, 2048), reasoning_effort: 'low' };
   if (req.json) body.response_format = { type: 'json_object' };
   const res = await fetch(`${base.replace(/\/$/, '')}/chat/completions`, {
     method: 'POST', signal,

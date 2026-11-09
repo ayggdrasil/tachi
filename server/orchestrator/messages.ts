@@ -39,16 +39,63 @@ async function route(room: Room, userId: ID, text: string | undefined, photoUrl:
   else await handleSideMessage(fresh, userId, text);
 }
 
-export function handleAction(userId: ID, p: { roomId: ID; messageId: ID; actionId: string; data?: Record<string, unknown> }): void {
+export interface ActionResult { ok: boolean; error?: string }
+
+const FAMILY_ACTIONS = new Set(['start_scheduling', 'pick_slots', 'confirm_slot', 'repoll']);
+const reject = (userId: ID, p: { roomId: ID; messageId: ID; actionId: string }, why: string): ActionResult => {
+  warn(`action rejected (${why}): user=${userId} room=${String(p.roomId)} msg=${String(p.messageId)} action=${String(p.actionId)}`);
+  return { ok: false, error: why };
+};
+
+/**
+ * Authorize + run a card action. Resolves only after the flow finished ({ok:true}) or failed ({ok:false}).
+ * - senior actions: only the senior (or the Director standing in for her), only in her own Tachi room,
+ *   only if the action exists on the stored message; resource ids come from the stored action data / payload.
+ * - family/scheduling actions: membership + (for button actions) the action present on the stored message.
+ */
+export function handleAction(userId: ID, p: { roomId: ID; messageId: ID; actionId: string; data?: Record<string, unknown> }): Promise<ActionResult> {
+  if (!p || typeof p.roomId !== 'string' || typeof p.messageId !== 'string' || typeof p.actionId !== 'string') return Promise.resolve({ ok: false, error: '잘못된 요청이에요.' });
   const room = ctx.db.rooms.get(p.roomId);
-  if (!room || !isMember(room, userId) || typeof p.actionId !== 'string') return;
-  void enqueue(p.roomId, async () => {
-    try {
-      const msg = ctx.db.messages.get(p.messageId);
-      if (!msg || msg.roomId !== p.roomId) return;
-      const actor = userId === DIRECTOR_ID ? SENIOR_ID : userId;
-      if (SENIOR_ACTIONS.has(p.actionId)) await handleSeniorAction(p.roomId, msg, p.actionId, p.data);
-      else await handleFamilyAction(room, actor, msg, p.actionId, p.data);
-    } catch (e) { await fallback(p.roomId, e); }
+  if (!room || !isMember(room, userId)) return Promise.resolve(reject(userId, p, 'not a member'));
+  const actor = userId === DIRECTOR_ID ? SENIOR_ID : userId;
+  return new Promise<ActionResult>(resolve => {
+    void enqueue(p.roomId, async () => {
+      try {
+        const msg = ctx.db.messages.get(p.messageId);
+        if (!msg || msg.roomId !== p.roomId) { resolve(reject(userId, p, 'unknown message')); return; }
+        const act = msg.actions?.find(a => a.id === p.actionId);
+        if (SENIOR_ACTIONS.has(p.actionId)) {
+          if (actor !== SENIOR_ID) { resolve(reject(userId, p, 'senior-only action')); return; }
+          if (room.type !== 'tachi' || !room.memberIds.includes(SENIOR_ID)) { resolve(reject(userId, p, 'not the senior room')); return; }
+          if (!act) { resolve(reject(userId, p, 'action not on message')); return; }
+          if (act.done) { resolve({ ok: true }); return; }
+          // client data is ignored entirely: ids come from the stored action data / payload (handled inside the flow)
+          await handleSeniorAction(p.roomId, msg, p.actionId, undefined, actor);
+        } else if (FAMILY_ACTIONS.has(p.actionId)) {
+          let data: Record<string, unknown> | undefined;
+          if (p.actionId === 'pick_slots') {
+            const pay = msg.payload;
+            const poll = pay?.type === 'schedule_request' ? ctx.db.polls.get(pay.pollId) : undefined;
+            if (!poll || msg.kind !== 'schedule_request') { resolve(reject(userId, p, 'not a schedule request')); return; }
+            if (!poll.participantIds.includes(actor) || poll.sideRoomIds[actor] !== room.id) { resolve(reject(userId, p, 'not a participant of this poll room')); return; }
+            const raw = p.data?.slotIds;
+            const valid = new Set(poll.slots.map(x => x.id));
+            if (!Array.isArray(raw) || raw.some(x => typeof x !== 'string' || !valid.has(x))) { resolve(reject(userId, p, 'invalid slotIds')); return; }
+            data = { slotIds: [...new Set(raw as string[])] };
+          } else {
+            if (!act) { resolve(reject(userId, p, 'action not on message')); return; }
+            if (act.done) { resolve({ ok: true }); return; }
+            data = undefined; // stored action data / payload only
+          }
+          await handleFamilyAction(room, actor, msg, p.actionId, data);
+        } else {
+          resolve(reject(userId, p, 'unknown action')); return;
+        }
+        resolve({ ok: true });
+      } catch (e) {
+        resolve({ ok: false, error: '처리하지 못했어요. 다시 시도해 주세요.' });
+        await fallback(p.roomId, e);
+      }
+    }).then(() => resolve({ ok: false, error: '데모가 다시 준비되어 취소됐어요.' }));
   });
 }

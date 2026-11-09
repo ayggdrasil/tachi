@@ -84,3 +84,20 @@ button.cd-art-head:hover { background: var(--hover); }
 .senior .cd-seg button { min-height: 56px; font-size: 17px; }
 .senior .cd-hop { font-size: 17px; }
 .senior .badge { font-size: 17px; }
+
+/* Compact primary-moment cards (fit the ~510px chat viewport on a 390x844 phone) */
+.cd-compact { gap: var(--space-8); }
+.cd-photo-mem { max-height: 140px; }
+.cd-photo-recall { max-height: 120px; }
+.senior .cd-photo-mem { max-height: 120px; }
+.cd-facts { gap: var(--space-4) var(--space-12); }
+.cd-facts dd, .cd-facts dt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.3; }
+.cd-graph-c { border-top: 0; padding-top: 0; }
+.cd-clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.cd-alt-1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cd-disc summary { cursor: pointer; font-size: var(--text-caption); color: var(--text-2); text-decoration: underline; text-underline-offset: 3px; min-height: 40px; display: flex; align-items: center; }
+.cd-disc[open] { display: flex; flex-direction: column; gap: var(--space-6); }
+.senior .cd-disc summary { min-height: 56px; font-size: 17px; }
+.cd-err { font-size: var(--text-caption); color: var(--text); font-weight: var(--weight-medium); margin: 0; }
+.senior .cd-err { font-size: 19px; }
+.cd-spin { animation: ml-spin 0.9s linear infinite; }

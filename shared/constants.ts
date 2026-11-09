@@ -39,6 +39,9 @@ export const CONTACTS: Contact[] = [
 ];
 
 /** Family members in the seeded family room (besides tachi). harin is NOT in it initially (invite demo). */
+/** Relations treated as kin: only kin may receive the senior's shared health/memory details (friends, neighbours, the clinic may not). */
+export const KIN_RELATIONS = ['본인', '딸', '아들', '며느리', '사위', '손녀', '손자', '여동생', '남동생', '언니', '오빠', '형', '누나', '조카'];
+
 export const SEED_FAMILY_ROOM_MEMBERS = ['mom', 'jieun', 'minjun', 'suyeon', TACHI_ID];
 
 export const PRIVACY_LABELS: Record<PrivacyCategory, { label: string; description: string }> = {
@@ -150,7 +153,8 @@ export interface DemoStep {
   room?: 'senior' | 'family';
   text?: string;
   photo?: string;                // /demo-photos/...
-  director?: 'proactive' | 'report' | 'closePoll' | 'model';
+  director?: 'proactive' | 'report' | 'closePoll' | 'model' | 'invite';
+  contactId?: string;            // for director 'invite' (phonebook contact → family room)
   kind?: ProactiveKind;          // for director 'proactive'
   modelKey?: ModelKey;           // for director 'model': switch to this model (or the next available one) before `text` is sent
   clock?: string;                // set the virtual clock to this HH:MM before running the step (realistic report times)
@@ -166,9 +170,11 @@ export const DEMO_SCRIPT: DemoStep[] = [
   { id: 'a-who', label: '답: 누구와', hint: '인물 추출', as: 'mom', room: 'senior', text: '남편 영수 씨랑 지은이, 민준이. 넷이 같이 갔지', waitFor: { room: 'senior', kind: 'text', from: 'tachi' } },
   { id: 'a-story', label: '답: 기억나는 일', hint: '추억 저장 → 그래프 DB', as: 'mom', room: 'senior', text: '다보탑 앞에서 사진 찍는데 민준이가 자꾸 도망가서 한참 웃었어. 벚꽃이 참 예뻤지', waitFor: { room: 'senior', kind: 'memory_card' } },
   { id: 'share', label: '가족에게 공유', hint: '감성 요약 → 가족방', as: 'mom', room: 'senior', text: '응, 애들한테 보내줘', waitFor: { room: 'family', kind: 'share_card' } },
-  { id: 'recall', label: '키워드로 회상', hint: '“불국사” 한 단어로 다시 찾기', as: 'mom', room: 'senior', text: '불국사', clock: '14:20', waitFor: { room: 'senior', kind: 'trip_suggestion' } },
+  { id: 'invite', label: '가족: 하린 초대', hint: '가상 전화번호부에서 손녀 초대', director: 'invite', contactId: 'c-harin', waitFor: { room: 'family', kind: 'system' } },
+  { id: 'recall', label: '키워드로 회상', hint: '“불국사” 한 단어로 다시 찾기', as: 'mom', room: 'senior', text: '불국사', clock: '14:20', waitFor: { room: 'senior', kind: 'recall_card' } },
   { id: 'trip', label: '여행 제안 수락', hint: '추억 기반 근처 여행 → 동선', as: 'mom', room: 'senior', text: '좋아, 다시 가보고 싶네', waitFor: { room: 'senior', kind: 'itinerary' } },
   { id: 'health', label: '가족: 건강 질문', hint: '공개된 건강 정보만 답변', as: 'jieun', room: 'family', text: '타치, 엄마 요즘 혈압은 괜찮으셔?', clock: '19:40', waitFor: { room: 'family', kind: 'health_card' } },
+  { id: 'private', label: '가족: 비공개 질문', hint: '비공개로 둔 일상 대화는 정중히 거절', as: 'jieun', room: 'family', text: '타치, 엄마 오늘 아침에 무슨 얘기 하셨어?', waitFor: { room: 'family', kind: 'text', from: 'tachi' } },
   { id: 'gathering', label: '가족: 모임 제안', hint: '모임 아티팩트 생성', as: 'minjun', room: 'family', text: '이번 엄마 생신에 다 같이 경주 가자!', waitFor: { room: 'family', kind: 'artifact' } },
   { id: 'schedule', label: '가족: 시간 잡기', hint: '구성원별 사이드 챗으로 일정 조율', as: 'jieun', room: 'family', text: '타치, 모임 시간 좀 잡아줘', waitFor: { room: 'family', kind: 'schedule_result' } },
   { id: 'model', label: '모델 교체 → 다시 질문', hint: 'Claude ↔ ChatGPT 실시간 교체', director: 'model', modelKey: 'gpt-terra', as: 'jieun', room: 'family', text: '타치, 오늘 엄마 기분은 어떠셔?', waitFor: { room: 'family', kind: 'text', from: 'tachi' } },

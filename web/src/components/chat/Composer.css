@@ -4,7 +4,8 @@
 .cp-family .cp-row:focus-within { border-color: var(--color-graphite-ink); }
 .cp-ta { flex: 1; text-align: left; resize: none; border: 0; outline: none; background: transparent; padding: 8px 6px; line-height: 1.45; max-height: 140px; min-width: 0; }
 .cp-ta:focus-visible { box-shadow: none; }
-.cp-send-sm { width: 36px; height: 36px; border-radius: 50%; background: var(--inverse-bg); color: var(--inverse-text); display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.cp-family .btn-icon, .cp-family .cp-send-sm { min-width: 44px; width: 44px; min-height: 44px; height: 44px; }
+.cp-send-sm { width: 44px; height: 44px; border-radius: 50%; background: var(--inverse-bg); color: var(--inverse-text); display: inline-flex; align-items: center; justify-content: center; flex: none; }
 .cp-send-sm:disabled { background: var(--color-edge-gray); color: var(--text-3); }
 .cp-up { font-size: var(--text-small); color: var(--text-2); }
 
@@ -13,6 +14,7 @@
 .cp-photo-btn { flex: 1; min-height: 56px; font-size: 19px; font-weight: var(--weight-semibold); gap: 10px; }
 .cp-sample-btn { width: 56px; padding: 0; flex: none; }
 .cp-senior .cp-row { align-items: center; gap: var(--space-8); }
+.cp-senior .cp-input { height: 56px; box-sizing: border-box; }
 .cp-input { flex: 1; min-height: 56px; font-size: 20px; border-radius: 28px; padding: 0 var(--space-20); min-width: 0; }
 .cp-round { width: 56px; height: 56px; border-radius: 50%; border: 1px solid var(--border-strong); background: var(--surface); display: inline-flex; align-items: center; justify-content: center; flex: none; }
 .cp-round:hover { background: var(--hover); }
@@ -26,3 +28,5 @@
 .cp-thumb { aspect-ratio: 1; border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--border); padding: 0; }
 .cp-thumb:hover { border-color: var(--text); }
 .cp-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.cp-err { margin: 0; font-size: var(--text-caption); color: var(--text); font-weight: var(--weight-medium); line-height: 1.45; }
+.cp-err-s { font-size: 19px; }

@@ -1,6 +1,6 @@
 import { useCallback, useRef, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, CalendarClock, HeartHandshake, MoreHorizontal, UserPlus, X } from 'lucide-react';
+import { ArrowLeft, CalendarClock, Home, HeartHandshake, MoreHorizontal, UserPlus, X } from 'lucide-react';
 import { FAMILY_ROOM_ID } from '../../../../shared/constants';
 import { initTachi, isEmbedded, rememberPersona, resolvePersona, useTachi } from '../../lib/store';
 import { MessageList } from '../../components/chat/MessageList';
@@ -98,6 +98,20 @@ export default function FamilyApp() {
     return best;
   }, [embedded, me, visibleRooms, messages]);
 
+  // side room: did I answer my schedule request here?
+  const answeredHere = useMemo(() => {
+    if (!room || room.type !== 'side') return false;
+    return (messages[room.id] ?? []).some(m => m.payload?.type === 'schedule_request' && m.payload.answered);
+  }, [room, messages]);
+  const goFamily = useCallback(() => {
+    setActiveId(FAMILY_ROOM_ID); setView('chat'); setPanel(null);
+  }, []);
+  useEffect(() => {
+    if (!embedded || !answeredHere) return;
+    const t = window.setTimeout(goFamily, 1500);
+    return () => window.clearTimeout(t);
+  }, [embedded, answeredHere, goFamily]);
+
   const switchPersona = useCallback((id: string) => {
     rememberPersona(id);
     const q = new URLSearchParams(sp);
@@ -163,6 +177,11 @@ export default function FamilyApp() {
               {members.length > 5 && <span className="fam-stack-more">+{members.length - 5}</span>}
             </div>
             <span className="fam-spacer" />
+            {room?.type === 'side' && (
+              <button className={`btn ${answeredHere ? 'btn-primary' : ''} fam-head-btn`} onClick={goFamily}>
+                <Home size={16} strokeWidth={1.5} /><span>가족방으로</span>
+              </button>
+            )}
             {room?.type === 'family' && (
               <button className="btn btn-ghost fam-head-btn" onClick={() => setInvite(true)} aria-label="초대">
                 <UserPlus size={16} strokeWidth={1.5} /><span className="fam-head-label">초대</span>

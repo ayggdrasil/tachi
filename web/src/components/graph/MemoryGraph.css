@@ -1,5 +1,7 @@
 .mg { position: relative; width: 100%; }
-.mg-svg { display: block; touch-action: none; user-select: none; }
+.mg-svg { display: block; touch-action: pan-y; user-select: none; }
+.mg-interactive .mg-svg { touch-action: pan-x pan-y; }
+.mg-interactive .mg-node { touch-action: none; }
 .mg-edge { stroke: var(--border-strong); stroke-width: 1; }
 .mg-edge-on { stroke: var(--text-2); }
 .mg-edge-hi { stroke: var(--text); stroke-width: 1.5; }
@@ -27,3 +29,4 @@
 .senior .mg-legend { font-size: 17px; }
 @keyframes mg-ping { from { opacity: .9; transform: scale(.7); } to { opacity: 0; transform: scale(1.6); } }
 @keyframes mg-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .mg-pulse { animation: none; } .cd-spin { animation: none; } }

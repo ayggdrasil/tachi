@@ -16,7 +16,7 @@ import { openDb } from '../db';
 import { seed } from '../db/seed';
 import { ctx, type IO } from './ctx';
 import { installGuards, memoryVisibleToFamily, syncClock } from './core';
-import { attachSocketHandlers } from './socket';
+import { attachSocketHandlers, preflightModel } from './socket';
 import { startTicker, stopTicker } from './proactive';
 import { log, warn } from '../util/misc';
 import type { ModelKey } from '../../shared/types';
@@ -96,12 +96,15 @@ export async function createApp(opts: AppOptions = {}) {
   });
 
   let qrCache: { key: string; qr: string } | undefined;
-  app.get('/api/lan', async (_req, res) => {
+  const isLoopback = (a?: string) => !!a && ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(a);
+  app.get('/api/lan', async (req, res) => {
+    const dirKey = process.env.TACHI_DIRECTOR_KEY;
+    const directorUrl = dirKey && isLoopback(req.socket.remoteAddress) ? `http://localhost:${port}/demo?key=${dirKey}` : undefined;
     const urls = ctx.lanUrls.length ? ctx.lanUrls : [`http://localhost:${port}`];
     try {
       if (qrCache?.key !== urls[0]) qrCache = { key: urls[0], qr: await QRCode.toDataURL(urls[0] + '/', { margin: 1, width: 320 }) };
-      res.json({ urls, qr: qrCache.qr });
-    } catch (e) { warn('qr failed:', e); res.json({ urls, qr: '' }); }
+      res.json({ urls, qr: qrCache.qr, ...(directorUrl ? { directorUrl } : {}) });
+    } catch (e) { warn('qr failed:', e); res.json({ urls, qr: '', ...(directorUrl ? { directorUrl } : {}) }); }
   });
   app.get('/api/demo-photos', (_req, res) => {
     let files: string[] = [];
@@ -111,7 +114,8 @@ export async function createApp(opts: AppOptions = {}) {
   app.get('/api/graph', async (req, res) => {
     try {
       const dirKey = process.env.TACHI_DIRECTOR_KEY;
-      const full = dirKey ? req.query.key === dirKey : req.query.as === 'director';
+      const seniorKey = process.env.TACHI_SENIOR_KEY;
+      const full = dirKey ? req.query.key === dirKey : seniorKey ? req.query.key === seniorKey : false; // ?as=director alone never unlocks the private graph
       if (full) { res.json(await ctx.graph.subgraph()); return; }
       const ids = ctx.db.memories.all().filter(memoryVisibleToFamily).map(m => m.id);
       res.json(ids.length ? await ctx.graph.subgraph(ids) : { nodes: [], edges: [] });
@@ -137,6 +141,7 @@ export async function createApp(opts: AppOptions = {}) {
 
   attachSocketHandlers(io);
   startTicker();
+  void preflightModel(); // boot: ping the active model if it is a live provider (non-blocking)
 
   const listen = (p = port): Promise<number> => new Promise((resolve, reject) => {
     server.once('error', reject);

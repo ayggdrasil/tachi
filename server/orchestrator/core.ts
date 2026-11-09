@@ -1,14 +1,14 @@
 // Core helpers: clock, post/emit helpers, viewer-aware emitters.
 import {
-  DIRECTOR_ID, SENIOR_ID, TACHI_ID, USERS,
+  DAILY_REPORT_TIME, DIRECTOR_ID, SENIOR_ID, TACHI_ID, USERS,
 } from '../../shared/constants';
 import type {
   DemoState, GraphDelta, HealthSummary, ID, Memory, Message, MessageKind, MessageMeta, MessagePayload, CardAction,
-  Poll, Presence, PrivacySettings, Room, Trip, User,
+  Poll, Presence, PrivacySettings, ReportSession, Room, Trip, User,
 } from '../../shared/types';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { ctx, type Sock } from './ctx';
-import { clockNow, getClockOffsetMinutes, nowIso, setClockOffsetMinutes, sleep, uid, warn } from '../util/misc';
+import { clockNow, getClockOffsetMinutes, nowIso, setClockOffsetMinutes, sleep, uid, wallNow, warn, ymd } from '../util/misc';
 
 // ── ids / channels ──────────────────────────────────────────────────────────
 export const roomChannel = (id: ID): string => `room:${id}`;
@@ -25,26 +25,46 @@ export const DIRECTOR_USER: User = {
 export function getDemo(): DemoState { return ctx.db.kv.get<DemoState>('demo')!; }
 /** The demo clock: real time shifted by the virtual offset (same source as nowIso()). */
 export function now(): Date { return clockNow(); }
-/** Set the in-memory offset (after boot / reseed). */
-export function syncClock(offsetMinutes = 0): void { setClockOffsetMinutes(offsetMinutes); }
+/** True once a scripted time was set since boot / reset: only then is the clock kept monotonic. */
+let clockStarted = false;
+/** Set the in-memory offset (after boot / reseed). Also forgets the scripted-clock anchor. */
+export function syncClock(offsetMinutes = 0): void { clockStarted = false; setClockOffsetMinutes(offsetMinutes); }
 
-/** Set the virtual clock to today HH:MM (null = real time). Never moves backwards: an earlier time adds one minute. */
+/**
+ * Set the virtual clock to today HH:MM (null = real time).
+ * The FIRST assignment after boot/reset is absolute (even when earlier than the wall clock, so the demo can start at 09:00
+ * at 16:00); afterwards it never moves backwards (an earlier time adds one minute).
+ */
 export function setDemoClock(time: string | null): boolean {
-  if (time === null || time === undefined) { patchDemo({ clockOffsetMinutes: 0 }); return true; }
+  if (time === null || time === undefined) { clockStarted = false; patchDemo({ clockOffsetMinutes: 0 }); return true; }
   const m = /^(\d{1,2}):(\d{2})$/.exec(String(time).trim());
   if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return false;
-  const target = new Date();
+  const wall = wallNow();
+  const target = new Date(wall);
   target.setHours(Number(m[1]), Number(m[2]), 0, 0);
   const cur = getClockOffsetMinutes();
-  const off = target.getTime() < now().getTime() ? cur + 1 : (target.getTime() - Date.now()) / 60000;
+  const backwards = clockStarted && target.getTime() < now().getTime();
+  const off = backwards ? cur + 1 : (target.getTime() - wall) / 60000;
+  clockStarted = true;
   patchDemo({ clockOffsetMinutes: off });
+  markFiredUpTo(now());
   return true;
 }
 
+/** Mark every schedule entry whose time is at or before `t` as fired today (and the report when `t` >= the report time). */
+export function markFiredUpTo(t: Date): void {
+  const today = ymd(t);
+  const mins = t.getHours() * 60 + t.getMinutes();
+  const toMin = (hhmm: string) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
+  const d = getDemo();
+  patchDemo({ proactiveSchedule: d.proactiveSchedule.map(e => (toMin(e.time) <= mins ? { ...e, firedOn: today } : e)) });
+  if (mins >= toMin(DAILY_REPORT_TIME)) ctx.db.kv.set('report-fired-on', today);
+}
+
 // ── generation (reset safety) ───────────────────────────────────────────────
-const genStore = new AsyncLocalStorage<{ gen: number }>();
+const genStore = new AsyncLocalStorage<{ gen: number; t0: number }>();
 /** Run `fn` (and everything it awaits / schedules) under demo generation `gen`. */
-export function runWithGen<T>(gen: number, fn: () => T): T { return genStore.run({ gen }, fn); }
+export function runWithGen<T>(gen: number, fn: () => T): T { return genStore.run({ gen, t0: genStore.getStore()?.t0 ?? Date.now() }, fn); }
 export function currentGen(): number { return genStore.getStore()?.gen ?? ctx.gen; }
 /** True when the running flow belongs to a demo generation that has since been reset. */
 export function isStale(): boolean { const s = genStore.getStore(); return !!s && s.gen !== ctx.gen; }
@@ -128,14 +148,25 @@ export function post(roomId: ID, input: PostInput): Message {
   ctx.db.messages.insert(m);
   const room = ctx.db.rooms.get(roomId);
   if (room) { room.lastMessageAt = m.createdAt; ctx.db.rooms.put(room); }
-  ctx.io.to(roomChannel(roomId)).emit('message:new', m);
+  emitMessage('message:new', m);
   return m;
+}
+
+/** Emit a message to every socket in its room channel, projected for that viewer with the CURRENT privacy state. */
+export function emitMessage(event: 'message:new' | 'message:update', m: Message): void {
+  const ids = ctx.io.sockets.adapter.rooms.get(roomChannel(m.roomId));
+  if (!ids) return;
+  for (const id of ids) {
+    const s = ctx.io.sockets.sockets.get(id);
+    if (!s) continue;
+    s.emit(event, messageFor(s.data.userId ?? '', m));
+  }
 }
 
 export function updateMessage(m: Message): Message {
   if (isStale()) return m;
   ctx.db.messages.update(m);
-  ctx.io.to(roomChannel(m.roomId)).emit('message:update', m);
+  emitMessage('message:update', m);
   return m;
 }
 
@@ -165,7 +196,12 @@ export async function tachiSay(roomId: ID, input: Omit<PostInput, 'senderId'>, a
     ...input.meta,
     ...(ai ? { model: ai.model, fallback: ai.fallback, source: ai.source ?? (ai.fallback ? 'heuristic' : 'llm') } : {}),
   };
-  return post(roomId, { ...input, senderId: TACHI_ID, meta });
+  const out = await post(roomId, { ...input, senderId: TACHI_ID, meta });
+  if (ai && process.env.TACHI_LOG_TIMING === '1') {
+    const t0 = genStore.getStore()?.t0 ?? Date.now();
+    console.log(`[tachi:timing] ${JSON.stringify({ roomId, kind: input.kind ?? 'text', model: ai.model, source: meta.source, ms: Date.now() - t0 })}`);
+  }
+  return out;
 }
 
 export function markActionDone(m: Message, actionId?: string): Message {
@@ -218,37 +254,84 @@ export function healthFor(viewerId: ID): HealthSummary | null {
 }
 export function emitHealth(): void { if (!isStale()) forViewers((s, v) => s.emit('health:update', healthFor(v))); }
 
-/** Viewer-aware copy of a stored message: cards whose data is no longer visible to a family viewer are redacted. */
+/** Category gate for sharing: a private memory CATEGORY blocks sharing any memory to the family until the senior resolves it. */
+export function canShareToFamily(_memory?: Memory | null): boolean { return getPrivacy().memory === 'family'; }
+
+/** A trip reaches the family only if the trip category is public and the trip itself is not marked private (derived from a private memory). */
+export function tripVisibleToFamily(t: Trip | undefined | null): boolean {
+  return !!t && getPrivacy().trip === 'family' && t.visibility !== 'private';
+}
+
+export const PRIVATE_NOTICE = '어머님이 비공개로 바꾼 내용이에요.';
+const redact = (m: Message, text: string): Message => ({ ...m, kind: 'text', text, payload: undefined, actions: undefined, quickReplies: undefined });
+
+const MASKED_TITLE = '대화';
+const MASKED_SUMMARY = '비공개 대화예요';
+/** Report highlight built only from times and public titles. */
+export function reportHighlight(rows: ReportSession[]): string {
+  if (!rows.length) return '오늘은 아직 나눈 대화가 없어요.';
+  const times = [...new Set(rows.map(r => r.time))].join(', ');
+  const lastPublic = [...rows].reverse().find(r => !r.isPrivate);
+  return `오늘 ${times}에 어머님과 대화했어요. ${lastPublic ? `${lastPublic.title} 이야기를 하시며 편안한 시간을 보내셨어요.` : '오늘 나눈 이야기는 어머님이 비공개로 해 두셨어요.'}`;
+}
+
+/** Viewer-aware copy of a stored message: anything whose source (memory / trip / category) is no longer visible to a family viewer is redacted. */
 export function projectMessage(viewerId: ID, m: Message): Message {
-  if (seesAll(viewerId) || !m.payload) return m;
+  if (seesAll(viewerId)) return m;
   const p = m.payload;
-  if (p.type === 'share_card' || p.type === 'memory_card' || p.type === 'recall_card') {
-    const mem = ctx.db.memories.get(p.memoryId);
-    if (memoryVisibleToFamily(mem)) return m;
-    const text = '어머님이 이 추억을 비공개로 바꾸셨어요.';
-    const stub: Memory = { ...memoryStub(mem ?? ({ id: p.memoryId, ownerId: SENIOR_ID, createdAt: m.createdAt } as Memory)), title: '비공개로 바뀐 추억' };
-    const payload: MessagePayload =
-      p.type === 'share_card' ? { type: 'share_card', memoryId: p.memoryId, title: '비공개로 바뀐 추억', summary: '', people: [] }
-        : p.type === 'memory_card' ? { type: 'memory_card', memoryId: p.memoryId, memory: stub, graphDelta: { nodes: [], edges: [] } }
-          : { type: 'recall_card', memoryId: p.memoryId, memory: stub, matched: [], path: { nodes: [], edges: [] }, alternatives: [] };
-    return { ...m, text, payload, actions: undefined, quickReplies: undefined };
+  const privacy = getPrivacy();
+
+  // 1. memory provenance (meta or card payload)
+  const memoryId = m.meta?.memoryId ?? (p && (p.type === 'share_card' || p.type === 'memory_card' || p.type === 'recall_card') ? p.memoryId : undefined);
+  if (memoryId) {
+    const mem = ctx.db.memories.get(memoryId);
+    if (!memoryVisibleToFamily(mem)) {
+      const text = '어머님이 이 추억을 비공개로 바꾸셨어요.';
+      if (p && (p.type === 'share_card' || p.type === 'memory_card' || p.type === 'recall_card')) {
+        const stub: Memory = { ...memoryStub(mem ?? ({ id: memoryId, ownerId: SENIOR_ID, createdAt: m.createdAt } as Memory)), title: '비공개로 바뀐 추억' };
+        const payload: MessagePayload =
+          p.type === 'share_card' ? { type: 'share_card', memoryId, title: '비공개로 바뀐 추억', summary: '', people: [] }
+            : p.type === 'memory_card' ? { type: 'memory_card', memoryId, memory: stub, graphDelta: { nodes: [], edges: [] } }
+              : { type: 'recall_card', memoryId, memory: stub, matched: [], path: { nodes: [], edges: [] }, alternatives: [] };
+        return { ...m, text, payload, actions: undefined, quickReplies: undefined };
+      }
+      return redact(m, text);
+    }
   }
+
+  // 2. trip provenance
+  const tripId = m.meta?.tripId ?? (p && (p.type === 'trip_suggestion' || p.type === 'itinerary') ? p.tripId : undefined);
+  if (tripId && !tripVisibleToFamily(ctx.db.trips.get(tripId))) return redact(m, PRIVATE_NOTICE);
+
+  // 3. category provenance (health / mood / daily / trip ...) — applies to plain text too
+  if (m.meta?.category && privacy[m.meta.category] === 'private') {
+    return m.kind === 'health_card' ? redact(m, '어머님이 건강 정보를 비공개로 바꾸셨어요.') : redact(m, PRIVATE_NOTICE);
+  }
+
+  if (!p) return m;
   if (p.type === 'report') {
-    // reports written while a memory was public must not keep its title once it is retracted
     const titles = ctx.db.memories.all().filter(x => !memoryVisibleToFamily(x)).map(x => x.title).filter(t => t && t.length >= 2);
     const hit = (t?: string) => !!t && titles.some(x => t.includes(x));
-    if (!p.sessions.some(r => hit(r.title) || hit(r.summary)) && !hit(p.highlight) && !hit(m.text)) return m;
-    const sessions = p.sessions.map(r => (hit(r.title) || hit(r.summary) ? { ...r, title: '대화', summary: '비공개 대화예요', isPrivate: true } : r));
-    const times = [...new Set(sessions.map(r => r.time))].join(', ');
-    const highlight = `오늘 ${times}에 어머님과 대화했어요. 일부 이야기는 비공개예요.`;
-    return { ...m, text: hit(m.text) ? highlight : m.text, payload: { ...p, sessions, highlight: hit(p.highlight) ? highlight : p.highlight } };
+    const rows: ReportSession[] = p.sessions.map(r => (
+      !r.isPrivate && (privacy[r.category] === 'private' || hit(r.title) || hit(r.summary))
+        ? { ...r, title: MASKED_TITLE, summary: MASKED_SUMMARY, isPrivate: true } : r));
+    const moodLeak = privacy.mood !== 'family' && !!p.moodLabel;
+    const changed = rows.some((r, i) => r !== p.sessions[i]) || moodLeak || hit(p.highlight) || hit(m.text);
+    if (!changed) return m;
+    const highlight = reportHighlight(rows);
+    return { ...m, text: highlight, payload: { ...p, sessions: rows, moodLabel: privacy.mood === 'family' ? p.moodLabel : undefined, highlight } };
   }
   if (p.type === 'health_card') {
     const h = healthForFamily(p.summary);
-    if (!h) return { ...m, kind: 'text', text: '어머님이 건강 정보를 비공개로 바꾸셨어요.', payload: undefined, actions: undefined };
+    if (!h) return redact(m, '어머님이 건강 정보를 비공개로 바꾸셨어요.');
     return h === p.summary ? m : { ...m, payload: { ...p, summary: h } };
   }
   return m;
+}
+
+/** A stored message as `viewerId` may see it right now (privacy projection + hidden-title scrubbing). */
+export function messageFor(viewerId: ID, m: Message): Message {
+  return seesAll(viewerId) ? m : scrubHiddenTitles(viewerId, projectMessage(viewerId, m));
 }
 
 /** Replace titles of memories the family cannot see inside any serializable value (artifacts, trips, chat text). */
@@ -282,7 +365,7 @@ export function applyMemoryVisibility(memoryId: ID, visibility: 'family' | 'priv
 
 export function emitTrip(t: Trip): void {
   if (isStale()) return;
-  const pub = getPrivacy().trip === 'family';
+  const pub = tripVisibleToFamily(t);
   forViewers((s, v) => { if (seesAll(v) || pub) s.emit('trip:upsert', t); });
 }
 

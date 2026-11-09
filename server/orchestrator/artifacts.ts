@@ -3,22 +3,47 @@ import { TACHI_ID } from '../../shared/constants';
 import type { Artifact, ArtifactPatch, ID, Memory, Trip, User } from '../../shared/types';
 import { ctx } from './ctx';
 import {
-  emitTyping, getPrivacy, memoryVisibleToFamily, getUser, isMember, roomChannel, seesAll, senior, tachiSay, withTyping,
+  emitTyping, getPrivacy, isStale, memoryVisibleToFamily, getUser, isMember, now, roomChannel, seesAll, senior, tachiSay, withTyping,
 } from './core';
 import { nowIso, uid } from '../util/misc';
 import { reactBots } from './bots';
+import { findPlaces, placeById, resolvePlace } from '../data/places';
 
-function pickMemoryForGathering(roomId: ID): Memory | undefined {
+/** Regions named by the proposal text (gazetteer match) or the linked trip's destination. */
+function destinationRegions(text: string, trip?: Trip): { regions: Set<string>; display?: string } {
+  const regions = new Set<string>();
+  const found = findPlaces(text);
+  for (const p of found) regions.add(p.region);
+  const display = resolvePlace(text)?.display;
+  if (!regions.size && trip) for (const p of findPlaces(`${trip.suggestion.destination} ${trip.suggestion.title}`)) regions.add(p.region);
+  return { regions, display: display ?? (regions.size && trip ? trip.suggestion.destination : undefined) };
+}
+
+function memoryMatchesRegions(m: Memory, regions: Set<string>): boolean {
+  const pl = placeById(m.placeId);
+  if (pl && regions.has(pl.region)) return true;
+  return findPlaces(`${m.place ?? ''} ${m.title}`).some(p => regions.has(p.region));
+}
+
+/** Link a family-visible memory only when its place/region matches the destination the proposal names. */
+export function pickMemoryForGathering(proposal: string, trip?: Trip): Memory | undefined {
+  const { regions } = destinationRegions(proposal, trip);
+  if (!regions.size) return undefined;
   const last = ctx.db.kv.get<string>('last-memory');
-  const mems = ctx.db.memories.all().filter(m => memoryVisibleToFamily(m));
+  const mems = ctx.db.memories.all().filter(m => memoryVisibleToFamily(m) && memoryMatchesRegions(m, regions));
   return (last ? mems.find(m => m.id === last) : undefined)
     ?? [...mems].sort((a, b) => (b.sharedAt ?? '').localeCompare(a.sharedAt ?? ''))[0];
 }
 
-function pickTrip(): Trip | undefined {
+function pickTrip(proposal: string): Trip | undefined {
   if (getPrivacy().trip !== 'family') return undefined;
   const trips = ctx.db.trips.all().filter(t => t.status !== 'declined');
-  return trips.find(t => t.status === 'accepted') ?? trips.at(-1);
+  const t = trips.find(x => x.status === 'accepted') ?? trips.at(-1);
+  if (!t) return undefined;
+  const named = new Set(findPlaces(proposal).map(p => p.region));
+  if (named.size && !destinationRegions(`${t.suggestion.destination} ${t.suggestion.title}`).regions.size) return undefined;
+  if (named.size && ![...destinationRegions(`${t.suggestion.destination} ${t.suggestion.title}`).regions].some(r => named.has(r))) return undefined;
+  return t;
 }
 
 export function latestOpenArtifact(roomId: ID): Artifact | undefined {
@@ -26,7 +51,38 @@ export function latestOpenArtifact(roomId: ID): Artifact | undefined {
 }
 
 export function emitArtifact(a: Artifact): void {
+  if (isStale()) return;
   ctx.io.to(roomChannel(a.roomId)).emit('artifact:upsert', a);
+}
+
+async function mergeIntoArtifact(a: Artifact, roomId: ID, proposer: User, members: User[], text: string): Promise<Artifact> {
+  const ai = await withTyping(roomId, () => ctx.brain.assistArtifact(a, members));
+  if (isStale()) throw new Error('stale');
+  const fresh = ctx.db.artifacts.get(a.id) ?? a;
+  const ids = new Set(members.map(m => m.id));
+  const have = new Set(fresh.tasks.map(t => t.text));
+  for (const t of ai.value.newTasks ?? []) {
+    if (have.has(t.text)) continue;
+    fresh.tasks.push({ id: uid('task'), text: t.text, assigneeId: t.assigneeId && ids.has(t.assigneeId) ? t.assigneeId : undefined, done: false });
+  }
+  const named = resolvePlace(text);
+  if (named && (!fresh.place || /협의/.test(fresh.place))) fresh.place = `${named.display} 일대`;
+  if (!fresh.background?.trim()) fresh.background = `${proposer.name}님이 "${text.replace(/[!.]+$/, '')}"라고 제안했어요.`;
+  fresh.updatedBy = TACHI_ID;
+  fresh.updatedAt = nowIso();
+  ctx.db.artifacts.put(fresh);
+  emitArtifact(fresh);
+  const m = await tachiSay(roomId, {
+    kind: 'artifact',
+    text: '기존 모임 기획서에 반영했어요.',
+    payload: { type: 'artifact', artifactId: fresh.id },
+    actions: [
+      { id: 'start_scheduling', label: '일정 조율 시작', style: 'primary', data: { artifactId: fresh.id } },
+      { id: 'open_artifact', label: '기획서 열기', data: { artifactId: fresh.id } },
+    ],
+  }, ai);
+  reactBots(roomId, m);
+  return fresh;
 }
 
 export async function createGathering(
@@ -35,14 +91,21 @@ export async function createGathering(
   const room = ctx.db.rooms.get(roomId);
   if (!room) throw new Error('room not found');
   const members = room.memberIds.map(getUser).filter((u): u is User => !!u && u.id !== TACHI_ID);
-  const memory = opts.memory ?? pickMemoryForGathering(roomId);
-  const trip = opts.trip ?? pickTrip();
+  // P1-4: a recent artifact (< 24h, virtual time) absorbs the new proposal instead of spawning a twin.
+  const recent = ctx.db.artifacts.all().filter(a => a.roomId === roomId && a.kind === 'gathering'
+    && now().getTime() - Date.parse(a.createdAt) < 24 * 3600 * 1000).at(-1);
+  if (recent) return mergeIntoArtifact(recent, roomId, proposer, members, text);
+  const trip = opts.trip ?? pickTrip(text);
+  const memory = opts.memory ?? pickMemoryForGathering(text, trip);
   const ai = await withTyping(roomId, () => ctx.brain.draftGathering({
     proposalText: text, proposer, members, senior: senior(),
     linkedMemory: memory ? { id: memory.id, title: memory.title, summary: memory.summary, place: memory.place, year: memory.year, people: memory.people } : undefined,
     linkedTrip: trip ? { title: trip.suggestion.title, destination: trip.suggestion.destination, itinerary: trip.itinerary } : undefined,
   }));
+  if (isStale()) throw new Error('stale');
   const d = ai.value;
+  const dest = destinationRegions(text, trip);
+  if (dest.display && dest.regions.size && ![...dest.regions].some(r => (d.place ?? '').includes(r))) d.place = `${dest.display} 일대`;
   const t = nowIso();
   const memberIds = new Set(members.map(m => m.id));
   const art: Artifact = {
@@ -115,6 +178,7 @@ export async function assistArtifact(userId: ID, artifactId: ID): Promise<void> 
   const members = room.memberIds.map(getUser).filter((u): u is User => !!u && u.id !== TACHI_ID);
   emitTyping(a.roomId, TACHI_ID);
   const ai = await withTyping(a.roomId, () => ctx.brain.assistArtifact(a, members));
+  if (isStale()) return;
   const fresh = ctx.db.artifacts.get(artifactId) ?? a;
   const ids = new Set(members.map(m => m.id));
   for (const t of ai.value.newTasks ?? []) {

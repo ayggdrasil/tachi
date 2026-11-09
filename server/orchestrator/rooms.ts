@@ -1,6 +1,6 @@
 // 4.10 rooms: create / invite.
-import { TACHI_ID } from '../../shared/constants';
-import type { Room, User } from '../../shared/types';
+import { KIN_RELATIONS, TACHI_ID } from '../../shared/constants';
+import type { ID, Room, User } from '../../shared/types';
 import { ctx } from './ctx';
 import { emitRoomTo, getUser, joinRoomSockets, systemNote, userChannel } from './core';
 import { greetInvitee } from './bots';
@@ -20,16 +20,20 @@ export function createRoom(creatorId: string, title: string, memberIds: string[]
 
 function givenName(full: string): string { return /^[가-힣]{3}$/.test(full) ? full.slice(1) : full; }
 
-export function inviteContact(roomId: string, contactId: string): void {
+export async function inviteContact(roomId: ID, contactId: ID, inviterId: ID): Promise<void> {
+  void inviterId;
   const room = ctx.db.rooms.get(roomId);
   const contact = ctx.db.contacts.get(contactId);
   if (!room || !contact || room.type === 'tachi') return;
   let user: User | undefined = contact.userId ? getUser(contact.userId) : undefined;
   if (!user) {
     const gn = givenName(contact.name);
+    const kin = KIN_RELATIONS.includes(contact.relation);
+    // UserRole has no 'friend'; kin-ness is decided by `relation` (KIN_RELATIONS) everywhere privacy matters.
     user = {
       id: `u-${contact.id.replace(/^c-/, '')}`, name: contact.name, shortName: gn, role: 'family', relation: contact.relation,
-      phone: contact.phone, initials: gn.charAt(0), isBot: true, persona: `${contact.relation}. 다정하고 짧게 말함.`,
+      phone: contact.phone, initials: gn.charAt(0), isBot: true,
+      persona: kin ? `${contact.relation}. 다정하고 짧게 말함.` : `${contact.relation}. 가족이 아닌 지인. 예의 바르고 짧게 말함. 건강 정보는 모름.`,
     };
     ctx.db.users.put(user);
     contact.userId = user.id;
@@ -43,6 +47,6 @@ export function inviteContact(roomId: string, contactId: string): void {
   joinRoomSockets(room);
   ctx.io.to(userChannel(user.id)).emit('room:upsert', room);
   emitRoomTo(room);
-  systemNote(room.id, `${contact.name}님이 초대되었어요.`);
+  await systemNote(room.id, `${contact.name}님이 초대되었어요.`);
   void greetInvitee(room.id, user);
 }

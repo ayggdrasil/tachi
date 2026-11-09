@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Lock, Users } from 'lucide-react';
 import type { MemoryCardPayload, PhotoPayload, RecallCardPayload, ShareCardPayload, Visibility } from '../../../../shared/types';
 import { tachi, useTachi } from '../../lib/store';
@@ -21,41 +20,44 @@ export function VisibilitySwitch({ memoryId, value }: { memoryId: string; value:
   );
 }
 
-export function MemoryCard({ message, variant }: CardProps) {
+export function MemoryCard({ message, variant, actionSlot }: CardProps) {
   const p = message.payload as MemoryCardPayload;
   const live = useTachi(s => s.memories.find(m => m.id === p.memoryId));
   const meId = useTachi(s => s.meId);
   const m = live ?? p.memory;
+  const when = [m.era, m.year ? `${m.year}년` : '', m.season].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(' ');
   const rows: [string, string | undefined][] = [
-    ['시기', [m.era, m.year ? `${m.year}년` : '', m.season].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(' ')],
+    ['시기', when],
     ['장소', m.place],
     ['함께한 사람', m.people.map(x => x.name).join(', ')],
     ['감정', m.emotions.join(', ')],
   ];
   const nodes = p.graphDelta?.nodes ?? [];
   const edges = p.graphDelta?.edges ?? [];
-  const canToggle = meId === m.ownerId || variant === 'senior';
-  const [open, setOpen] = useState(false);
+  // The share / skip actions ARE the decision: the visibility toggle only appears once no action is pending.
+  const decided = (message.actions ?? []).every(a => a.done);
+  const canToggle = decided && (meId === m.ownerId || variant === 'senior');
+  const senior = variant === 'senior';
   return (
-    <article className="cd cd-memory" aria-label={m.title}>
-      {m.photoUrl && <img className="cd-photo-in" src={m.photoUrl} alt="" loading="lazy" />}
+    <article className="cd cd-memory cd-compact" aria-label={m.title}>
+      {m.photoUrl && <img className="cd-photo-in cd-photo-mem" src={m.photoUrl} alt="" loading="lazy" />}
       <div className="cd-row cd-between"><h3 className="cd-title">{m.title}</h3>
-        {variant === 'senior' && <SpeakButton text={`${m.title}. ${m.story}`} />}</div>
-      <dl className="cd-dl cd-dl-2">
+        {senior && <SpeakButton text={`${m.title}. ${m.story}`} />}</div>
+      <dl className="cd-dl cd-dl-2 cd-facts">
         {rows.filter(([, v]) => v).map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}
-        {m.tags.length > 0 && <div className="cd-wide"><dt>키워드</dt><dd className="cd-badges">{m.tags.map(t => <span key={t} className="badge">{t}</span>)}</dd></div>}
       </dl>
       {nodes.length > 0 && (
-        <div className="cd-graph">
-          <MemoryGraph nodes={nodes} edges={edges} highlightIds={[...nodes.map(n => n.id), ...edges.map(e => e.id)]} compact height={220} />
-          <p className="cd-cap">기억 그래프에 저장됨 · 노드 {nodes.length} · 연결 {edges.length}</p>
+        <div className="cd-graph cd-graph-c" aria-label={`기억 그래프에 저장됨 · 노드 ${nodes.length} · 연결 ${edges.length}`}>
+          <MemoryGraph nodes={nodes} edges={edges} highlightIds={[...nodes.map(n => n.id), ...edges.map(e => e.id)]} compact height={170} />
         </div>
       )}
-      {m.story && (
-        <div className="cd-story-wrap">
-          <blockquote className={`cd-story ${open ? '' : 'cd-clamp'}`}>“{m.story}”</blockquote>
-          <button type="button" className="cd-link cd-more" aria-expanded={open} onClick={() => setOpen(o => !o)}>{open ? '이야기 접기' : '이야기 더 보기'}</button>
-        </div>
+      {actionSlot}
+      {(m.story || m.tags.length > 0) && (
+        <details className="cd-disc">
+          <summary>이야기 보기</summary>
+          {m.story && <blockquote className="cd-story">“{m.story}”</blockquote>}
+          {m.tags.length > 0 && <div className="cd-badges">{m.tags.map(t => <span key={t} className="badge">{t}</span>)}</div>}
+        </details>
       )}
       {canToggle && <VisibilitySwitch memoryId={m.id} value={m.visibility} />}
     </article>
@@ -89,11 +91,11 @@ export function RecallCard({ message, variant }: CardProps) {
   const hops = p.path.edges.map(e => ({ id: e.id, a: nodeBy.get(e.source)?.name ?? e.source, b: nodeBy.get(e.target)?.name ?? e.target, t: e.type }));
   const excerpt = m.story.length > 110 ? m.story.slice(0, 108) + '…' : m.story;
   return (
-    <article className="cd cd-recall" aria-label={m.title}>
-      {m.photoUrl && <img className="cd-photo-in" src={m.photoUrl} alt="" loading="lazy" />}
+    <article className="cd cd-recall cd-compact" aria-label={m.title}>
+      {m.photoUrl && <img className="cd-photo-in cd-photo-recall" src={m.photoUrl} alt="" loading="lazy" />}
       <div className="cd-row cd-between"><h3 className="cd-title">{m.title}</h3>
         {senior && <SpeakButton text={[message.text, m.story].filter(Boolean).join(' ')} />}</div>
-      <p className="cd-warm">{excerpt}</p>
+      <p className="cd-warm cd-clamp2">{excerpt}</p>
       {p.matched.length > 0 && (
         <div className="cd-row"><span className="cd-label">찾은 단서</span>{p.matched.map(x => <span key={x} className="badge">{x}</span>)}</div>
       )}
@@ -110,7 +112,7 @@ export function RecallCard({ message, variant }: CardProps) {
         <details className="cd-tech"><summary>기술 정보 보기</summary><code className="mono cd-cypher">{p.cypher}</code></details>
       )}
       {p.alternatives.length > 0 && (
-        <p className="cd-alt">이런 추억도 있어요: {p.alternatives.map((a, i) => (
+        <p className="cd-alt cd-alt-1">이런 추억도 있어요: {p.alternatives.map((a, i) => (
           <span key={a.memoryId}>{i > 0 && ' · '}<button type="button" className="cd-link" onClick={() => tachi.send(message.roomId, a.title)}>{a.title}</button></span>
         ))}</p>
       )}

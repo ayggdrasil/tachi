@@ -6,9 +6,11 @@ import path from 'node:path';
 import { io as connect, type Socket } from 'socket.io-client';
 import { DEMO_SCRIPT, FAMILY_ROOM_ID, SENIOR_ROOM_ID } from '../../shared/constants';
 import type { Bootstrap, ClientToServerEvents, Message, ServerToClientEvents } from '../../shared/types';
+import { ymd } from '../util/misc';
 import { createApp } from '../orchestrator/app';
+import { tryMomAvailability } from '../orchestrator/scheduling';
 
-type Client = { id: string; sock: Socket<ServerToClientEvents, ClientToServerEvents>; boot: Bootstrap; msgs: Message[] };
+type Client = { id: string; sock: Socket<ServerToClientEvents, ClientToServerEvents>; boot: Bootstrap; msgs: Message[]; health?: unknown };
 let failures = 0;
 const check = (ok: boolean, label: string) => { console.log(`${ok ? '  PASS' : '  FAIL'}  ${label}`); if (!ok) failures++; };
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -22,6 +24,7 @@ async function client(url: string, id: string): Promise<Client> {
   const sock = connect(url, { transports: ['websocket'], forceNew: true }) as Client['sock'];
   const c = { id, sock, msgs: [] as Message[] } as Client;
   sock.on('message:new', m => c.msgs.push(m));
+  sock.on('health:update', h => { c.health = h; });
   sock.on('message:update', m => { const i = c.msgs.findIndex(x => x.id === m.id); if (i >= 0) c.msgs[i] = m; });
   await new Promise<void>(r => sock.on('connect', () => r()));
   c.boot = await new Promise<Bootstrap>((res, rej) => sock.emit('hello', { userId: id }, b => ('error' in b ? rej(new Error(b.error)) : res(b))));
@@ -74,22 +77,42 @@ async function main() {
   check(!find(jieun, FAMILY_ROOM_ID, 'share_card', t0), 'no share_card after declining');
   jieun2.sock.close();
 
+  // F5: a family member cannot publish her private memory through a senior-only action on a family message
+  const famMsg = jieun.msgs.find(m => m.roomId === FAMILY_ROOM_ID);
+  if (famMsg) {
+    jieun.sock.emit('action', { roomId: FAMILY_ROOM_ID, messageId: famMsg.id, actionId: 'share_memory', data: { memoryId: memId } }, () => undefined);
+    jieun.sock.emit('action', { roomId: SENIOR_ROOM_ID, messageId: card!.id, actionId: 'share_memory', data: { memoryId: memId } }, () => undefined);
+    await sleep(700);
+    const jx = await client(url, 'jieun');
+    check(!jx.boot.memories.some(m => m.id === memId && m.visibility === 'family') && !find(jx, FAMILY_ROOM_ID, 'share_card', t0), 'F5: family-forged share_memory does not publish');
+    jx.sock.close();
+  }
+
   // share via button, immediately recall → exactly one trip_suggestion
   t0 = Date.now();
   say(mom, SENIOR_ROOM_ID, '가족한테 보내줘');
   await waitFor('share_card', () => find(jieun, FAMILY_ROOM_ID, 'share_card', t0));
   say(mom, SENIOR_ROOM_ID, '불국사');
   await waitFor('recall_card', () => find(mom, SENIOR_ROOM_ID, 'recall_card', t0));
-  await sleep(6000);
-  check(findAll(mom, SENIOR_ROOM_ID, 'trip_suggestion', t0).length === 1, `exactly one trip_suggestion (${findAll(mom, SENIOR_ROOM_ID, 'trip_suggestion', t0).length})`);
-
-  // accept via text → itinerary → '가족과 함께 가기' makes a gathering
-  t0 = Date.now();
-  say(mom, SENIOR_ROOM_ID, '좋아');
+  say(mom, SENIOR_ROOM_ID, '좋아'); // F2: acceptance before the offer has posted must not be dropped
   await waitFor('itinerary', () => find(mom, SENIOR_ROOM_ID, 'itinerary', t0));
-  await sleep(200);
+  await sleep(3000);
+  check(findAll(mom, SENIOR_ROOM_ID, 'trip_suggestion', t0).length === 1, `exactly one trip_suggestion (${findAll(mom, SENIOR_ROOM_ID, 'trip_suggestion', t0).length})`);
+  check(findAll(mom, SENIOR_ROOM_ID, 'itinerary', t0).length === 1, 'F2: immediate yes -> exactly one itinerary');
+  const sugg = find(mom, SENIOR_ROOM_ID, 'trip_suggestion', t0);
+  check(!!sugg?.meta?.tripId && !!sugg?.meta?.memoryId, 'F8: trip suggestion carries meta.tripId/memoryId');
+  check(!!sugg?.actions?.every(a => a.done), 'F20: offer actions done after the itinerary committed');
+  t0 = Date.now();
   say(mom, SENIOR_ROOM_ID, '가족과 함께 가기');
   check(!!(await waitFor('artifact from itinerary text', () => find(jieun, FAMILY_ROOM_ID, 'artifact', t0))), "'가족과 함께 가기' text creates the gathering");
+
+  // F20: sharing twice is idempotent (one itinerary card in the family room)
+  const itin = find(mom, SENIOR_ROOM_ID, 'itinerary', 0)!;
+  const nShare = () => jieun.msgs.filter(m => m.roomId === FAMILY_ROOM_ID && m.kind === 'itinerary').length;
+  const before = nShare();
+  for (let i = 0; i < 2; i++) mom.sock.emit('action', { roomId: SENIOR_ROOM_ID, messageId: itin.id, actionId: 'share_trip' }, () => undefined);
+  await sleep(1200);
+  check(nShare() === before + 1, `F20: share_trip twice -> one family itinerary (${nShare() - before})`);
 
   // blood pressure
   const low = await turn('혈압 80에 50이야', 'bp low');
@@ -111,6 +134,97 @@ async function main() {
   const pl = res?.payload?.type === 'schedule_result' ? res.payload : undefined;
   check(pl?.confirmed === false && pl?.unanimous === false, 'no common slot -> confirmed:false, unanimous:false');
   check(!!res?.actions?.some(a => a.id === 'confirm_slot') && !!res?.actions?.some(a => a.id === 'repoll'), 'result has confirm_slot + repoll actions');
+
+  check(pl !== undefined && pl.available.every(u => !pl.unavailable.includes(u) && !pl.unanswered?.includes(u)) && !pl.unavailable.some(u => pl.unanswered?.includes(u))
+    && new Set([...pl.available, ...pl.unavailable, ...(pl.unanswered ?? [])]).size === pl.available.length + pl.unavailable.length + (pl.unanswered?.length ?? 0), 'F16: available/unavailable/unanswered are disjoint');
+
+  // F18: medication / mood observations are persisted
+  await turn('오늘 아침 약 안 먹었어', 'med missed');
+  const medOk = await waitFor('health update', () => (mom.health as { medications?: { date: string; taken: boolean }[] } | undefined)?.medications?.some(m => m.taken === false && m.date === ymd(new Date())) , 3000);
+  check(!!medOk, 'F18: "약 안 먹었어" stores a missed medication entry');
+
+  // F7: category set to 나만 보기 -> sharing is refused kindly
+  mom.sock.emit('privacy:set', { category: 'memory', visibility: 'private' });
+  await sleep(300);
+  const refused = await turn('가족한테 보내줘', 'share refused');
+  check(/나만 보기/.test(refused.text) || /이미/.test(refused.text), `F7: private category -> kind refusal (${refused.text.slice(0, 30)})`);
+  mom.sock.emit('privacy:set', { category: 'memory', visibility: 'family' });
+
+  // F17: every proactive quick reply continues sensibly offline
+  const dir = await client(url, 'director').catch(() => undefined);
+  if (dir) {
+    for (const kind of ['morning', 'memory'] as const) {
+      const t1 = Date.now();
+      dir.sock.emit('demo:proactive', { kind });
+      const g = await waitFor(`proactive ${kind}`, () => mom.msgs.find(m => m.roomId === SENIOR_ROOM_ID && m.meta?.proactive && Date.parse(m.createdAt) >= t1));
+      for (const chip of g?.quickReplies ?? []) {
+        dir.sock.emit('demo:proactive', { kind });
+        await sleep(400);
+        const t2 = Date.now();
+        const n = tachiCount(mom, SENIOR_ROOM_ID);
+        say(mom, SENIOR_ROOM_ID, chip);
+        await waitFor(`reply to chip ${chip}`, () => tachiCount(mom, SENIOR_ROOM_ID) > n, 8000);
+        await sleep(300);
+        if (/사진 얘기|얘기해 줄게/.test(chip) && !/다음에|나중에/.test(chip)) {
+          check(!!find(mom, SENIOR_ROOM_ID, 'recall_card', t2), `F17: chip "${chip}" recalls the referenced memory`);
+        }
+      }
+    }
+    dir.sock.close();
+  } else check(false, 'director client unavailable for F17');
+
+  // ── round-3 additions: invite, casual sentences, merge, availability hijack ──
+  {
+    const arts = new Map<string, { id: string; roomId: string; place: string; title: string }>();
+    jieun.sock.on('artifact:upsert', a => arts.set(a.id, a as never));
+    const sysIn = (c: Client, roomId: string, re: RegExp, after: number) => c.msgs.find(m => m.roomId === roomId && m.kind === 'system' && re.test(m.text) && Date.parse(m.createdAt) >= after);
+    // P1-6: harin joins the family room with a system line and a non-robotic greeting
+    let t1 = Date.now();
+    jieun.sock.emit('room:invite', { roomId: FAMILY_ROOM_ID, contactId: 'c-harin' } as never);
+    check(!!(await waitFor('invite system note', () => sysIn(jieun, FAMILY_ROOM_ID, /박하린님이 초대되었어요/, t1))), 'inviteContact posts the 초대 system message');
+    const greet = await waitFor('harin greeting', () => jieun.msgs.find(m => m.roomId === FAMILY_ROOM_ID && m.senderId === 'harin' && Date.parse(m.createdAt) >= t1), 8000);
+    check(!!greet && !/^네, 알겠습니다/.test(greet.text), `harin greeting is not robotic: ${greet?.text}`);
+
+    // P1-3: a friend invited into a new room is not kin; family Q&A is refused
+    const room = await new Promise<{ id: string }>(res => jieun.sock.emit('room:create', { title: '친구방', memberIds: ['mom'] }, r => res(r as { id: string })));
+    t1 = Date.now();
+    jieun.sock.emit('room:invite', { roomId: room.id, contactId: 'c-jungsook' } as never);
+    await waitFor('friend invited', () => sysIn(jieun, room.id, /최정숙님이 초대되었어요/, t1));
+    const jboot = await client(url, 'jieun');
+    const friend = jboot.boot.users.find(u => u.name === '최정숙');
+    jboot.sock.close();
+    check(!!friend && friend.relation === '친구', 'friend keeps relation 친구 (not in KIN_RELATIONS)');
+    t1 = Date.now();
+    say(jieun, room.id, '타치, 엄마 요즘 혈압은 괜찮으셔?');
+    await sleep(3500);
+    const fr = jieun.msgs.filter(m => m.roomId === room.id && m.senderId === 'tachi' && Date.parse(m.createdAt) >= t1);
+    check(!fr.some(m => m.kind === 'health_card') && !fr.some(m => /\d{2,3}\/\d{2,3}/.test(m.text)), 'friend in room: no health_card / BP digits');
+
+    // P1-4: casual sentences create no artifact; the real proposal creates one with 경주
+    const croom = await new Promise<{ id: string }>(res => jieun.sock.emit('room:create', { title: '남매방', memberIds: ['minjun'] }, r => res(r as { id: string })));
+    t1 = Date.now();
+    for (const c of ['엄마 생신 선물 뭐가 좋을까?', '타치, 지난번 모임 사진 어디 있어?', '다음 주에 엄마랑 병원 같이 가자']) { say(jieun, croom.id, c); await sleep(1200); }
+    await sleep(2500);
+    check(!jieun.msgs.some(m => m.roomId === croom.id && m.kind === 'artifact'), 'three casual sentences create 0 artifacts');
+    say(jieun, croom.id, '이번 엄마 생신에 다 같이 경주 가자!');
+    const am = await waitFor('gathering artifact', () => jieun.msgs.find(m => m.roomId === croom.id && m.kind === 'artifact' && Date.parse(m.createdAt) >= t1));
+    const aid = am?.payload?.type === 'artifact' ? am.payload.artifactId : '';
+    check(!!aid && /경주/.test(arts.get(aid)?.place ?? ''), `artifact place contains 경주 (${arts.get(aid)?.place})`);
+    // second proposal within 24h merges into the same artifact
+    t1 = Date.now();
+    say(jieun, croom.id, '그날 케이크도 다 같이 준비하자!');
+    const m2 = await waitFor('merged artifact post', () => jieun.msgs.find(m => m.roomId === croom.id && m.kind === 'artifact' && Date.parse(m.createdAt) >= t1), 10000);
+    check(m2?.payload?.type === 'artifact' && m2.payload.artifactId === aid && /기존 모임 기획서/.test(m2.text), 'P1-4: second proposal merges into the existing artifact');
+
+    // P2: 점심 먹었어 during an open poll is not availability
+    const nReq = mom.msgs.filter(m => m.kind === 'schedule_request').length;
+    say(jieun, FAMILY_ROOM_ID, DEMO_SCRIPT.find(s => s.id === 'schedule')!.text);
+    const req2 = await waitFor('second schedule_request', () => mom.msgs.filter(m => m.kind === 'schedule_request').length > nReq && mom.msgs.filter(m => m.kind === 'schedule_request').at(-1));
+    if (req2) {
+      check((await tryMomAvailability('점심 먹었어')) === false, "P2: '점심 먹었어' is not read as availability");
+      check((await tryMomAvailability('아무 때나 괜찮아')) === true, "P2: '아무 때나 괜찮아' is availability");
+    }
+  }
 
   mom.sock.close(); jieun.sock.close();
   await close();

@@ -29,3 +29,4 @@
   .ld { padding-top: var(--space-24); }
   .ld-lan { flex-direction: column-reverse; align-items: flex-start; }
 }
+.ld-row:disabled { opacity: .55; cursor: not-allowed; background: transparent; }

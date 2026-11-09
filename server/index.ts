@@ -1,6 +1,10 @@
 import './util/env';
+import { nanoid } from 'nanoid';
 import { createApp, lanUrls } from './orchestrator/app';
 
+// no key configured → mint one for this process so LAN visitors cannot take the Director seat
+if (!process.env.TACHI_DIRECTOR_KEY) process.env.TACHI_DIRECTOR_KEY = nanoid(6);
+const DIRECTOR_KEY = process.env.TACHI_DIRECTOR_KEY;
 const PORT = Number(process.env.PORT || 4100);
 
 const { listen, ctx } = await createApp({ port: PORT });
@@ -15,7 +19,7 @@ console.log(`
   └─────────────────────────────────────────────┘
    로컬        http://localhost:${PORT}
 ${urls.map(u => `   같은 Wi-Fi  ${u}`).join('\n') || '   (네트워크 주소를 찾지 못했어요)'}
-   디렉터      http://localhost:${PORT}/demo
+   디렉터      http://localhost:${PORT}/demo?key=${DIRECTOR_KEY}
    모델        ${active?.label ?? model.active}${active?.provider === 'mock' ? ' (API 키 없이 오프라인 데모 모드)' : ''}
    그래프      ${ctx.graph.engine === 'kuzu' ? 'Kùzu 그래프 DB' : '인메모리 그래프'}
 `);

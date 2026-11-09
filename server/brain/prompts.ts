@@ -58,14 +58,14 @@ export function recallPrompt(m: Memory, query: string) {
 
 export function seniorChatPrompt(history: string, text: string) {
   return {
-    system: `${TACHI_PERSONA}\n일상 대화에 1~2문장으로 답하고, 어머님이 눌러 답하기 쉬운 짧은 선택지(quickReplies, 2~3개, 12자 이내)를 주세요. category는 이 대화의 성격이에요(health 건강/복약/수면, mood 기분, daily 일상).\n${JSON_ONLY}\n스키마: {"reply":"...","quickReplies":["..",".."],"category":"daily|health|mood"}`,
+    system: `${TACHI_PERSONA}\n일상 대화에 1~2문장으로 답하고, 어머님이 눌러 답하기 쉬운 짧은 선택지(quickReplies, 2~3개, 12자 이내)를 주세요. category는 이 대화의 성격이에요(health 건강/복약/수면, mood 기분, daily 일상).\n${JSON_ONLY}\nreply는 따뜻하게 공감만 하고 "기록했다/저장했다"고 말하지 마세요. 어머님이 약 복용이나 기분을 분명히 말씀하신 경우에만 observation을 채우세요(그 외엔 생략).\n스키마: {"reply":"...","quickReplies":["..",".."],"category":"daily|health|mood","observation":{"medication":{"taken":true,"name":"혈압약","time":"아침|점심|저녁"},"mood":"좋음|보통|조금 우울"}}`,
     user: `[최근 대화]\n${history || '(없음)'}\n[어머님] ${text}`,
   };
 }
 
 export function shareSummaryPrompt(m: Memory) {
   return {
-    system: `${FAMILY_PERSONA}\n어머님이 오늘 들려주신 추억을 가족에게 전하는 감성 요약을 쓰세요. 2~4문장, 첫 문장은 "어머님께서 오늘 ~ 이야기를 들려주셨어요."로 시작해요. 카드에 없는 사실은 쓰지 마세요. 마지막에 가족이 어머님께 건넬 수 있는 따뜻한 한마디를 권해요.\n${JSON_ONLY}\n스키마: {"title":"카드 제목(기억 제목 그대로 가능)","summary":"..."}`,
+    system: `${FAMILY_PERSONA}\n어머님이 오늘 들려주신 추억을 가족에게 전하는 감성 요약을 쓰세요. 2~4문장, 첫 문장은 "어머님께서 오늘 ~ 이야기를 들려주셨어요."로 시작해요. 독자는 어머님의 자녀들이에요. 남편은 '남편분'이 아니라 '아버님'이라고 쓰세요. 카드에 없는 사실은 쓰지 마세요. 마지막에 가족이 어머님께 건넬 수 있는 따뜻한 한마디를 권해요.\n${JSON_ONLY}\n스키마: {"title":"카드 제목(기억 제목 그대로 가능)","summary":"..."}`,
     user: `[기억] ${memoryBlock(m)}\n[이야기 원문] ${m.story}`,
   };
 }
@@ -147,7 +147,7 @@ export function availabilityPrompt(text: string, slots: Slot[]) {
 export function botPrompt(ctx: BotContext) {
   const call = ({ jieun: '엄마', minjun: '어머니', suyeon: '어머님', harin: '할머니' } as Record<string, string>)[ctx.persona.id] ?? '어머님';
   return {
-    system: `당신은 가족 단체방의 ${ctx.persona.name}(${ctx.persona.relation})이에요. 성격: ${ctx.persona.persona ?? ''}\n어머님을 "${call}"라고 불러요. 방금 온 메시지에 1~2문장(60자 이내)으로 자연스럽게 반응하세요. 이모지는 쓰지 말고, 지어낸 사실은 말하지 마세요. 반응할 필요가 없으면 빈 문자열을 내세요.\n${JSON_ONLY}\n스키마: {"reply":"..."}`,
+    system: `당신은 가족 단체방의 ${ctx.persona.name}(${ctx.persona.relation})이에요. 성격: ${ctx.persona.persona ?? ''}\n어머님을 "${call}"라고 불러요. 방금 온 메시지에 1~2문장(60자 이내)으로 자연스럽게 반응하세요. 이모지는 쓰지 말고, 지어낸 사실은 말하지 마세요. 건강/혈압 소식에는 걱정하고 챙기는 말만 하고 '건강하시다/안심/다행' 같은 평가는 하지 마세요. 일정 결과가 '확정'이라고 적혀 있지 않으면 확정이라고 말하지 마세요. 반응할 필요가 없으면 빈 문자열을 내세요.\n${JSON_ONLY}\n스키마: {"reply":"..."}`,
     user: `[최근 대화]\n${ctx.recent.map(r => `${r.sender}: ${r.text}`).join('\n')}\n[방금 온 메시지 (${ctx.trigger.kind})] ${ctx.trigger.text}`,
   };
 }

@@ -1,13 +1,15 @@
 .av { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; flex: none; font-weight: var(--weight-semibold); line-height: 1; user-select: none; }
 .av-tachi { background: var(--inverse-bg); color: var(--inverse-text); }
 .av-user { background: var(--bg-chrome); color: var(--text); border: 1px solid var(--border); }
-.av-hollow { background: transparent; color: var(--text-3); border: 1.5px dashed var(--border-strong); }
+.av-hollow { background: transparent; color: var(--text-2); border: 1.5px dashed var(--border-strong); }
 
 /* Model switcher */
 .ms { position: relative; display: inline-block; }
 .ms-pill { display: inline-flex; align-items: center; gap: var(--space-6); min-height: 32px; padding: 0 var(--space-10); border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface); font-size: var(--text-small); font-weight: var(--weight-medium); }
 .ms-pill:hover { background: var(--hover); }
 .ms-menu { position: absolute; z-index: 40; top: calc(100% + 6px); right: 0; min-width: 232px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-6); }
+.ms-ro { cursor: default; color: var(--text-2); }
+.ms-ro:hover { background: var(--surface); }
 .ms-list { display: flex; flex-direction: column; gap: 2px; }
 .ms-row { display: flex; align-items: center; gap: var(--space-8); width: 100%; min-height: 40px; padding: 0 var(--space-10); border-radius: var(--radius-lg); text-align: left; font-size: var(--text-caption); }
 .ms-row:hover:not(:disabled) { background: var(--hover); }

@@ -3,6 +3,7 @@
 .ml-empty { margin: auto; text-align: center; padding: var(--space-24); }
 .ml-date { display: flex; justify-content: center; margin: var(--space-16) 0 var(--space-8); }
 .ml-date span { font-size: var(--text-small); color: var(--text-2); padding: 2px 12px; border: 1px solid var(--border); border-radius: var(--radius-pill); }
+.ml-senior .ml-date span { font-size: 17px; min-height: 28px; display: inline-flex; align-items: center; }
 .ml-sys { margin: var(--space-6) 0; }
 .ml-row { display: flex; gap: var(--space-8); align-items: flex-start; animation: tachi-fade-up var(--dur-med) var(--ease-out) both; }
 .ml-row.ml-head { margin-top: var(--space-12); }
@@ -29,7 +30,7 @@
 .ml-actions .btn { white-space: normal; text-align: center; }
 .ml-senior .ml-actions { grid-template-columns: 1fr; max-width: 100%; }
 .ml-model { font-size: var(--text-micro); color: var(--text-3); }
-.ml-gen { font-size: 11px; }
+.ml-gen { font-size: var(--text-micro); }
 .ml-auto-cap { font-size: 17px; color: var(--text-2); }
 .ml-chips { display: flex; flex-wrap: wrap; gap: var(--space-8); margin-top: var(--space-6); }
 .ml-senior .ml-chips .chip { min-height: 48px; font-size: 18px; padding: 0 18px; white-space: normal; text-align: center; }
@@ -41,3 +42,12 @@
 .ml-senior .ml-typing { font-size: 17px; }
 .ml-new { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 6px; padding: 0 14px; min-height: 36px; border-radius: var(--radius-pill); background: var(--inverse-bg); color: var(--inverse-text); font-size: var(--text-caption); font-weight: var(--weight-medium); }
 .ml-senior .ml-new { min-height: 56px; font-size: 17px; }
+.ml-actions-wrap { display: flex; flex-direction: column; gap: var(--space-4); width: 100%; }
+.ml-actions-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ml-senior .ml-actions-row { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 100%; }
+.ml-actions-inline .ml-actions { margin-top: 0; }
+.ml-spin { animation: ml-spin 0.9s linear infinite; }
+@keyframes ml-spin { to { transform: rotate(360deg); } }
+.ml-retry { font-size: var(--text-caption); color: var(--text); font-weight: var(--weight-medium); margin: 0; }
+.ml-retry-s, .ml-senior .ml-retry { font-size: 19px; }
+@media (prefers-reduced-motion: reduce) { .ml-spin { animation: none; } }

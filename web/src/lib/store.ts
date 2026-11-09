@@ -206,6 +206,7 @@ export const tachi = {
     closePoll() { getSocket().emit('demo:closePoll'); },
     say(userId: ID, roomId: ID, text?: string, photoUrl?: string) { getSocket().emit('demo:say', { userId, roomId, text, photoUrl }); },
     clock(time: string | null) { getSocket().emit('demo:clock', { time }); },
+    invite(roomId: ID, contactId: ID) { getSocket().emit('demo:invite', { roomId, contactId }); },
   },
 };
 

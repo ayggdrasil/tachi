@@ -14,7 +14,11 @@ export function shuffle<T>(arr: T[]): T[] {
 let clockOffsetMinutes = 0;
 export const getClockOffsetMinutes = (): number => clockOffsetMinutes;
 export const setClockOffsetMinutes = (m: number): void => { clockOffsetMinutes = Number.isFinite(m) ? m : 0; };
-export const clockNow = (): Date => new Date(Date.now() + clockOffsetMinutes * 60000);
+// Wall-clock source (injectable so tests can pretend it is 16:00).
+let wallClock: () => number = () => Date.now();
+export const setWallClock = (fn: (() => number) | null): void => { wallClock = fn ?? (() => Date.now()); };
+export const wallNow = (): number => wallClock();
+export const clockNow = (): Date => new Date(wallClock() + clockOffsetMinutes * 60000);
 export const nowIso = (): string => clockNow().toISOString();
 /** Local 'YYYY-MM-DD' */
 export const ymd = (d: Date): string => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;

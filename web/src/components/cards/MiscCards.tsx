@@ -11,9 +11,12 @@ export function HealthCard({ message, variant }: CardProps) {
 
 export function ReportCard({ message }: CardProps) {
   const p = message.payload as ReportPayload;
+  const created = new Date(message.createdAt), now = new Date();
+  const today = created.getFullYear() === now.getFullYear() && created.getMonth() === now.getMonth() && created.getDate() === now.getDate();
+  const title = `${today ? '오늘' : '어제'}의 타치 리포트`;
   return (
-    <article className="cd" aria-label="오늘의 타치 리포트">
-      <h3 className="cd-title">오늘의 타치 리포트 · {p.dateLabel}</h3>
+    <article className="cd" aria-label={title}>
+      <h3 className="cd-title">{title} · {p.dateLabel}</h3>
       <ul className="cd-sessions">
         {p.sessions.map((s, i) => (
           <li key={i}>

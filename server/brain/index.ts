@@ -2,12 +2,13 @@
 import type { ArtifactTask, ItineraryPayload, MemoryPerson, ModelOption, PrivacyCategory, TripStop } from '../../shared/types';
 import { findPlaces, placeById, resolvePlace, templateFor } from '../data/places';
 import type { AIResult, Brain, ExtractedMemory, FamilyAnswer, GatheringDraft, SeniorIntent } from './contract';
-import { questionCategory, assistArtifact as hAssist, answerFamily as hAnswer, botReply as hBot, draftGathering as hDraft } from './heuristics/family';
+import { BANNED_HEALTH_WORDS, questionCategory, assistArtifact as hAssist, answerFamily as hAnswer, botReply as hBot, draftGathering as hDraft } from './heuristics/family';
 import { composeReport as hReport, planItinerary as hPlan, proactiveMessage as hProactive, recallReply as hRecall, seniorChat as hChat, shareSummary as hShare, suggestTrip as hSuggest } from './heuristics/compose';
 import { extractFromState, planNext, startTurn, SLOT_QUESTION } from './heuristics/interview';
 import { availability, familyIntent, seniorIntent } from './heuristics/intents';
 import { EMOTION_LABELS, decadeEra } from './heuristics/ko';
-import { circuitOpen, completeJson, loadImage, str, strArr } from './llm';
+import { circuitOpen, complete, completeJson, loadImage, openCircuit, resetCircuit, str, strArr } from './llm';
+import { validateObservation } from './heuristics/observe';
 import { ModelRegistry } from './models';
 import * as P from './prompts';
 
@@ -16,6 +17,7 @@ const RULE_LABEL = '규칙 기반';
 /** Thrown inside an llm callback when the requested provider operation could not run (heuristic substituted). */
 class Substitute extends Error {}
 type J = Record<string, unknown>;
+interface Ctx { substituted: boolean; or: <T>(v: T | undefined, h: T) => T; sub: () => void }
 
 export function createBrain(): Brain {
   const registry = new ModelRegistry();
@@ -31,13 +33,17 @@ export function createBrain(): Brain {
   const rule = <T>(value: T): AIResult<T> => ({ value, model: RULE_LABEL, fallback: false, source: 'rule' });
 
   /** source: 'llm' only when a live provider produced the value; 'heuristic' for the offline brain; 'rule' via `rule()`. */
-  async function run<T>(name: string, heur: () => T, llm?: (opt: ModelOption) => Promise<T>): Promise<AIResult<T>> {
+  async function run<T>(name: string, heur: () => T, llm?: (opt: ModelOption, c: Ctx) => Promise<T>): Promise<AIResult<T>> {
     const opt = registry.active();
     if (opt.provider === 'mock') return { value: heur(), model: DEMO_LABEL, fallback: false, source: 'heuristic' };
     if (!opt.available || circuitOpen(opt.provider)) return { value: heur(), model: DEMO_LABEL, fallback: true, source: 'heuristic' };
     if (!llm) return rule(heur());
+    const c: Ctx = { substituted: false, or: (v, h) => { if (v === undefined) c.substituted = true; return v ?? h; }, sub: () => { c.substituted = true; } };
     try {
-      return { value: await llm(opt), model: opt.label, fallback: false, source: 'llm' };
+      const value = await llm(opt, c);
+      // F19: a live callback that filled any required field from the heuristic is not credited to the live model.
+      if (c.substituted) return { value: heur(), model: DEMO_LABEL, fallback: true, source: 'heuristic' };
+      return { value, model: opt.label, fallback: false, source: 'llm' };
     } catch (e) {
       if (!(e instanceof Substitute)) warnOnce(name, e);
       return { value: heur(), model: DEMO_LABEL, fallback: true, source: 'heuristic' };
@@ -50,6 +56,29 @@ export function createBrain(): Brain {
   const brain: Brain = {
     getModelState: () => registry.state(),
     setActiveModel: key => registry.setActive(key),
+
+    preflight: async key => {
+      const st = registry.state();
+      const k = key ?? st.active;
+      const opt = st.options.find(o => o.key === k) ?? st.options[st.options.length - 1];
+      if (opt.provider === 'mock') { registry.recordHealth(opt.key, true, 0); return { key: opt.key, ok: true, latencyMs: 0 }; }
+      if (!opt.available) { registry.recordHealth(opt.key, false, 0); return { key: opt.key, ok: false, latencyMs: 0, error: 'API 키 없음' }; }
+      const t0 = Date.now();
+      try {
+        const out = await complete(opt, { system: 'Reply with the single word OK.', turns: [{ role: 'user', text: 'OK' }], maxTokens: 8, timeoutMs: 6000 });
+        if (!out.trim()) throw new Error('empty response');
+        const latencyMs = Date.now() - t0;
+        resetCircuit(opt.provider);
+        registry.recordHealth(opt.key, true, latencyMs);
+        return { key: opt.key, ok: true, latencyMs };
+      } catch (e) {
+        const latencyMs = Date.now() - t0;
+        const error = e instanceof Error ? e.message : String(e);
+        openCircuit(opt.provider, `preflight: ${error}`);
+        registry.recordHealth(opt.key, false, latencyMs);
+        return { key: opt.key, ok: false, latencyMs, error };
+      }
+    },
 
     // ── interview ────────────────────────────────────────────────────────
     startInterview: input => run('startInterview', () => startTurn(input), async opt => {
@@ -65,19 +94,19 @@ export function createBrain(): Brain {
     interviewTurn: async (state, answer) => {
       const { turn, nextSlot } = planNext(state, answer);
       if (turn.done || !nextSlot) return rule(turn);
-      return run('interviewTurn', () => turn, async opt => {
+      return run('interviewTurn', () => turn, async (opt, c) => {
         const lastQ = SLOT_QUESTION[nextSlot];
         const ack = turn.reply.replace(lastQ, '').trim();
         const j = await ask(opt, P.interviewTurnPrompt(state, answer, nextSlot, ack, lastQ), 300);
         const reply = str(j.reply, 140);
-        if (!reply || !/[?？]/.test(reply)) return turn;
+        if (!reply || !/[?？]/.test(reply)) { c.sub(); return turn; }
         return { ...turn, reply };
       });
     },
 
     extractMemory: (state, senior) => {
       const h = extractFromState(state);
-      return run<ExtractedMemory>('extractMemory', () => h, async opt => {
+      return run<ExtractedMemory>('extractMemory', () => h, async (opt, c) => {
         const j = await ask(opt, P.extractMemoryPrompt(state, senior), 1200);
         const yr = typeof j.year === 'number' && Number.isInteger(j.year) && j.year >= 1900 && j.year <= 2030 ? j.year : h.year;
         const place = str(j.place, 30) ?? h.place;
@@ -88,9 +117,9 @@ export function createBrain(): Brain {
         const emotions = strArr(j.emotions, 3, 10).filter(e => EMOTION_LABELS.includes(e));
         const season = str(j.season, 2);
         return {
-          title: str(j.title, 40) ?? h.title,
-          story: str(j.story, 700) ?? h.story,
-          summary: str(j.summary, 120) ?? h.summary,
+          title: c.or(str(j.title, 40), h.title),
+          story: c.or(str(j.story, 700), h.story),
+          summary: c.or(str(j.summary, 120), h.summary),
           year: yr, era: yr ? decadeEra(yr) : str(j.era, 10) ?? h.era,
           season: season && ['봄', '여름', '가을', '겨울'].includes(season) ? season : h.season,
           place, placeId: rp?.place.id ?? (place === h.place ? h.placeId : undefined),
@@ -106,23 +135,24 @@ export function createBrain(): Brain {
     classifySeniorIntent: (text, ctx) => {
       const h = seniorIntent(text, ctx);
       if (h.type !== 'smalltalk') return Promise.resolve(rule<SeniorIntent>(h));
-      return run<SeniorIntent>('classifySeniorIntent', () => h, async opt => {
+      return run<SeniorIntent>('classifySeniorIntent', () => h, async (opt, c) => {
         const j = await ask(opt, P.seniorIntentPrompt(text, ctx.knownNodeNames), 200);
         const type = String(j.type);
         const kws = strArr(j.keywords, 5, 20);
         if (type === 'recall' && kws.length) return { type: 'recall', keywords: kws };
         if (type === 'trip') return { type: 'trip', destination: str(j.destination, 20) };
         if (type === 'ask_share') return { type: 'ask_share' };
+        c.sub();
         return h;
       });
     },
 
-    recallReply: (memory, query) => run('recallReply', () => hRecall(memory, query), async opt => {
+    recallReply: (memory, query) => run('recallReply', () => hRecall(memory, query), async (opt, c) => {
       const j = await ask(opt, P.recallPrompt(memory, query), 400);
-      return str(j.reply, 300) ?? hRecall(memory, query);
+      return c.or(str(j.reply, 300), hRecall(memory, query));
     }),
 
-    seniorChat: (history, text) => run('seniorChat', () => hChat(text), async opt => {
+    seniorChat: (history, text) => run('seniorChat', () => hChat(text), async (opt, c) => {
       const h = hChat(text);
       const hist = history.slice(-6).map(t => `${t.role === 'user' ? '어머님' : '타치'}: ${t.text}`).join('\n');
       const j = await ask(opt, P.seniorChatPrompt(hist, text), 400);
@@ -130,16 +160,21 @@ export function createBrain(): Brain {
       if (!reply) throw new Error('missing reply');
       const qr = strArr(j.quickReplies, 3, 14);
       const cat = String(j.category) as PrivacyCategory;
-      return { reply, quickReplies: qr.length ? qr : h.quickReplies, category: ['health', 'mood', 'daily'].includes(cat) ? cat : h.category };
+      const observation = validateObservation(j.observation);
+      return {
+        reply, quickReplies: c.or(qr.length ? qr : undefined, h.quickReplies), category: c.or(['health', 'mood', 'daily'].includes(cat) ? cat : undefined, h.category),
+        // explicit statements are also extracted deterministically, so a missed LLM observation never loses a fact
+        ...((observation ?? h.observation) ? { observation: observation ?? h.observation } : {}),
+      };
     }),
 
-    shareSummary: memory => run('shareSummary', () => hShare(memory), async opt => {
+    shareSummary: memory => run('shareSummary', () => hShare(memory), async (opt, c) => {
       const h = hShare(memory);
       const j = await ask(opt, P.shareSummaryPrompt(memory), 600);
-      return { title: str(j.title, 50) ?? h.title, summary: str(j.summary, 500) ?? h.summary };
+      return { title: c.or(str(j.title, 50), h.title), summary: c.or(str(j.summary, 500), h.summary) };
     }),
 
-    suggestTrip: memory => run('suggestTrip', () => hSuggest(memory), async opt => {
+    suggestTrip: memory => run('suggestTrip', () => hSuggest(memory), async (opt, c) => {
       const h = hSuggest(memory);
       const pl = placeById(memory.placeId) ?? findPlaces(memory.place ?? '')[0];
       const nearby = (pl?.nearby ?? []).map(placeById).map(p => p?.name).filter((x): x is string => !!x);
@@ -147,13 +182,13 @@ export function createBrain(): Brain {
       const hl = strArr(j.highlights, 4, 20);
       return {
         memoryId: memory.id,
-        title: str(j.title, 40) ?? h.title, reason: str(j.reason, 200) ?? h.reason,
-        destination: str(j.destination, 20) ?? h.destination,
-        highlights: hl.length >= 2 ? hl : h.highlights, durationLabel: str(j.durationLabel, 10) ?? h.durationLabel,
+        title: c.or(str(j.title, 40), h.title), reason: c.or(str(j.reason, 200), h.reason),
+        destination: c.or(str(j.destination, 20), h.destination),
+        highlights: c.or(hl.length >= 2 ? hl : undefined, h.highlights), durationLabel: c.or(str(j.durationLabel, 10), h.durationLabel),
       };
     }),
 
-    planItinerary: suggestion => run('planItinerary', () => hPlan(suggestion), async opt => {
+    planItinerary: suggestion => run('planItinerary', () => hPlan(suggestion), async (opt, c) => {
       const h = hPlan(suggestion);
       const tpl = templateFor(suggestion.destination);
       const tplText = tpl.days.map(d => `${d.label}: ${d.stops.map(s => `${s.time} ${s.title}`).join(' → ')}`).join('\n');
@@ -168,7 +203,7 @@ export function createBrain(): Brain {
       if (!days.length) throw new Error('invalid itinerary');
       const tips = strArr(j.tips, 5, 80);
       const out: Omit<ItineraryPayload, 'type' | 'tripId'> = {
-        title: str(j.title, 40) ?? h.title, destination: suggestion.destination, dateLabel: '날짜 미정', days, tips: tips.length ? tips : h.tips,
+        title: c.or(str(j.title, 40), h.title), destination: suggestion.destination, dateLabel: '날짜 미정', days, tips: c.or(tips.length ? tips : undefined, h.tips),
       };
       return out;
     }),
@@ -185,9 +220,9 @@ export function createBrain(): Brain {
     composeReport: ({ sessions, privacy, moodToday, now }) => {
       const h = hReport(sessions, privacy, moodToday, now);
       if (!h.sessions.length) return Promise.resolve(rule(h));
-      return run('composeReport', () => h, async opt => {
+      return run('composeReport', () => h, async (opt, c) => {
         const j = await ask(opt, P.reportHighlightPrompt(h.sessions, h.moodLabel), 400);
-        return { ...h, highlight: str(j.highlight, 200) ?? h.highlight };
+        return { ...h, highlight: c.or(str(j.highlight, 200), h.highlight) };
       });
     },
 
@@ -208,7 +243,7 @@ export function createBrain(): Brain {
       });
     },
 
-    draftGathering: input => run<GatheringDraft>('draftGathering', () => hDraft(input), async opt => {
+    draftGathering: input => run<GatheringDraft>('draftGathering', () => hDraft(input), async (opt, c) => {
       const h = hDraft(input);
       const ids = new Set(input.members.map(m => m.id));
       const j = await ask(opt, P.gatheringPrompt(input), 1500);
@@ -217,9 +252,9 @@ export function createBrain(): Brain {
       })).slice(0, 8) : [];
       const agenda = strArr(j.agenda, 8, 80);
       return {
-        title: str(j.title, 40) ?? h.title, background: str(j.background, 300) ?? h.background, purpose: str(j.purpose, 200) ?? h.purpose,
-        place: str(j.place, 40) ?? h.place, agenda: agenda.length >= 2 ? agenda : h.agenda, tasks: tasks.length >= 2 ? tasks : h.tasks,
-        notes: str(j.notes, 300) ?? h.notes,
+        title: c.or(str(j.title, 40), h.title), background: c.or(str(j.background, 300), h.background), purpose: c.or(str(j.purpose, 200), h.purpose),
+        place: c.or(str(j.place, 40), h.place), agenda: c.or(agenda.length >= 2 ? agenda : undefined, h.agenda), tasks: c.or(tasks.length >= 2 ? tasks : undefined, h.tasks),
+        notes: c.or(str(j.notes, 300), h.notes),
       };
     }),
 
@@ -246,10 +281,15 @@ export function createBrain(): Brain {
     botReply: async ctx => {
       const heur = hBot(ctx);
       if (heur === '' && ctx.trigger.kind !== 'share_card') return rule('');
-      return run('botReply', () => heur, async opt => {
-      const j = await ask(opt, P.botPrompt(ctx), 200);
-      const r = typeof j.reply === 'string' ? j.reply.trim().slice(0, 140) : '';
-      return r;
+      if (ctx.trigger.kind === 'system') return rule(heur);
+      const healthy = ctx.trigger.kind === 'health_card' || /혈압|건강|약\s*(?:먹|드|챙)/.test(ctx.trigger.text);
+      return run('botReply', () => heur, async (opt, c) => {
+        const j = await ask(opt, P.botPrompt(ctx), 200);
+        if (typeof j.reply !== 'string') { c.sub(); return heur; }
+        const r = j.reply.trim().slice(0, 140);
+        // health reactions must be caring but never evaluative
+        if (healthy && BANNED_HEALTH_WORDS.test(r)) { c.sub(); return heur; }
+        return r;
       });
     },
   };

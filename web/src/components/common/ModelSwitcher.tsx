@@ -5,6 +5,7 @@ import './common.css';
 
 export function ModelSwitcher({ compact }: { compact?: boolean }) {
   const models = useTachi(s => s.models);
+  const meId = useTachi(s => s.meId);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -19,6 +20,9 @@ export function ModelSwitcher({ compact }: { compact?: boolean }) {
 
   if (!models) return <span className="faint caption">모델 불러오는 중…</span>;
   const active = models.options.find(o => o.key === models.active);
+  if (meId !== 'director') {
+    return <span className="ms-pill ms-ro" title="모델은 디렉터 화면에서 바꿀 수 있어요">모델 · {active?.label ?? '—'}</span>;
+  }
 
   const list = (
     <div className="ms-list" role="listbox" aria-label="모델 선택">

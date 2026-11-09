@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, Clock, Loader2, Pause, Play, QrCode, RotateCcw } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Clock, Loader2, Moon, Pause, Play, QrCode, RotateCcw, Sun } from 'lucide-react';
 import { DEMO_SCRIPT, DIRECTOR_ID, FAMILY_ROOM_ID, SENIOR_ROOM_ID, type DemoStep } from '../../../../shared/constants';
-import type { ProactiveKind } from '../../../../shared/types';
+import type { ProactiveKind, ModelKey, RecallCardPayload } from '../../../../shared/types';
 import { getState, initTachi, tachi, useTachi } from '../../lib/store';
 import { getSocket } from '../../lib/socket';
-import { ModelSwitcher } from '../../components/common/ModelSwitcher';
 import { Avatar } from '../../components/common/Avatar';
 import { MemoryGraph } from '../../components/graph/MemoryGraph';
 import { Dialog } from '../family/Dialog';
@@ -29,7 +28,7 @@ const DWELL = 2500;
 const DWELL_LONG = 4000;
 const LONG_KINDS = new Set(['memory_card', 'share_card', 'itinerary', 'schedule_result']);
 
-type StepStat = 'running' | 'done' | 'timeout';
+type StepStat = 'running' | 'done' | 'timeout' | 'skipped';
 
 function fmtClock(offsetMin: number): string {
   const d = new Date(Date.now() + offsetMin * 60000);
@@ -70,12 +69,24 @@ export default function DirectorConsole() {
   const [endedAt, setEndedAt] = useState<number | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [clockTick, setClockTick] = useState(0);
+  const [modelTarget, setModelTarget] = useState<string | null>(null);
+  const [manualStage, setManualStage] = useState(false);
+  const [engine, setEngine] = useState<string | null>(null);
+  const [staleDismissed, setStaleDismissed] = useState(false);
+
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light');
+  useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
+  const toggleTheme = () => { setTheme(t => (t === 'dark' ? 'light' : 'dark')); setFrameKey(k => k + 1); };
+  const themeQ = `&theme=${theme}`;
+  const error = useTachi(s => s.error);
 
   const total = DEMO_SCRIPT.length;
   const cursorRef = useRef(cursor);
   cursorRef.current = cursor;
   const runningRef = useRef(running);
   runningRef.current = running;
+  const manualRef = useRef(false);
+  manualRef.current = manualStage;
   const startedRef = useRef(startedAt);
   startedRef.current = startedAt;
   const messages = useTachi(s => s.messages);
@@ -88,11 +99,36 @@ export default function DirectorConsole() {
     const baseline = new Set((roomId ? getState().messages[roomId] ?? [] : []).map(m => m.id));
     if (startedRef.current === null) { const t = Date.now(); startedRef.current = t; setStartedAt(t); setEndedAt(null); }
     if (step.clock) tachi.demo.clock(step.clock);
-    if (step.director === 'proactive') tachi.demo.proactive(step.kind);
+    if (step.director === 'model') {
+      const ms = getState().models;
+      const opts = ms?.options ?? [];
+      const pick = opts.find(o => o.key === step.modelKey && o.available && o.key !== 'demo')
+        ?? opts.find(o => o.available && o.key !== ms?.active && o.key !== 'demo');
+      if (!pick) {
+        // no live provider available: skip instead of switching to the built-in demo brain
+        setStat(d => ({ ...d, [step.id]: 'skipped' }));
+        setCursor(c => Math.max(c, i + 1));
+        setDwell(true);
+        if (i === total - 1) setEndedAt(Date.now());
+        return;
+      }
+      const key: ModelKey = pick.key;
+      setModelTarget(pick.label);
+      const roomOf = step.room === 'senior' ? SENIOR_ROOM_ID : FAMILY_ROOM_ID;
+      if (key !== ms?.active) tachi.setModel(key);
+      void (async () => {
+        const t0 = Date.now();
+        while (Date.now() - t0 < 3000 && getState().models?.active !== key) await new Promise(r => setTimeout(r, 100));
+        if (step.as) tachi.demo.say(step.as, roomOf, step.text, step.photo);
+      })();
+    } else if (step.director === 'invite') tachi.demo.invite(FAMILY_ROOM_ID, step.contactId ?? 'c-harin');
+    else if (step.director === 'proactive') tachi.demo.proactive(step.kind);
     else if (step.director === 'report') tachi.demo.report();
     else if (step.director === 'closePoll') tachi.demo.closePoll();
     else if (step.as) tachi.demo.say(step.as, step.room === 'senior' ? SENIOR_ROOM_ID : FAMILY_ROOM_ID, step.text, step.photo);
     setDwell(false);
+    if (step.id === 'a-story' || step.id === 'recall') { if (!manualRef.current) { setShowGraph(true); } }
+    else if (step.id === 'schedule') { if (!manualRef.current) { setShowGraph(false); setShowSide(true); } }
     setCursor(c => Math.max(c, i + 1));
     if (step.waitFor) {
       const r = { i, baseline };
@@ -102,7 +138,7 @@ export default function DirectorConsole() {
     } else {
       setStat(d => ({ ...d, [step.id]: 'done' }));
     }
-  }, []);
+  }, [total]);
 
   // completion watcher
   useEffect(() => {
@@ -111,10 +147,13 @@ export default function DirectorConsole() {
     const w = step?.waitFor;
     if (!step || !w) return;
     const list = messages[w.room === 'senior' ? SENIOR_ROOM_ID : FAMILY_ROOM_ID] ?? [];
-    if (list.some(m => !running.baseline.has(m.id) && m.kind === w.kind && (!w.from || m.senderId === w.from))) {
+    // the trip offer may already be live from the share step (one offer per memory): then a fresh recall_card plus that offer is enough
+    const offerAlready = w.kind === 'trip_suggestion' && list.some(m => !running.baseline.has(m.id) && m.kind === 'recall_card') && list.some(m => m.kind === 'trip_suggestion');
+    if (offerAlready || list.some(m => !running.baseline.has(m.id) && m.kind === w.kind && (!w.from || m.senderId === w.from))) {
       setStat(d => ({ ...d, [step.id]: 'done' }));
       runningRef.current = null;
       setRunning(null);
+      setModelTarget(null);
       if (running.i === total - 1) setEndedAt(Date.now());
       setDwell(true);
     }
@@ -128,6 +167,7 @@ export default function DirectorConsole() {
       setStat(d => ({ ...d, [step.id]: 'timeout' }));
       runningRef.current = null;
       setRunning(null);
+      setModelTarget(null);
       setAuto(false);
     }, STEP_TIMEOUT);
     return () => window.clearTimeout(t);
@@ -161,7 +201,8 @@ export default function DirectorConsole() {
     runningRef.current = null;
     startedRef.current = null;
     setRunning(null); setCursor(0); setStat({}); setAuto(false); setDwell(false);
-    setStartedAt(null); setEndedAt(null);
+    setStartedAt(null); setEndedAt(null); setModelTarget(null);
+    setManualStage(false); manualRef.current = false; setShowGraph(false); setShowSide(false); setStaleDismissed(false);
   }, []);
 
   // keyboard
@@ -173,11 +214,11 @@ export default function DirectorConsole() {
       if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
       if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); runNext(); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); back(); }
-      else if (e.key === 'r' || e.key === 'R') { resetCursor(); }
+      else if (e.key === 'r' || e.key === 'R') { if (!runningRef.current) setConfirmReset(true); }
     };
     window.addEventListener('keydown', on);
     return () => window.removeEventListener('keydown', on);
-  }, [blocked, runNext, back, resetCursor]);
+  }, [blocked, runNext, back]);
 
   // auto-run: advance only after completion + dwell
   useEffect(() => {
@@ -187,6 +228,34 @@ export default function DirectorConsole() {
     const t = window.setTimeout(() => runStep(cursor), cursor === 0 ? 800 : 200);
     return () => window.clearTimeout(t);
   }, [auto, cursor, total, running, dwell, runStep]);
+
+  // auto-reveal graph when memory / recall cards arrive
+  const seniorMsgs = messages[SENIOR_ROOM_ID];
+  const seenCards = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const cards = (seniorMsgs ?? []).filter(m => m.kind === 'memory_card' || m.kind === 'recall_card').map(m => m.id);
+    if (seenCards.current === null) { if (status === 'ready') seenCards.current = new Set(cards); return; }
+    const fresh = cards.filter(id => !seenCards.current!.has(id));
+    cards.forEach(id => seenCards.current!.add(id));
+    if (fresh.length && !manualRef.current) setShowGraph(true);
+  }, [seniorMsgs, status]);
+
+  // actual graph engine
+  useEffect(() => {
+    if (status !== 'ready') return;
+    fetch('/api/status').then(r => r.json()).then(j => setEngine(j?.graphEngine ?? null)).catch(() => setEngine(null));
+  }, [status, frameKey]);
+
+  const recall = useMemo(() => {
+    const list = seniorMsgs ?? [];
+    for (let i = list.length - 1; i >= 0; i--) if (list[i].payload?.type === 'recall_card') return list[i].payload as RecallCardPayload;
+    return null;
+  }, [seniorMsgs]);
+
+  // stale server state
+  const familyMsgs = messages[FAMILY_ROOM_ID];
+  const stale = status === 'ready' && cursor === 0 && !running && !reloading && !staleDismissed
+    && ((demo?.clockOffsetMinutes ?? 0) !== 0 || (familyMsgs ?? []).some(m => !m.id.startsWith('seed-')) || (seniorMsgs ?? []).some(m => !m.id.startsWith('seed-')));
 
   // reset: wait for the director store to be ready again, then re-key frames
   useEffect(() => {
@@ -235,6 +304,7 @@ export default function DirectorConsole() {
   }, []);
 
   const third = showGraph ? 'graph' : showSide ? 'side' : null;
+  const engineLabel = engine === 'kuzu' ? 'Kùzu 그래프 DB' : engine === 'memory' ? '메모리 그래프 (대체 모드)' : engine ? engine : '그래프 엔진 확인 중…';
   const phones = 2 + (third === 'side' ? 1 : 0);
   const slots = phones + (third === 'graph' ? 1 : 0);
   const availH = box.h - PAD * 2 - 40 - LABEL_H;
@@ -246,9 +316,21 @@ export default function DirectorConsole() {
   const family = Object.values(users).filter(u => u.role !== 'ai' && u.id !== DIRECTOR_ID);
   const nextStep = DEMO_SCRIPT[cursor];
   const busy = !!running;
-  const doneCount = Object.values(stat).filter(v => v === 'done').length;
+  const doneCount = Object.values(stat).filter(v => v === 'done' || v === 'skipped').length;
   const virtualClock = useMemo(() => fmtClock(demo?.clockOffsetMinutes ?? 0), [demo?.clockOffsetMinutes, clockTick]); // eslint-disable-line react-hooks/exhaustive-deps
   const elapsed = startedAt === null ? null : fmtElapsed((endedAt ?? nowMs) - startedAt);
+
+  if (status === 'error' && /키/.test(error ?? '')) {
+    return (
+      <main className="dc-keyerr" role="alert" style={{ minHeight: '100dvh', display: 'grid', placeItems: 'center', padding: 24, textAlign: 'center', background: 'var(--bg)', color: 'var(--text)' }}>
+        <div>
+          <h1 style={{ fontSize: 'var(--text-h2, 22px)', marginBottom: 8 }}>디렉터 키가 필요해요.</h1>
+          <p className="muted">서버 시작 화면에 표시된 주소로 열어 주세요.</p>
+          <p style={{ marginTop: 16 }}><Link to="/" className="btn">처음으로</Link></p>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <div className="dc">
@@ -262,17 +344,60 @@ export default function DirectorConsole() {
         </header>
 
         <div className="dc-rail-scroll">
+          <section className="dc-sec" aria-label="화면 테마">
+            <div className="dc-sec-head">
+              <h2 className="dc-h">무대 테마</h2>
+              <span className="dc-spacer" />
+              <button className="chip" onClick={toggleTheme} aria-pressed={theme === 'dark'}>
+                {theme === 'dark' ? <Moon size={12} strokeWidth={1.5} /> : <Sun size={12} strokeWidth={1.5} />} {theme === 'dark' ? '다크' : '라이트'}
+              </button>
+            </div>
+          </section>
+
+          <section className="dc-sec" aria-label="모델">
+            <h2 className="dc-h">모델</h2>
+            <ul className="dc-models">
+              {(models?.options ?? []).map(o => (
+                <li key={o.key}>
+                  <button className={`dc-model ${o.key === models?.active ? 'is-on' : ''}`} disabled={!o.available || busy}
+                    onClick={() => { if (o.key !== models?.active) tachi.setModel(o.key); }} aria-pressed={o.key === models?.active}>
+                    <span className="dc-model-check">{o.key === models?.active && <Check size={13} strokeWidth={2} />}</span>
+                    <span className="dc-model-label">{o.label}</span>
+                    <span className="dc-model-st caption">
+                      {!o.available ? <span className="faint">키 없음</span>
+                        : o.key === 'demo' ? <span className="faint">내장</span>
+                        : o.healthy === undefined ? <span className="faint">미확인</span>
+                        : o.healthy ? <span className="dc-ok">✓ {o.latencyMs != null ? `${o.latencyMs}ms` : ''}</span>
+                        : <span className="dc-bad">✕ 응답 없음</span>}
+                    </span>
+                  </button>
+                </li>
+              ))}
+              {!models && <li className="caption faint">모델 불러오는 중…</li>}
+            </ul>
+          </section>
+
           <section className="dc-sec" aria-label="시나리오">
             <div className="dc-sec-head">
               <h2 className="dc-h">시나리오</h2>
               <span className="caption faint">{doneCount}/{total}</span>
               {elapsed && <span className="caption faint dc-elapsed" title="데모 경과 시간">{elapsed}</span>}
-              <span className="dc-spacer" />
+            </div>
+            <div className="dc-run-row">
               <button className="chip dc-auto" aria-pressed={auto} onClick={() => setAuto(a => !a)} disabled={cursor >= total && !auto}>
                 {auto ? <Pause size={12} strokeWidth={1.5} /> : <Play size={12} strokeWidth={1.5} />} 자동 진행
               </button>
-              <button className="btn btn-icon dc-mini" onClick={resetCursor} aria-label="시나리오 처음으로 (R)" title="처음으로 (R)"><RotateCcw size={14} strokeWidth={1.5} /></button>
+              <button className="chip dc-replay" onClick={() => setConfirmReset(true)} disabled={busy} title="서버를 초기화하고 처음부터 재생 (R)"><RotateCcw size={12} strokeWidth={1.5} /> 처음부터 재생</button>
             </div>
+            {stale && (
+              <p className="dc-stale caption" role="status">이전 시연 상태가 남아 있어요 ·{' '}
+                <button className="dc-link" onClick={() => setConfirmReset(true)}>처음부터 재생</button>
+                <button className="dc-link faint" onClick={() => setStaleDismissed(true)} aria-label="알림 닫기">닫기</button></p>
+            )}
+            <p className="dc-cursor caption faint">커서 이동
+              <button className="btn btn-icon dc-mini" onClick={back} disabled={busy || cursor === 0} aria-label="커서 이전 (←)"><ChevronLeft size={14} strokeWidth={1.5} /></button>
+              <button className="btn btn-icon dc-mini" onClick={runNext} disabled={busy || cursor >= total} aria-label="다음 단계 실행 (→)"><ChevronRight size={14} strokeWidth={1.5} /></button>
+            </p>
             <p className="dc-clock caption muted"><Clock size={12} strokeWidth={1.5} aria-hidden /> 데모 시각 {virtualClock}
               <button className="chip dc-live" onClick={() => tachi.demo.clock(null)} disabled={!demo?.clockOffsetMinutes}>실시간으로</button>
             </p>
@@ -280,19 +405,20 @@ export default function DirectorConsole() {
               {DEMO_SCRIPT.map((s, i) => {
                 const st = stat[s.id];
                 const isDone = st === 'done';
+                const isSkipped = st === 'skipped';
                 const isNext = i === cursor;
                 return (
                   <li key={s.id}>
-                    <button className={`dc-step ${isNext ? 'is-next' : ''} ${isDone ? 'is-done' : ''} ${st === 'running' ? 'is-running' : ''}`}
+                    <button className={`dc-step ${isNext ? 'is-next' : ''} ${isDone || isSkipped ? 'is-done' : ''} ${st === 'running' ? 'is-running' : ''}`}
                       disabled={busy}
                       onClick={e => { runStep(i); e.currentTarget.blur(); }} aria-current={isNext ? 'step' : undefined}>
                       <span className="dc-step-n">
-                        {st === 'running' ? <Loader2 size={13} strokeWidth={2} className="dc-spin" aria-label="진행 중" /> : isDone ? <Check size={13} strokeWidth={2} aria-label="완료" /> : i + 1}
+                        {st === 'running' ? <Loader2 size={13} strokeWidth={2} className="dc-spin" aria-label="진행 중" /> : isDone ? <Check size={13} strokeWidth={2} aria-label="완료" /> : isSkipped ? <span aria-label="건너뜀">–</span> : i + 1}
                       </span>
                       <span className="dc-step-main">
-                        <span className="dc-step-label">{s.label}</span>
-                        {(isNext || st === 'running' || st === 'timeout') && (
-                          <span className="dc-step-hint">{st === 'running' ? '응답 기다리는 중…' : st === 'timeout' ? '시간 초과 · 다시 눌러 재시도' : s.hint}</span>
+                        <span className="dc-step-label">{s.label}{isSkipped && <span className="caption faint"> · 건너뜀</span>}</span>
+                        {(isNext || st === 'running' || st === 'timeout' || isSkipped) && (
+                          <span className="dc-step-hint">{st === 'running' ? (s.director === 'model' && modelTarget ? `→ ${modelTarget} · 응답 기다리는 중…` : '응답 기다리는 중…') : st === 'timeout' ? '시간 초과 · 다시 눌러 재시도' : isSkipped ? 'API 키가 없어 모델 교체를 건너뛰어요' : s.hint}</span>
                         )}
                       </span>
                     </button>
@@ -300,7 +426,7 @@ export default function DirectorConsole() {
                 );
               })}
             </ol>
-            <p className="dc-keys faint">→ 또는 Space 다음 · ← 이전 · R 처음{nextStep ? '' : ' · 끝!'}</p>
+            <p className="dc-keys faint">→ 또는 Space 다음 · ← 커서 이전 · R 처음부터 재생{nextStep ? '' : ' · 끝!'}</p>
           </section>
 
           <section className="dc-sec" aria-label="타치">
@@ -337,10 +463,6 @@ export default function DirectorConsole() {
             </ul>
           </section>
 
-          <section className="dc-sec" aria-label="모델">
-            <h2 className="dc-h">모델</h2>
-            <ModelSwitcher />
-          </section>
 
           <section className="dc-sec" aria-label="기기 연결">
             <div className="dc-sec-head">
@@ -359,22 +481,41 @@ export default function DirectorConsole() {
 
       <main className="dc-stage" ref={stageRef} aria-label="무대">
         <div className="dc-toggles">
-          <button className="chip" aria-pressed={showSide && !showGraph} onClick={() => { setShowGraph(false); setShowSide(v => !v || showGraph); }}>민준 · 사이드 챗</button>
-          <button className="chip" aria-pressed={showGraph} onClick={() => setShowGraph(v => !v)}>기억 그래프</button>
+          <button className="chip" aria-pressed={showSide && !showGraph} onClick={() => { setManualStage(true); setShowGraph(false); setShowSide(v => !v || showGraph); }}>민준 · 사이드 챗</button>
+          <button className="chip" aria-pressed={showGraph} onClick={() => { setManualStage(true); setShowGraph(v => !v); }}>기억 그래프</button>
         </div>
         <div className="dc-frames" style={{ gap: GAP }}>
-          <Phone scale={scale} label="어머니 · 시니어 앱" name="김순자" src="/senior?as=mom&embed=1" k={frameKey} />
-          <Phone scale={scale} label="딸 지은 · 가족방" name="김지은" src="/family?as=jieun&embed=1" k={frameKey} />
+          <Phone scale={scale} label="어머니 · 시니어 앱" name="김순자" src={`/senior?as=mom&embed=1${themeQ}`} k={frameKey} />
+          <Phone scale={scale} label="딸 지은 · 가족방" name="김지은" src={`/family?as=jieun&embed=1${themeQ}`} k={frameKey} />
           {third === 'side' && (
             <Phone scale={scale} label="민준 · 사이드 챗" name="박민준" k={frameKey}
-              src={sideRoomId ? `/family?as=minjun&embed=1&room=${encodeURIComponent(sideRoomId)}` : '/family?as=minjun&embed=1'}
+              src={(sideRoomId ? `/family?as=minjun&embed=1&room=${encodeURIComponent(sideRoomId)}` : '/family?as=minjun&embed=1') + themeQ}
               caption={sideRoomId ? undefined : '일정 조율이 시작되면 사이드 챗이 열려요'} />
           )}
           {third === 'graph' && (
             <section className="dc-graph" style={{ width: GRAPH_W, height: PHONE_H * scale + LABEL_H }} aria-label="기억 그래프">
-              <div className="dc-label">기억 그래프 · Kùzu</div>
+              <div className="dc-label">기억 그래프 · {engineLabel}</div>
               <div className="dc-graph-box" style={{ height: PHONE_H * scale }}>
-                <MemoryGraph nodes={nodes} edges={edges} highlightIds={fresh} height={Math.max(200, PHONE_H * scale - 56)} interactive />
+                <MemoryGraph nodes={nodes} edges={edges} highlightIds={fresh} height={Math.max(160, PHONE_H * scale - 56 - (recall ? 150 : 0))} interactive />
+                {recall ? (
+                  <div className="dc-recall" aria-label="회상 근거">
+                    <div className="dc-recall-h"><b>회상 근거</b><span className="caption muted"> · {recall.memory?.title}</span></div>
+                    <div className="dc-chips">
+                      <span className="caption faint">키워드</span>
+                      {recall.matched.map(k => <span key={k} className="dc-chip">{k}</span>)}
+                    </div>
+                    <div className="dc-chips">
+                      <span className="caption faint">경로</span>
+                      {recall.path.nodes.map((n, i) => (
+                        <span key={n.id + i} className="dc-chip-wrap">
+                          <span className="dc-chip is-node">{n.name}</span>
+                          {recall.path.edges[i] && <span className="dc-chip-rel caption faint">{recall.path.edges[i].type ?? '→'}</span>}
+                        </span>
+                      ))}
+                    </div>
+                    {recall.cypher && <pre className="dc-cypher mono">{recall.cypher}</pre>}
+                  </div>
+                ) : <div className="dc-recall caption faint">‘불국사’ 회상 단계에서 매칭된 경로와 Cypher가 여기 나타나요.</div>}
                 <div className="dc-graph-stats caption muted">노드 {nodes.length} · 관계 {edges.length}{fresh.length > 0 ? ` · 방금 +${fresh.length}` : ''}</div>
               </div>
             </section>

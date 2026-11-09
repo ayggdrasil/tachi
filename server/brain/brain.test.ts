@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { BOT_SLOT_PREFS, DEMO_SCRIPT, USERS, buildCandidateSlots } from '../../shared/constants';
 import type { HealthSummary, Memory, PrivacySettings, SessionLog } from '../../shared/types';
 import { createBrain } from './index';
+import { questionCategory } from './heuristics/family';
 import type { FamilyContext, InterviewState } from './contract';
 
 process.env.TACHI_DEFAULT_MODEL = 'demo';
@@ -199,10 +200,14 @@ test('senior chat & switching models', async () => {
   const c = (await brain.seniorChat([], '어제 무릎이 좀 시렸어', mom)).value;
   assert.equal(c.category, 'health');
   assert.ok(c.reply.length > 0 && c.quickReplies.length > 0);
+  // P0-3: unavailable options are rejected
+  const prevKey = process.env.OPENAI_API_KEY; delete process.env.OPENAI_API_KEY;
+  assert.equal(brain.setActiveModel('gpt-terra').active, 'demo');
+  process.env.OPENAI_API_KEY = 'sk-test';
   const ms = brain.setActiveModel('gpt-terra');
   assert.equal(ms.active, 'gpt-terra');
-  // no key → heuristic with fallback=true
-  const prevKey = process.env.OPENAI_API_KEY; delete process.env.OPENAI_API_KEY;
+  // key removed later → heuristic with fallback=true
+  delete process.env.OPENAI_API_KEY;
   const res = await brain.seniorChat([], '안녕', mom);
   assert.equal(res.fallback, true);
   assert.equal(res.model, '데모 브레인');
@@ -286,4 +291,175 @@ test('F1 circuit breaker and live source', async () => {
   srv.close();
   resetCircuit();
   for (const [k, v] of [['ANTHROPIC_API_KEY', saved.k], ['TACHI_ANTHROPIC_BASE_URL', saved.u], ['TACHI_LLM_TIMEOUT_MS', saved.t]] as const) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+});
+
+// ── round-2 additions ──────────────────────────────────────────────────────
+import { assessBloodPressure } from './heuristics/health';
+import { resetCircuit } from './llm';
+
+const memoryFx = (): Memory => ({
+  id: 'm1', ownerId: 'mom', title: '1984년 봄, 경주 불국사 가족여행', story: '다보탑 앞에서 사진을 찍었어요.', summary: '가족과 불국사에 갔어요.',
+  year: 1984, era: '1980년대', season: '봄', place: '경주 불국사', placeId: 'gyeongju-bulguksa', people: [], emotions: ['즐거움'], tags: [],
+  visibility: 'family', status: 'saved', createdAt: '2026-11-09T01:00:00.000Z',
+});
+
+async function withFakeProvider<T>(reply: (body: { system: string }) => string | Error, fn: (b: ReturnType<typeof createBrain>) => Promise<T>): Promise<T> {
+  const realFetch = globalThis.fetch;
+  const saved = process.env.ANTHROPIC_API_KEY;
+  process.env.ANTHROPIC_API_KEY = 'test';
+  resetCircuit();
+  globalThis.fetch = (async (_u: unknown, init?: { body?: string }) => {
+    const r = reply(JSON.parse(init!.body!));
+    if (r instanceof Error) return new Response(r.message, { status: 500 });
+    return new Response(JSON.stringify({ content: [{ type: 'text', text: r }] }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    const b = createBrain();
+    b.setActiveModel('claude-sonnet');
+    return await fn(b);
+  } finally {
+    globalThis.fetch = realFetch; resetCircuit();
+    if (saved === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = saved;
+  }
+}
+
+test('F19: valid JSON missing fields is not credited to the live model', async () => {
+  await withFakeProvider(() => '{"unrelated": true}', async b => {
+    const r = await b.recallReply(memoryFx(), '불국사', mom);
+    assert.equal(r.source, 'heuristic'); assert.equal(r.fallback, true);
+    const s = await b.shareSummary(memoryFx(), mom);
+    assert.equal(s.source, 'heuristic'); assert.equal(s.fallback, true);
+  });
+  await withFakeProvider(() => '{"reply":"좋아요"}', async b => {
+    const r = await b.recallReply(memoryFx(), '불국사', mom);
+    assert.equal(r.source, 'llm'); assert.equal(r.fallback, false); assert.equal(r.value, '좋아요');
+    // interview reply without a question mark is invalid → heuristic provenance
+    const st = (await brain.startInterview({ memoryId: 'm1', photoUrl: '/x.jpg', senior: mom })).value.state;
+    const t = await b.interviewTurn(st, '80년대쯤이야', mom);
+    assert.equal(t.source, 'heuristic'); assert.equal(t.fallback, true);
+  });
+});
+
+test('F4: preflight records health, opens breaker on failure; mock is instant', async () => {
+  const demo = await brain.preflight('demo');
+  assert.deepEqual(demo, { key: 'demo', ok: true, latencyMs: 0 });
+  await withFakeProvider(() => 'OK', async b => {
+    const r = await b.preflight();
+    assert.equal(r.ok, true);
+    const o = b.getModelState().options.find(x => x.key === 'claude-sonnet')!;
+    assert.equal(o.healthy, true); assert.ok(typeof o.latencyMs === 'number');
+  });
+  await withFakeProvider(() => new Error('down'), async b => {
+    const r = await b.preflight();
+    assert.equal(r.ok, false);
+    assert.equal(b.getModelState().options.find(x => x.key === 'claude-sonnet')!.healthy, false);
+    // breaker open → next call answers instantly from heuristics
+    const a = await b.recallReply(memoryFx(), '불국사', mom);
+    assert.equal(a.fallback, true); assert.equal(a.source, 'heuristic');
+  });
+});
+
+test('F11: blood pressure severity', () => {
+  const lv = (systolic: number, diastolic: number) => assessBloodPressure({ systolic, diastolic }).level;
+  assert.equal(lv(200, 120), 'crisis');
+  assert.equal(lv(120, 120), 'invalid');
+  assert.equal(lv(300, 100), 'invalid');
+  assert.equal(lv(170, 95), 'high');
+  assert.equal(lv(145, 85), 'elevated');
+  assert.equal(lv(85, 70), 'low');
+  assert.equal(lv(127, 80), 'normal');
+});
+
+test('F11: family answer warns on a crisis latest reading despite a normal 7-day history', async () => {
+  const h = baseCtx().health!;
+  const bp = [...h.bloodPressure.slice(0, -1), { ...h.bloodPressure[h.bloodPressure.length - 1], systolic: 200, diastolic: 120 }];
+  const a = (await brain.answerFamily(step('health'), baseCtx({ health: { ...h, bloodPressure: bp } }))).value.text;
+  assert.match(a, /200\/120/);
+  assert.match(a, /바로.*연락/);
+  assert.doesNotMatch(a, /안정적/);
+});
+
+test('F11/F16: bot copy is never evaluative about health and does not say 확정 for candidates', async () => {
+  for (const id of ['jieun', 'minjun', 'suyeon', 'harin']) {
+    const p = user(id);
+    for (const text of ['혈압 200/120', '건강 기록이에요 혈압']) {
+      for (const kind of ['health_card', 'text']) {
+        const r = await brain.botReply({ persona: p, senior: mom, recent: [], trigger: { kind, text } });
+        assert.doesNotMatch(r.value, /건강하|안심|안정적|괜찮아서|다행/);
+      }
+    }
+    for (const text of ['일정 후보: 토요일 오전', '후보 시간이에요']) {
+      const r = await brain.botReply({ persona: p, senior: mom, recent: [], trigger: { kind: 'schedule_result', text } });
+      assert.doesNotMatch(r.value, /확정/);
+    }
+  }
+});
+
+test('F18: polarity-aware observations', async () => {
+  const obs = async (t: string) => (await brain.seniorChat([], t, mom)).value;
+  assert.deepEqual((await obs('아침 혈압약 먹었어')).observation, { medication: { taken: true, name: '혈압약', time: '아침' } });
+  assert.deepEqual((await obs('약 챙겨 먹었어')).observation, { medication: { taken: true } });
+  assert.deepEqual((await obs('약을 안 먹었어')).observation, { medication: { taken: false } });
+  assert.equal((await obs('저녁 약 깜빡했어')).observation?.medication?.taken, false);
+  assert.equal((await obs('점심에 관절약 못 먹었어')).observation?.medication?.name, '관절약');
+  assert.equal((await obs('기분 좋네')).observation?.mood, '좋음');
+  assert.equal((await obs('그저 그래')).observation?.mood, '보통');
+  assert.equal((await obs('오늘 좀 외로워')).observation?.mood, '조금 우울');
+  assert.equal((await obs('날씨 좋다')).observation, undefined);
+  for (const t of ['약 안 먹었어', '약 먹었어', '기분 좋네']) assert.doesNotMatch((await obs(t)).reply, /기록|저장/);
+});
+
+test('F18: LLM observation is validated', async () => {
+  await withFakeProvider(() => '{"reply":"그러셨군요","quickReplies":["응"],"category":"health","observation":{"medication":{"taken":"yes"},"mood":"엄청남"}}', async b => {
+    const r = await b.seniorChat([], '약 안 먹었어', mom);
+    assert.equal(r.source, 'llm');
+    assert.deepEqual(r.value.observation, { medication: { taken: false } }); // invalid LLM fields dropped, heuristic polarity kept
+  });
+});
+
+// ── QA fixes ────────────────────────────────────────────────────────────────
+test('P0-2: general wellbeing answers from public data; refusals use correct particles', async () => {
+  const a = (await brain.answerFamily('엄마 요즘 어때?', baseCtx({ privateCategories: ['daily'] }))).value;
+  assert.match(a.text, /\d{3}\/\d{2}|기분/);
+  assert.ok(!a.text.includes('비공개'));
+  const priv = (await brain.answerFamily(step('private'), baseCtx({ privateCategories: ['daily'] }))).value;
+  assert.match(priv.text, /일상 대화는/);
+  assert.match(priv.text, /직접 여쭤/);
+  const h = (await brain.answerFamily(step('health'), baseCtx({ health: undefined, privateCategories: ['health'] }))).value;
+  assert.match(h.text, /건강 정보는/);
+  assert.equal(questionCategory('엄마 오늘 어때?'), undefined);
+  assert.equal(questionCategory('엄마 안부 좀 알려줘'), undefined);
+});
+
+test('P1-4: gathering classifier needs noun + proposal and no question markers', async () => {
+  const fi = async (t: string) => (await brain.classifyFamilyIntent(t, user('jieun'))).value.type;
+  for (const t of ['엄마 생신 선물 뭐가 좋을까?', '타치, 지난번 모임 사진 어디 있어?', '다음 주에 엄마랑 병원 같이 가자', '타치, 모임 어때?'])
+    assert.notEqual(await fi(t), 'gathering', t);
+  assert.equal(await fi('타치, 지난번 모임 사진 어디 있어?'), 'ask_tachi');
+  assert.equal(await fi(step('gathering')), 'gathering');
+  assert.equal(await fi(step('private')), 'ask_tachi');
+  assert.equal(await fi(step('model')), 'ask_tachi');
+});
+
+test('P1-5: gathering place follows the proposal, mismatching memory ignored', async () => {
+  const members = ['jieun', 'minjun', 'suyeon', 'mom'].map(user);
+  const d = (await brain.draftGathering({ proposalText: '이번 엄마 생신에 다 같이 부산 가자!', proposer: user('minjun'), members, senior: mom, linkedMemory: memory })).value;
+  assert.match(d.place, /부산/);
+  assert.match(d.title, /부산/);
+  assert.ok(!d.background.includes(memory.title));
+});
+
+test('P1-6/P1-7: invite greeting and share summary audience', async () => {
+  const gh = (await brain.botReply({ persona: user('harin'), senior: mom, recent: [], trigger: { kind: 'system', text: '하린님이 초대되었어요' } })).value;
+  assert.equal(gh, '할머니~ 저도 왔어요! 사진 보니까 너무 좋다ㅎㅎ');
+  const gen = (await brain.botReply({ persona: user('suyeon'), senior: mom, recent: [], trigger: { kind: 'system', text: '수연님이 초대되었어요' } })).value;
+  assert.ok(gen.includes('초대해 줘서') && !gen.includes('알겠습니다'));
+  const sh = (await brain.shareSummary({ ...memory, people: [{ name: '박영수', relation: '남편' }] }, mom)).value;
+  assert.match(sh.summary, /아버님/);
+  assert.ok(!sh.summary.includes('남편분'));
+});
+
+test('P2: known node + photo word prefers recall over trip', async () => {
+  const r = (await brain.classifySeniorIntent('가족여행 사진 보여줘', { knownNodeNames: ['가족여행', '경주 불국사'], pending: null })).value;
+  assert.equal(r.type, 'recall');
 });

@@ -409,7 +409,8 @@ export interface ClientToServerEvents {
   'demo:bots': (p: { enabled: boolean }) => void;
   'demo:closePoll': () => void;                                // force-close the open poll
   'demo:say': (p: { userId: ID; roomId: ID; text?: string; photoUrl?: string }) => void; // director speaks as any persona
-  'demo:clock': (p: { time: string | null }) => void;          // set the virtual clock to today HH:MM (null = real time); director only
+  'demo:clock': (p: { time: string | null }) => void;
+  'demo:invite': (p: { roomId: ID; contactId: ID }) => void;  // director invites a phonebook contact (demo beat for the invite flow)          // set the virtual clock to today HH:MM (null = real time); director only
 }
 
 export interface ServerToClientEvents {

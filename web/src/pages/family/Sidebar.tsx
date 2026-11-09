@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { Check, ChevronDown, Plus } from 'lucide-react';
 import type { Room, User } from '../../../../shared/types';
 import { Avatar } from '../../components/common/Avatar';
@@ -87,7 +86,6 @@ export function Sidebar({ me, family, rooms, activeId, unread, onSelect, onNew, 
 
       <div className="fam-side-foot">
         <ModelSwitcher compact />
-        <Link className="fam-foot-link" to="/senior?as=mom">어머니 화면 보기</Link>
       </div>
     </aside>
   );

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-export interface LanInfo { urls: string[]; qr?: string }
+export interface LanInfo { urls: string[]; qr?: string; directorUrl?: string }
 
 /** Fetches /api/lan once (LAN URLs + QR data URL). Tolerant to small shape differences. */
 export function useLan(): LanInfo | null {
@@ -14,7 +14,8 @@ export function useLan(): LanInfo | null {
         const raw = (j.urls ?? j.lanUrls ?? (j.url ? [j.url] : [])) as unknown;
         const urls = Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : [];
         const qr = typeof j.qr === 'string' ? j.qr : typeof j.qrDataUrl === 'string' ? j.qrDataUrl : undefined;
-        setInfo({ urls, qr });
+        const directorUrl = typeof j.directorUrl === 'string' ? j.directorUrl : undefined;
+        setInfo({ urls, qr, directorUrl });
       })
       .catch(() => { if (alive) setInfo({ urls: [] }); });
     return () => { alive = false; };

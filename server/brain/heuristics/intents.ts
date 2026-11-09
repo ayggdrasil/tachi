@@ -24,6 +24,11 @@ export function seniorIntent(text: string, ctx: SeniorIntentContext): SeniorInte
     if (s >= 70 && s <= 230 && d >= 40 && d <= 140) return { type: 'health_log', systolic: s, diastolic: d, note: t };
   }
   if (/여행|가보고\s*싶|가 보고\s*싶|놀러|나들이|바람\s*쐬/.test(t)) {
+    // '가족여행 사진' names a stored memory and asks to see it: recall wins over a trip proposal.
+    if (/사진|앨범|기억|추억|보여|그때|옛날/.test(t)) {
+      const rk = matchKeywords(t, ctx.knownNodeNames);
+      if (rk.length) return { type: 'recall', keywords: rk };
+    }
     const pl = findPlaces(t)[0];
     return { type: 'trip', destination: pl?.region };
   }
@@ -58,7 +63,12 @@ export function matchKeywords(text: string, names: string[]): string[] {
 export function familyIntent(text: string, _asker: User): FamilyIntent {
   const t = text.trim();
   if (/시간\s*(?:좀\s*)?(?:잡|정|맞)|일정\s*(?:좀\s*)?(?:맞|조율|잡|정)|날짜\s*(?:좀\s*)?(?:정|잡)|언제\s*모일|언제\s*(?:만날|볼까)|스케줄/.test(t)) return { type: 'schedule' };
-  if (/모임|생신|모이자|만나자|가자|여행\s*가|뭉치|다\s*같이\s*(?:모|가|보)/.test(t)) {
+  // A tachi-addressed question is a question for tachi, never a proposal.
+  if (/타치/.test(t) && /[?？]/.test(t)) return { type: 'ask_tachi' };
+  const noun = /모임|생신|생일|여행|가족|다\s*같이/.test(t);
+  const proposal = /가자|모이자|하자|어때요\s*[?？]?|어떨까|뭉치자/.test(t);
+  const pastOrQuestion = /지난|어디\s*있|뭐가\s*좋|선물/.test(t);
+  if (noun && proposal && !pastOrQuestion) {
     const pl = findPlaces(t)[0];
     return { type: 'gathering', topic: pl ? `${pl.region} 가족 모임` : (/생신/.test(t) ? '어머니 생신 모임' : '가족 모임') };
   }

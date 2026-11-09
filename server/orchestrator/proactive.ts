@@ -2,7 +2,7 @@
 import { DAILY_REPORT_TIME, FAMILY_ROOM_ID, SENIOR_ROOM_ID, dayHeaderLabel } from '../../shared/constants';
 import type { Memory, PrivacyCategory, ProactiveKind, ReportPayload } from '../../shared/types';
 import { ctx } from './ctx';
-import { getDemo, getHealth, getPrivacy, memoryVisibleToFamily, now, patchDemo, runWithGen, senior, tachiSay } from './core';
+import { getDemo, markFiredUpTo, getHealth, getPrivacy, memoryVisibleToFamily, now, patchDemo, reportHighlight, runWithGen, senior, tachiSay } from './core';
 import { reactBots } from './bots';
 import { endSession, sessionHiddenFromFamily, startSession, todaysSessions } from './sessions';
 import { pick, warn, ymd } from '../util/misc';
@@ -39,11 +39,25 @@ export async function fireProactive(requested?: ProactiveKind): Promise<void> {
   ctx.db.kv.set(KEY_ACTIVE, sess.id);
   const entry = getDemo().proactiveSchedule.find(e => e.kind === want || e.kind === kind);
   if (entry) markFired(entry.kind);
+  markFiredUpTo(now()); // anything scheduled at or before 'now' must not re-fire from the ticker
   const ai = await ctx.brain.proactiveMessage({ kind, memory, senior: senior(), now: now() });
+  if (memory) ctx.db.kv.set<ProactiveMemory>(KEY_PROACTIVE_MEMORY, { memoryId: memory.id, sessionId: sess.id, at: now().toISOString() });
+  else ctx.db.kv.del(KEY_PROACTIVE_MEMORY);
   await tachiSay(SENIOR_ROOM_ID, {
-    text: ai.value.text, quickReplies: ai.value.quickReplies, meta: { proactive: true, sessionId: sess.id, category: CATEGORY[kind] },
+    text: ai.value.text, quickReplies: ai.value.quickReplies,
+    meta: { proactive: true, sessionId: sess.id, category: CATEGORY[kind], ...(memory ? { memoryId: memory.id } : {}) },
   }, ai);
 }
+
+const KEY_PROACTIVE_MEMORY = 'proactive-memory';
+export interface ProactiveMemory { memoryId: string; sessionId: string; at: string }
+/** The memory the latest proactive greeting referred to (for continuation replies like '그 사진 얘기해 줄게'); undefined once another flow started. */
+export function getProactiveMemory(): ProactiveMemory | undefined {
+  const p = ctx.db.kv.get<ProactiveMemory>(KEY_PROACTIVE_MEMORY);
+  return p && now().getTime() - new Date(p.at).getTime() < 30 * 60000 ? p : undefined; // goes stale after 30 min
+}
+/** Another flow started: the proactive memory is no longer the conversational target. */
+export function clearProactiveMemory(): void { if (ctx.db.kv.get(KEY_PROACTIVE_MEMORY)) ctx.db.kv.del(KEY_PROACTIVE_MEMORY); }
 
 function markFired(kind: ProactiveKind): void {
   const today = ymd(now());
@@ -69,6 +83,7 @@ const MASKED_TITLE = '대화';
 const MASKED_SUMMARY = '비공개 대화예요';
 
 export async function postReport(auto = false): Promise<void> {
+  ctx.db.kv.set('report-fired-on', ymd(now())); // manual or automatic: today's report is out, the ticker must not add another
   const sessions = todaysSessions();
   if (auto && !sessions.length) return;
   const privacy = getPrivacy();
@@ -88,13 +103,7 @@ export async function postReport(auto = false): Promise<void> {
   ].filter(t => t && t.length >= 2 && t !== MASKED_TITLE);
   let highlight = v.highlight;
   if (highlight && secrets.some(t => highlight!.includes(t))) highlight = undefined;
-  if (!highlight || hidden.size) {
-    const times = [...new Set(rows.map(r => r.time))];
-    const lastPublic = [...rows].reverse().find(r => !r.isPrivate);
-    highlight = rows.length
-      ? `오늘 ${times.join(', ')}에 어머님과 대화했어요. ${lastPublic ? `${lastPublic.title} 이야기를 하시며 편안한 시간을 보내셨어요.` : '오늘 나눈 이야기는 어머님이 비공개로 해 두셨어요.'}`
-      : v.highlight ?? '오늘은 아직 나눈 대화가 없어요.';
-  }
+  if (!highlight || hidden.size || rows.some(r => r.isPrivate)) highlight = rows.length ? reportHighlight(rows) : v.highlight ?? reportHighlight(rows);
   const payload: ReportPayload = {
     ...v, type: 'report',
     dateLabel: v.dateLabel || dayHeaderLabel(now()),
@@ -126,6 +135,7 @@ function inWindow(t: Date, hhmm: string): boolean {
 }
 
 export async function tick(): Promise<void> {
+  if (ctx.io?.sockets.adapter.rooms.get('user:director')?.size) return; // the Director drives the demo by hand
   const t = now();
   const today = ymd(t);
   for (const e of getDemo().proactiveSchedule) {

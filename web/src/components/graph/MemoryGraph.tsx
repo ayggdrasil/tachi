@@ -227,7 +227,7 @@ export function MemoryGraph({ nodes, edges, highlightIds, height, interactive, c
   const usedLabels = new Set(nodes.map(n => n.label));
 
   return (
-    <div className={`mg ${compact ? 'mg-compact' : ''}`} ref={wrapRef}>
+    <div className={`mg ${compact ? 'mg-compact' : ''} ${interactive ? 'mg-interactive' : ''}`} ref={wrapRef}>
       <svg className="mg-svg" width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="img"
         aria-label={`기억 그래프: 노드 ${nodes.length}개, 연결 ${edges.length}개`}
         onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>

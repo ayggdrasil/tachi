@@ -22,7 +22,7 @@ async function main() {
   mkdirSync(OUT, { recursive: true });
   const socket = io(BASE, { transports: ['websocket'] });
   await new Promise<void>((res, rej) => { socket.on('connect', () => res()); socket.on('connect_error', rej); });
-  await new Promise<void>(res => socket.emit('hello', { userId: DIRECTOR_ID }, () => res()));
+  await new Promise<void>(res => socket.emit('hello', { userId: DIRECTOR_ID, key: process.env.TACHI_DIRECTOR_KEY }, () => res()));
   socket.emit('demo:reset');
   await sleep(2500);
 
@@ -62,13 +62,26 @@ async function main() {
     const since = Date.now();
     if (step.director === 'proactive') socket.emit('demo:proactive', { kind: step.kind });
     else if (step.director === 'report') socket.emit('demo:report');
-    else if (step.as) {
+    else if (step.director === 'invite') socket.emit('demo:invite', { roomId: FAMILY_ROOM_ID, contactId: step.contactId! });
+    else if (step.director === 'model') {
+      // switch only if that model is available (server ignores unavailable keys), then ask the question
+      if (step.modelKey) socket.emit('model:set', { key: step.modelKey });
+      await sleep(400);
+      socket.emit('demo:say', { userId: step.as!, roomId: FAMILY_ROOM_ID, text: step.text });
+    } else if (step.as) {
       socket.emit('demo:say', { userId: step.as, roomId: step.room === 'family' ? FAMILY_ROOM_ID : SENIOR_ROOM_ID, text: step.text, photoUrl: step.photo });
     }
     const ok = await waitFor(step, since);
     timings[step.id] = Math.round((Date.now() - since) / 100) / 10;
     if (!ok) errors.push(`step ${step.id} did not complete (waitFor ${step.waitFor?.kind})`);
     await sleep(2200);
+    // Above-the-fold assertion: the step's primary action must be fully visible on the phone without scrolling.
+    if (step.id === 'a-story' || step.id === 'trip') {
+      const btn = senior.locator('[data-primary-action]').last();
+      const box = await btn.boundingBox().catch(() => null);
+      const vh = senior.viewportSize()?.height ?? 844;
+      if (!box || box.y < 0 || box.y + box.height > vh - 200) errors.push(`step ${step.id}: primary action not visible above the composer (${box ? Math.round(box.y) + '..' + Math.round(box.y + box.height) : 'missing'})`);
+    }
     const n = String(i++).padStart(2, '0');
     await shot(senior, `${n}-senior-${step.id}`);
     await shot(family, `${n}-family-${step.id}`);
@@ -78,7 +91,7 @@ async function main() {
   const desk = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: SCALE })).newPage();
   desk.on('pageerror', e => errors.push(`[desktop] pageerror ${e.message}`));
   await desk.goto(`${BASE}/family?as=jieun`); await sleep(2500); await shot(desk, '90-family-desktop');
-  await desk.goto(`${BASE}/demo`); await sleep(4000); await shot(desk, '91-director');
+  await desk.goto(`${BASE}/demo?key=${process.env.TACHI_DIRECTOR_KEY ?? ''}`); await sleep(4000); await shot(desk, '91-director');
   await desk.goto(`${BASE}/`); await sleep(1500); await shot(desk, '92-landing');
   await senior.locator('.sa-tabs button', { hasText: '추억' }).click().catch(() => {}); await sleep(1500); await shot(senior, '93-senior-album');
   await senior.locator('.sa-tabs button', { hasText: '설정' }).click().catch(() => {}); await sleep(1000); await shot(senior, '94-senior-privacy');

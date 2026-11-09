@@ -22,12 +22,13 @@ function progressPayload(p: Poll): ScheduleProgressPayload {
   return { type: 'schedule_progress', pollId: p.id, responded, waiting: p.participantIds.filter(id => !p.responses[id]) };
 }
 
-function refreshProgress(p: Poll): void {
+type ProgressStage = '응답 마감' | '후보 제안' | '확정';
+function refreshProgress(p: Poll, stage?: ProgressStage): void {
   const m = p.progressMessageId ? ctx.db.messages.get(p.progressMessageId) : undefined;
   if (!m) return;
   const pl = progressPayload(p);
   m.payload = pl;
-  m.text = p.status === 'closed' ? `일정 응답 ${pl.responded.length}/${p.participantIds.length} · 확정` : `일정 응답 ${pl.responded.length}/${p.participantIds.length}`;
+  m.text = `일정 응답 ${pl.responded.length}/${p.participantIds.length}${p.status === 'closed' && stage ? ` · ${stage}` : ''}`;
   updateMessage(m);
 }
 
@@ -136,15 +137,16 @@ export async function closePoll(pollId: ID): Promise<void> {
   const poll = ctx.db.polls.get(pollId);
   if (!poll || poll.status !== 'open') return;
   const { slot: best, available } = bestSlot(poll);
-  const unavailable = poll.participantIds.filter(u => !available.includes(u));
+  // disjoint: available / answered-but-can't-make-it / not answered
   const unanswered = poll.participantIds.filter(u => !poll.responses[u]);
+  const unavailable = poll.participantIds.filter(u => poll.responses[u] && !available.includes(u));
   const total = poll.participantIds.length;
   const unanimous = available.length === total;
   poll.status = 'closed';
   poll.resultSlotId = best.id;
   ctx.db.polls.put(poll);
   emitPoll(poll);
-  refreshProgress(poll);
+  refreshProgress(poll, unanimous ? '확정' : unanswered.length ? '응답 마감' : '후보 제안');
 
   const artifact = poll.artifactId ? ctx.db.artifacts.get(poll.artifactId) : undefined;
   if (artifact) {
@@ -164,14 +166,14 @@ export async function closePoll(pollId: ID): Promise<void> {
     ? await tachiSay(poll.familyRoomId, { kind: 'schedule_result', text: `${best.label}로 정했어요. (${available.length}/${total}명 가능)`, payload })
     : await tachiSay(poll.familyRoomId, {
       kind: 'schedule_result',
-      text: `가장 많이 가능한 후보예요 · ${available.length}/${total}명 (${best.label})`,
+      text: `가장 많이 가능한 후보예요 · ${available.length}/${total}명 (${best.label})${unanswered.length ? ` · 미응답 ${unanswered.length}명` : ''} · 아직 확정 전이에요`,
       payload,
       actions: [
         { id: 'confirm_slot', label: '이 시간으로 확정', style: 'primary', data: { pollId, slotId: best.id } },
         { id: 'repoll', label: '다시 조율', data: { pollId } },
       ],
     });
-  reactBots(poll.familyRoomId, res);
+  reactBots(poll.familyRoomId, res, unanimous ? { kind: 'schedule_result', text: `${best.label}로 일정이 확정됐어요` } : { kind: 'text', text: `일정 후보가 제안됐어요 (${best.label}) · 아직 확정되지 않았어요` });
   if (unanimous) await announceConfirmed(poll, best);
 }
 
@@ -192,6 +194,7 @@ export async function handleScheduleAction(userId: ID, msg: Message, actionId: s
     msg.payload = { ...res, slot, confirmed: true };
     msg.text = `${slot.label}로 확정했어요. (${res.available.length}/${poll.participantIds.length}명 가능)`;
     markActionDone(msg);
+    refreshProgress(poll, '확정');
     poll.resultSlotId = slot.id;
     ctx.db.polls.put(poll);
     emitPoll(poll);
@@ -205,6 +208,7 @@ export async function handleScheduleAction(userId: ID, msg: Message, actionId: s
       ctx.db.artifacts.put(artifact);
       emitArtifact(artifact);
     }
+    reactBots(poll.familyRoomId, msg, { kind: 'schedule_result', text: `${slot.label}로 일정이 확정됐어요` });
     await announceConfirmed(poll, slot);
   } else if (actionId === 'repoll') {
     markActionDone(msg);
@@ -253,12 +257,22 @@ export async function handleSideMessage(room: Room, userId: ID, text?: string): 
 }
 
 const NEGATIVE_RE = /(다|모두|전부|아무\s*때도)\s*(안|어려|못)|안 돼요?$|못 가/;
-const AVAIL_RE = /(토요일|일요일|주말|아무때|아무 때|언제든|다 괜찮|다 좋|점심|저녁|다음 주|다음주)/;
+const AVAIL_RE = /(토요일|일요일|토|일|주말|\d+\s*일|이번|다음\s*주|아무\s*때|언제든|다 괜찮|다 좋)/;
+const stripMeal = (t: string) => t.replace(/(오늘|내일)?\s*(아침|점심|저녁)\s*(먹|드|식사|뭐)\S*/g, '');
+const SLOT_WORD_RE = /(점심|저녁|오전|오후|아침)/;
+
+/** True while the schedule_request is the latest thing in the senior's room (a direct reply to it). */
+function directReply(poll: Poll): boolean {
+  const last = ctx.db.messages.byRoom(SENIOR_ROOM_ID, 4);
+  const i = last.map(m => m.kind === 'schedule_request' && (m.payload as { pollId?: string } | undefined)?.pollId === poll.id).lastIndexOf(true);
+  // the current message is already posted: at most that one senior text may follow the request
+  return i >= 0 && last.slice(i + 1).filter(m => m.senderId === SENIOR_ID).length <= 1;
+}
 
 /** The senior may answer an open poll by typing in her own room (only when she hasn't answered). */
 export async function tryMomAvailability(text: string): Promise<boolean> {
   const poll = ctx.db.polls.all().filter(p => p.status === 'open' && p.participantIds.includes(SENIOR_ID) && !p.responses[SENIOR_ID]).at(-1);
-  if (!poll || !(AVAIL_RE.test(text) || NEGATIVE_RE.test(text))) return false;
+  if (!poll || !(AVAIL_RE.test(stripMeal(text)) || NEGATIVE_RE.test(text) || (SLOT_WORD_RE.test(stripMeal(text)) && directReply(poll)))) return false;
   const ai = await withTyping(SENIOR_ROOM_ID, () => ctx.brain.parseAvailability(text, poll.slots));
   if (!ai.value.length) {
     if (!NEGATIVE_RE.test(text)) return false;

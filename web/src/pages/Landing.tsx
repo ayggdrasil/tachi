@@ -20,7 +20,11 @@ export default function Landing() {
   const people = USERS.filter(u => u.role !== 'ai');
 
   const go = (id: string) => {
-    if (id === 'director') { nav('/demo'); return; }
+    if (id === 'director') {
+      if (!lan?.directorUrl) return;
+      try { const u = new URL(lan.directorUrl, window.location.origin); window.location.assign(u.pathname + u.search); } catch { nav('/demo'); }
+      return;
+    }
     rememberPersona(id);
     nav(id === 'mom' ? `/senior?as=${id}` : `/family?as=${id}`);
   };
@@ -49,11 +53,11 @@ export default function Landing() {
               </li>
             ))}
             <li>
-              <button className="ld-row" onClick={() => go('director')}>
+              <button className="ld-row" onClick={() => go('director')} disabled={!lan?.directorUrl} aria-disabled={!lan?.directorUrl}>
                 <span className="ld-dir" aria-hidden><Clapperboard size={20} strokeWidth={1.5} /></span>
                 <span className="ld-row-main">
                   <span className="ld-name">디렉터</span>
-                  <span className="ld-role">발표 콘솔 · 두 화면을 한눈에 보고 시나리오를 진행해요</span>
+                  <span className="ld-role">{lan?.directorUrl ? '발표 콘솔 · 두 화면을 한눈에 보고 시나리오를 진행해요' : '디렉터 화면은 발표 노트북에서 열어 주세요 (키 필요)'}</span>
                 </span>
                 <ChevronRight size={18} strokeWidth={1.5} aria-hidden />
               </button>

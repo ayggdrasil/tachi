@@ -1,5 +1,5 @@
 // Unclaimed family personas act as AI bots (4.9).
-import { BOT_SLOT_PREFS, SENIOR_ID, TACHI_ID } from '../../shared/constants';
+import { BOT_SLOT_PREFS, KIN_RELATIONS, SENIOR_ID, TACHI_ID } from '../../shared/constants';
 import type { ID, Message, Poll, User } from '../../shared/types';
 import { ctx } from './ctx';
 import { displayName, emitTyping, getDemo, getUser, isAssistedOnly, later, post, senior } from './core';
@@ -29,24 +29,29 @@ export async function botSpeak(roomId: ID, user: User, trigger: { kind: string; 
   if (!text) return null;
   const current = getUser(user.id);
   if (!current?.isBot) return null; // a human claimed this persona meanwhile
-  return post(roomId, { senderId: user.id, text, meta: { generatedBy: 'bot' } });
+  return post(roomId, {
+    senderId: user.id, text,
+    meta: { generatedBy: 'bot', model: ai.model, fallback: ai.fallback, source: ai.source ?? (ai.fallback ? 'heuristic' : 'llm') },
+  });
 }
 
 /**
  * React to a family-room trigger: a human message or a Tachi card. Bot messages never call this,
  * so bots can't chain onto each other.
  */
-export function reactBots(roomId: ID, trigger: Message): void {
+export function reactBots(roomId: ID, trigger: Message, as?: { kind: string; text: string }): void {
   if (!botsOn()) return;
   const room = ctx.db.rooms.get(roomId);
   if (!room || room.type !== 'family') return;
   const fromTachi = trigger.senderId === TACHI_ID;
-  if (fromTachi && !CARD_KINDS.has(trigger.kind)) return;
-  const pool = shuffle(candidates(roomId, fromTachi ? undefined : trigger.senderId));
+  if (fromTachi && !as && !CARD_KINDS.has(trigger.kind)) return;
+  const health = trigger.kind === 'health_card' || as?.kind === 'health_card';
+  const pool = shuffle(candidates(roomId, fromTachi ? undefined : trigger.senderId)
+    .filter(u => !health || KIN_RELATIONS.includes(u.relation ?? '')));
   let chosen = pool.filter(() => Math.random() < 0.6).slice(0, 2);
   if (!chosen.length && fromTachi && pool.length) chosen = [pool[0]];
   chosen.forEach((u, i) => {
-    later(rand(1200, 3500) + i * 900, async () => { await botSpeak(roomId, u, { kind: trigger.kind, text: trigger.text }); });
+    later(rand(1200, 3500) + i * 900, async () => { await botSpeak(roomId, u, as ?? { kind: trigger.kind, text: trigger.text }); });
   });
 }
 
@@ -101,6 +106,6 @@ export function scheduleBotAnswers(poll: Poll): void {
 
 export async function greetInvitee(roomId: ID, user: User): Promise<void> {
   if (!botsOn() || !user.isBot) return;
-  later(1500, async () => { await botSpeak(roomId, user, { kind: 'system', text: `${user.name}님이 초대되었어요.` }); });
+  later(1500, async () => { await botSpeak(roomId, user, { kind: 'system', text: '초대' }); });
 }
 
