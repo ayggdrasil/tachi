@@ -70,7 +70,7 @@ function TripStoryCard({ message, variant, actionSlot }: CardProps) {
           <ul className="cd-ts-hl">{story.highlights.map(h => <li key={h}><MapPin size={14} aria-hidden />{h}</li>)}</ul>
         </section>
       )}
-      <p className="cd-ts-when"><CalendarDays size={15} aria-hidden /><span>{when}</span><span className="faint"> · {p.destination}</span></p>
+      <p className="cd-ts-when"><CalendarDays size={15} aria-hidden /><span>{[when, p.destination].filter(Boolean).join(' · ')}</span></p>
       <button type="button" className="cd-link cd-more cd-ts-toggle" aria-expanded={open} aria-controls={planId} onClick={() => setOpen(v => !v)}>
         {open ? t('trip.hidePlan') : t('trip.viewPlan')}<ChevronDown size={15} aria-hidden className={open ? 'cd-ts-flip' : undefined} />
       </button>

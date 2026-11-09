@@ -118,8 +118,9 @@
 .cd-ts-hl { margin: var(--space-4) 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: var(--space-6); }
 .cd-ts-hl li { display: inline-flex; align-items: center; gap: var(--space-4); min-height: 32px; padding: 0 var(--space-10);
   border: 1px solid var(--border); border-radius: var(--radius-pill); font-size: var(--text-caption); }
-.cd-ts-when { display: flex; align-items: center; gap: var(--space-6); font-size: var(--text-caption); font-weight: var(--weight-medium); }
+.cd-ts-when { display: flex; align-items: flex-start; gap: var(--space-6); font-size: var(--text-caption); font-weight: var(--weight-medium); }
 .cd-ts-toggle { display: inline-flex; align-items: center; gap: var(--space-4); }
+.cd-ts-when svg { flex: none; margin-top: 0.15em; }
 .cd-ts-toggle svg { transition: transform var(--dur-fast) var(--ease-out); }
 .cd-ts-flip { transform: rotate(180deg); }
 .cd-ts-plan { border-top: 1px solid var(--border); padding-top: var(--space-8); }

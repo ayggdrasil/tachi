@@ -7,7 +7,9 @@ import type { Page } from 'playwright';
 const { chromium } = createRequire(import.meta.url)('playwright') as typeof import('playwright');
 import { io } from 'socket.io-client';
 import { mkdirSync } from 'node:fs';
-import { DEMO_SCRIPT, DIRECTOR_ID, FAMILY_ROOM_ID, SENIOR_ROOM_ID } from '../../shared/constants';
+import { DIRECTOR_ID, FAMILY_ROOM_ID, SENIOR_ROOM_ID, demoScriptFor } from '../../shared/constants';
+// the script must match the server's language (LANG=ko for a Korean server; English is the default)
+const DEMO_SCRIPT = demoScriptFor(process.env.LANG_DEMO === 'ko' ? 'ko' : 'en');
 
 const BASE = process.env.BASE ?? 'http://localhost:4100';
 const OUT = process.env.OUT ?? 'docs/reviews/shots';
