@@ -1,9 +1,10 @@
 // Graph store: Kùzu when available (mirrored in memory for resilience), in-memory + JSON fallback otherwise.
 import { join } from 'node:path';
 import type { GraphDelta, GraphEdge, GraphNode, GraphPath, Memory } from '../../shared/types';
-import type { GraphSearchHit, GraphStore } from './contract';
+import type { GraphSearchHit, GraphStore, MirrorStatus } from './contract';
 import type { Backend } from './backend';
 import { ENTITY_PRIORITY, cypherFor, memoryNodeId, memoryToDelta } from './delta';
+import { GbrainMirror, gbrainOptionsFromEnv, type GbrainOptions } from './gbrain';
 import { KuzuBackend } from './kuzu';
 import { MemoryBackend } from './memory';
 
@@ -23,8 +24,10 @@ function variants(kw: string): string[] {
   return [...set];
 }
 
-export function createGraphStore(opts: { dataDir: string }): GraphStore {
-  return new Store(opts.dataDir);
+/** `gbrain`: mirror options, `false` to force it off; omitted → read TACHI_GBRAIN_URL / TACHI_GBRAIN_TOKEN. */
+export function createGraphStore(opts: { dataDir: string; gbrain?: GbrainOptions | false }): GraphStore {
+  const g = opts.gbrain === false ? undefined : (opts.gbrain ?? gbrainOptionsFromEnv());
+  return new Store(opts.dataDir, g ? new GbrainMirror(g) : undefined);
 }
 
 class Store implements GraphStore {
@@ -32,7 +35,7 @@ class Store implements GraphStore {
   private mirror: MemoryBackend;       // always kept in sync (and the fallback)
   private current!: Backend;
   private ready = false;
-  constructor(private dataDir: string) {
+  constructor(private dataDir: string, private gbrain?: GbrainMirror) {
     this.mirror = new MemoryBackend(); // persisted only when it is the active engine (see init)
   }
 
@@ -40,6 +43,14 @@ class Store implements GraphStore {
 
   async init() {
     if (this.ready) return;
+    await this.initPrimary();
+    if (this.gbrain) {
+      console.log(`[graph] GBrain mirror on: ${this.gbrain.status().url} (pages under ${this.gbrain.prefix}/)`);
+      void this.gbrain.start();
+    }
+  }
+
+  private async initPrimary() {
     if (process.env.TACHI_GRAPH_ENGINE !== 'memory') {
       try {
         const k = new KuzuBackend(join(this.dataDir, 'graph.kuzu'));
@@ -84,6 +95,7 @@ class Store implements GraphStore {
   clear(): Promise<void> { return this.mutate(() => this.clearNow()); }
 
   private async clearNow() {
+    void this.gbrain?.clear(); // queued ahead of the re-seed's writes
     await this.mirror.clear();
     if (this.primary !== this.mirror) { try { await this.primary.clear(); } catch (e) { console.warn('[graph] clear failed', e); this.current = this.mirror; } }
   }
@@ -96,12 +108,14 @@ class Store implements GraphStore {
     if (this.primary !== this.mirror) {
       try { await this.primary.upsert(memory, delta); } catch (e) { console.warn('[graph] Kùzu upsert failed, using in-memory graph:', e instanceof Error ? e.message : e); this.current = this.mirror; }
     }
+    void this.gbrain?.upsertMemory(memory, delta); // fire-and-forget: the mirror queues and never throws
     return delta;
   }
 
   linkFamily(personName: string, relation: string, seniorName: string): Promise<void> { return this.mutate(() => this.linkNow(personName, relation, seniorName)); }
 
   private async linkNow(personName: string, relation: string, seniorName: string) {
+    void this.gbrain?.linkFamily(personName, relation, seniorName);
     await this.mirror.linkFamily(personName, relation, seniorName);
     if (this.primary !== this.mirror) { try { await this.primary.linkFamily(personName, relation, seniorName); } catch { this.current = this.mirror; } }
   }
@@ -177,4 +191,51 @@ class Store implements GraphStore {
     const s = await this.b(b => b.stats());
     return { ...s, engine: this.engine };
   }
+
+  // ── GBrain mirror ──
+
+  async deepRecall(query: string, opts: { visibleMemoryIds?: string[]; limit?: number } = {}): Promise<GraphSearchHit[]> {
+    const gb = this.gbrain;
+    const q = query.trim();
+    if (!gb || !q) return [];
+    const limit = opts.limit ?? 3;
+    const rows = await gb.query(q, Math.max(limit * 2, 5));
+    if (!rows.length) return [];
+    // GBrain lowercases slugs, so hits are resolved through this graph's own Memory nodes (never trusted as ids)
+    const d = await this.b(b => b.dump());
+    const bySlug = new Map<string, GraphNode>();
+    for (const n of d.nodes) if (n.label === 'Memory') bySlug.set(gb.memorySlug(String(n.props?.memoryId ?? n.id.slice('memory:'.length))), n);
+    const visible = opts.visibleMemoryIds ? new Set(opts.visibleMemoryIds) : undefined;
+    const words = [...new Set(variants(q))];
+    const hits: GraphSearchHit[] = [];
+    for (const r of rows) {
+      const node = bySlug.get(r.slug);
+      const memoryId = node ? String(node.props?.memoryId ?? node.id.slice('memory:'.length)) : undefined;
+      if (!node || !memoryId || (visible && !visible.has(memoryId)) || hits.some(h => h.memoryId === memoryId)) continue;
+      const text = [node.name, node.props?.summary, node.props?.story].filter(x => typeof x === 'string').join(' ');
+      hits.push({
+        memoryId, score: r.score, via: 'gbrain',
+        matched: words.filter(w => text.includes(w)),   // empty for a purely semantic hit
+        path: { nodes: [node], edges: [] },
+        cypher: `gbrain query ${JSON.stringify(q)} where tachi_kind = memory → ${r.slug}${r.evidence ? ` (${r.evidence})` : ''}`,
+      });
+      if (hits.length >= limit) break;
+    }
+    return hits;
+  }
+
+  async backfillMirror(memories: Memory[], seniorName: string): Promise<void> {
+    const gb = this.gbrain;
+    if (!gb || !memories.length) return;
+    try { if (!(await gb.isEmpty())) return; } catch (e) { console.warn(`[graph] GBrain backfill skipped: ${e instanceof Error ? e.message : e}`); return; }
+    console.log(`[graph] GBrain mirror is empty: copying ${memories.length} memories`);
+    for (const m of memories) {
+      void gb.upsertMemory(m, memoryToDelta(m));
+      for (const p of m.people) if (p.relation) void gb.linkFamily(p.name, p.relation, seniorName);
+    }
+  }
+
+  flushMirror(): Promise<void> { return this.gbrain?.flush() ?? Promise.resolve(); }
+
+  mirrorStatus(): MirrorStatus | null { return this.gbrain?.status() ?? null; }
 }

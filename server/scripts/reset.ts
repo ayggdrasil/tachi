@@ -15,6 +15,7 @@ const t = Date.now();
 const stored = ctx.db.kv.get<'en' | 'ko'>('locale');
 const wanted = process.env.TACHI_LOCALE === 'ko' || process.env.TACHI_LOCALE === 'en' ? process.env.TACHI_LOCALE : stored;
 await resetDemo(wanted);
+await ctx.graph.flushMirror(); // the GBrain mirror (if on) gets its reset + re-seed before we exit
 console.log(`[tachi] reset done in ${Date.now() - t}ms`);
 ctx.db.close();
 process.exit(0);
