@@ -35,7 +35,11 @@ export function TaskCard({ message }: CardProps) {
   const locale = useLocale();
   const p = message.payload as TaskCardPayload;
   const users = useTachi(s => s.users);
-  const assignee = p.assigneeId ? users[p.assigneeId] : undefined;
+  // live task state when the artifact is loaded (a card is a snapshot: its status would go stale after a reply)
+  const live = useTachi(s => s.artifacts[p.artifactId]?.tasks.find(x => x.id === p.taskId));
+  const status = live?.status ?? (live?.done ? 'done' : undefined) ?? p.status;
+  const assigneeId = live ? live.assigneeId : p.assigneeId;
+  const assignee = assigneeId ? users[assigneeId] : undefined;
   const kicker = t(`task.stage.${p.stage}`);
 
   if (p.stage === 'done') {
@@ -53,7 +57,7 @@ export function TaskCard({ message }: CardProps) {
       {p.taskText && <h3 className="cd-title">{p.taskText}</h3>}
       {p.stage !== 'booking' && message.text && <p className="cd-warm">{message.text}</p>}
       <div className="cd-row">
-        {p.status && <TaskStatusChip status={p.status} />}
+        {status && <TaskStatusChip status={status} />}
         {assignee && <span className="cd-who"><Avatar user={assignee} size={20} decorative /><span className="cd-meta">{t('task.owner', { name: assignee.shortName })}</span></span>}
         {p.dueAt && <span className="cd-meta">{t('task.due', { due: dueLabel(p.dueAt, locale) })}</span>}
       </div>
