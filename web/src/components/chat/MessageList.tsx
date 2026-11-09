@@ -11,7 +11,7 @@ import './MessageList.css';
 
 interface Props { roomId: string; variant: 'senior' | 'family'; onOpenArtifact?: (artifactId: string) => void; onOpenRoom?: (roomId: string) => void; emptyHint?: React.ReactNode }
 
-const CARD_KINDS = new Set(['memory_card', 'recall_card', 'trip_suggestion', 'itinerary', 'share_card', 'artifact', 'schedule_request', 'schedule_result', 'health_card', 'report']);
+const CARD_KINDS = new Set(['memory_card', 'recall_card', 'trip_suggestion', 'itinerary', 'share_card', 'artifact', 'schedule_request', 'schedule_result', 'health_card', 'report', 'task_card']);
 /** Cards that render their own actions inside (right under the primary content) so they stay above the fold. */
 const INLINE_ACTIONS = new Set(['memory_card', 'itinerary', 'trip_suggestion']);
 const TEXT_ABOVE = new Set(['recall_card']);

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Plus, Sparkles, CalendarClock, X } from 'lucide-react';
-import type { Artifact } from '../../../../shared/types';
+import { Check, Plus, Sparkles, CalendarClock, X, CalendarPlus, ExternalLink, Bell, Loader2 } from 'lucide-react';
+import type { Artifact, ArtifactTask, User } from '../../../../shared/types';
+import { TaskStatusChip, dueLabel } from '../../components/cards/TaskCards';
 import { useTachi, tachi } from '../../lib/store';
 import { Avatar } from '../../components/common/Avatar';
 import './ArtifactPanel.css';
@@ -209,29 +210,9 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
 
       <Section title={`할 일 ${artifact.tasks.length ? `${doneCount}/${artifact.tasks.length}` : ''}`}>
         <ul className="ap-tasks">
-          {artifact.tasks.map(t => {
-            const as = t.assigneeId ? users[t.assigneeId] : undefined;
-            return (
-              <li key={t.id} className="ap-task">
-                <label className="ap-check-hit">
-                  <input type="checkbox" className="ap-check" checked={t.done} aria-label={`${t.text} 완료`}
-                    onChange={() => tachi.artifactTask(artifact.id, 'toggle', { taskId: t.id })} />
-                </label>
-                <span className={`ap-task-text ${t.done ? 'is-done' : ''}`}>{t.text}</span>
-                <span className="ap-assign">
-                  {as ? <Avatar user={as} size={22} /> : <span className="ap-noassign" aria-hidden />}
-                  <select className="ap-select" aria-label={`${t.text} 담당자`} value={t.assigneeId ?? ''}
-                    onChange={e => tachi.artifactTask(artifact.id, 'assign', { taskId: t.id, assigneeId: e.target.value })}>
-                    <option value="">담당 미정</option>
-                    {members.map(m => <option key={m.id} value={m.id}>{m.shortName}</option>)}
-                  </select>
-                </span>
-                <button className="btn btn-icon ap-rm" aria-label={`${t.text} 삭제`} onClick={() => tachi.artifactTask(artifact.id, 'remove', { taskId: t.id })}>
-                  <X size={14} strokeWidth={1.5} />
-                </button>
-              </li>
-            );
-          })}
+          {artifact.tasks.map(t => (
+            <TaskRow key={t.id} artifact={artifact} task={t} users={users} members={members} />
+          ))}
         </ul>
         <div className="ap-addtask">
           <input className="input" value={newTask} placeholder="할 일 추가" aria-label="할 일 추가"
@@ -252,5 +233,81 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <h3 className="ap-h">{title}</h3>
       {children}
     </section>
+  );
+}
+
+const FOLLOW_KIND: Record<string, string> = {
+  reminder: '알림', nudge: '다시 알림', escalate: '가족방에 알림', manual: '리마인드', reply: '답장', invite: '초대', booking: '예약 링크', status: '상태 변경',
+};
+
+function lastFollowUp(t: ArtifactTask): string | null {
+  const f = [...(t.followUps ?? [])].reverse().find(x => x.kind !== 'status');
+  if (!f) return null;
+  const d = new Date(f.at);
+  return `${FOLLOW_KIND[f.kind] ?? f.kind} · ${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/** One to-do: checkbox, text, owner, then status / due / last follow-up and the action Tachi can run for it. */
+function TaskRow({ artifact, task: t, users, members }: { artifact: Artifact; task: ArtifactTask; users: Record<string, User>; members: User[] }) {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  useEffect(() => { if (note) { const x = window.setTimeout(() => setNote(null), 4000); return () => window.clearTimeout(x); } }, [note]);
+  const as = t.assigneeId ? users[t.assigneeId] : undefined;
+  const kind = t.action?.kind ?? 'none';
+  const open = !t.done;
+  const confirmed = artifact.dateStatus === 'confirmed';
+  const action = kind === 'calendar_invite' ? { label: t.executedAt ? '초대 다시 보내기' : '초대 보내기', Icon: CalendarPlus, disabled: !confirmed, why: confirmed ? '' : '날짜가 확정되면 보낼 수 있어요' }
+    : kind === 'booking_link' ? { label: '예약 링크', Icon: ExternalLink, disabled: false, why: '' }
+    : kind === 'reminder' ? { label: '리마인드', Icon: Bell, disabled: !t.assigneeId, why: t.assigneeId ? '' : '담당자를 먼저 정해 주세요' }
+    : null;
+  const run = () => {
+    setBusy(true);
+    tachi.executeTask(artifact.id, t.id).then(r => {
+      setBusy(false);
+      setNote(r.ok ? (kind === 'calendar_invite' ? '초대를 보냈어요' : kind === 'booking_link' ? '가족방에 링크를 올렸어요' : '담당자에게 알렸어요') : (r.message ?? '보내지 못했어요. 다시 눌러 주세요.'));
+    });
+  };
+  const last = lastFollowUp(t);
+  const why = action?.disabled ? `${t.text}-why` : undefined;
+  return (
+    <li className="ap-task">
+      <div className="ap-task-main">
+        <label className="ap-check-hit">
+          <input type="checkbox" className="ap-check" checked={t.done} aria-label={`${t.text} 완료`}
+            onChange={() => tachi.artifactTask(artifact.id, 'toggle', { taskId: t.id })} />
+        </label>
+        <span className={`ap-task-text ${t.done ? 'is-done' : ''}`}>{t.text}</span>
+        <span className="ap-assign">
+          {as ? <Avatar user={as} size={22} /> : <span className="ap-noassign" aria-hidden />}
+          <select className="ap-select" aria-label={`${t.text} 담당자`} value={t.assigneeId ?? ''}
+            onChange={e => tachi.artifactTask(artifact.id, 'assign', { taskId: t.id, assigneeId: e.target.value })}>
+            <option value="">담당 미정</option>
+            {members.map(m => <option key={m.id} value={m.id}>{m.shortName}</option>)}
+          </select>
+        </span>
+        <button className="btn btn-icon ap-rm" aria-label={`${t.text} 삭제`} onClick={() => tachi.artifactTask(artifact.id, 'remove', { taskId: t.id })}>
+          <X size={14} strokeWidth={1.5} />
+        </button>
+      </div>
+      <div className="ap-task-meta">
+        <TaskStatusChip status={t.status ?? (t.done ? 'done' : 'todo')} />
+        {open && t.dueAt && <span className="caption muted">{dueLabel(t.dueAt)}까지</span>}
+        {last && <span className="caption faint">· {last}</span>}
+        {t.link && (
+          <a className="ap-link caption" href={t.link} {...(t.link.startsWith('/api/') ? { download: true } : { target: '_blank', rel: 'noopener noreferrer' })}>
+            {t.link.startsWith('/api/') ? '.ics 받기' : '링크 열기'}<span className="sr-only"> · {t.text}</span>
+          </a>
+        )}
+        {open && action && (
+          <button type="button" className="btn ap-act" onClick={run} disabled={busy || action.disabled} aria-busy={busy || undefined}
+            aria-describedby={why} title={action.why || undefined}>
+            {busy ? <Loader2 size={14} className="ap-spin" aria-hidden /> : <action.Icon size={14} strokeWidth={1.5} aria-hidden />}
+            {action.label}<span className="sr-only"> · {t.text}</span>
+          </button>
+        )}
+        {why && open && <span id={why} className="sr-only">{action?.why}</span>}
+      </div>
+      {note && <p className="ap-note caption muted" role="status">{note}</p>}
+    </li>
   );
 }

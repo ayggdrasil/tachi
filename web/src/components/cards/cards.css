@@ -108,3 +108,27 @@
 .cd-chosen { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-4); font-size: var(--text-caption); }
 .cd-chosen li { display: flex; align-items: center; gap: var(--space-6); }
 .senior .cd-chosen { font-size: var(--senior-body); }
+
+/* ── to-do execution cards (task_card) ── */
+.cd-kicker { display: inline-flex; align-items: center; gap: var(--space-6); color: var(--text-2); }
+.cd-who { display: inline-flex; align-items: center; gap: var(--space-4); }
+.cd-ics { align-self: flex-start; text-decoration: none; }
+.cd-links { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-6); }
+.cd-booklink {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); min-height: var(--target-min);
+  padding: 0 var(--space-12); border: 1px solid var(--border); border-radius: var(--radius-lg); color: var(--text);
+  font-size: var(--text-caption); text-decoration: none; overflow-wrap: anywhere;
+}
+@media (hover: hover) { .cd-booklink:hover { background: var(--hover); } }
+.cd-booklink:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.cd-task-done p { font-size: var(--text-caption); color: var(--text-2); }
+.cd-st { border: 1px solid transparent; }
+.cd-st-todo { background: transparent; border-color: var(--border-strong); }
+.cd-st-in_progress { background: var(--bg-chrome); color: var(--text); }
+.cd-st-done { background: var(--inverse-bg); color: var(--inverse-text); }
+.cd-st-blocked { background: transparent; border: 1px dashed var(--ink); color: var(--text); font-weight: var(--weight-semibold); }
+.cd-opentasks { display: flex; flex-direction: column; gap: var(--space-6); border-top: 1px solid var(--border); padding-top: var(--space-10); }
+.cd-opentasks ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-4); }
+.cd-opentasks li { display: flex; align-items: center; gap: var(--space-6); font-size: var(--text-caption); flex-wrap: wrap; }
+.senior .cd-booklink, .senior .cd-ics { min-height: var(--senior-control); font-size: var(--senior-control-text); }
+.senior .cd-task-done p, .senior .cd-opentasks li { font-size: var(--senior-caption); }

@@ -35,7 +35,16 @@
 @media (hover: none) { .ap-rm { opacity: 1; } }
 
 .ap-tasks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.ap-task { display: flex; align-items: center; gap: var(--space-8); padding: var(--space-6) 0; border-bottom: 1px solid var(--border); }
+.ap-task { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-6) 0 var(--space-8); border-bottom: 1px solid var(--border); }
+.ap-task-main { display: flex; align-items: center; gap: var(--space-8); }
+.ap-task-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-6); padding-left: 40px; }
+.ap-act { min-height: 32px; padding: 0 var(--space-10); font-size: var(--text-small); margin-left: auto; }
+@media (pointer: coarse) { .ap-act { min-height: var(--target-min); } }
+.ap-link { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+.ap-note { padding-left: 40px; }
+.ap-spin { animation: ap-rot 1s linear infinite; }
+@keyframes ap-rot { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ap-spin { animation: none; } }
 .ap-check { width: 20px; height: 20px; accent-color: var(--ink); flex: none; margin: 0; }
 .ap-task-text { flex: 1; min-width: 0; font-size: var(--text-caption); }
 .ap-task-text.is-done { color: var(--text-3); text-decoration: line-through; }
@@ -48,3 +57,4 @@
 @media (pointer: coarse) { .ap-check-hit { min-width: var(--target-min); min-height: var(--target-min); } }
 
 .ap-addtask .btn-icon { flex: none; }
+@media (pointer: coarse) { .ap-task-meta, .ap-note { padding-left: calc(var(--target-min) + var(--space-8)); } }
