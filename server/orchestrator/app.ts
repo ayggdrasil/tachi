@@ -20,6 +20,7 @@ import { installGuards, memoryVisibleToFamily, syncClock } from './core';
 import { attachSocketHandlers, preflightModel } from './socket';
 import { startTicker, stopTicker } from './proactive';
 import { log, warn } from '../util/misc';
+import { buildIcs } from '../calendar/ics';
 import type { ModelKey } from '../../shared/types';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -123,6 +124,18 @@ export async function createApp(opts: AppOptions = {}) {
       const ids = ctx.db.memories.all().filter(memoryVisibleToFamily).map(m => m.id);
       res.json(ids.length ? await ctx.graph.subgraph(ids) : { nodes: [], edges: [] });
     } catch (e) { res.status(500).json({ error: String(e) }); }
+  });
+  // Calendar invite download. The event id is an unguessable capability (shared only in the family room / members' own rooms).
+  app.get('/api/calendar/:file', (req, res) => {
+    const id = String(req.params.file ?? '').replace(/\.ics$/i, '');
+    const ev = /^cal-[A-Za-z0-9_-]{8,40}$/.test(id) ? ctx.db.calendarEvents.get(id) : undefined;
+    if (!ev) { res.status(404).json({ error: '일정을 찾지 못했어요.' }); return; }
+    const people = (uid: string) => { const u = ctx.db.users.get(uid); return u ? { id: u.id, name: u.name } : uid === 'tachi' ? { id: 'tachi', name: '타치' } : undefined; };
+    const body = buildIcs([ev], { people, calendarName: '우리 가족', product: 'Tachi' });
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="tachi-${ev.id.slice(4, 12)}.ics"; filename*=UTF-8''${encodeURIComponent(ev.title)}.ics`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(body);
   });
   app.get('/api/status', (_req, res) => {
     res.json({ ok: true, graphEngine: ctx.graph.engine, model: ctx.brain.getModelState().active });
