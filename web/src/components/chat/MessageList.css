@@ -1,8 +1,8 @@
 .ml-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.ml { flex: 1; overflow-y: auto; padding: var(--space-16) var(--space-16) var(--space-24); display: flex; flex-direction: column; gap: 2px; overscroll-behavior: contain; }
+.ml { flex: 1; overflow-y: auto; padding: var(--space-16) var(--space-16) var(--space-24); display: flex; flex-direction: column; gap: var(--space-2); overscroll-behavior: contain; }
 .ml-empty { margin: auto; text-align: center; padding: var(--space-24); }
 .ml-date { display: flex; justify-content: center; margin: var(--space-16) 0 var(--space-8); }
-.ml-date span { font-size: var(--text-small); color: var(--text-2); padding: 2px 12px; border: 1px solid var(--border); border-radius: var(--radius-pill); }
+.ml-date span { font-size: var(--text-small); color: var(--text-2); padding: var(--space-2) 12px; border: 1px solid var(--border); border-radius: var(--radius-pill); }
 .ml-senior .ml-date span { font-size: var(--senior-caption); min-height: 28px; display: inline-flex; align-items: center; }
 .ml-sys { margin: var(--space-6) 0; }
 .ml-row { display: flex; gap: var(--space-8); align-items: flex-start; animation: tachi-fade-up var(--dur-med) var(--ease-out) both; }
@@ -19,7 +19,7 @@
 .ml-pro { font-size: var(--text-micro); color: var(--text-3); }
 .ml-senior .ml-pro { font-size: var(--senior-caption); color: var(--text-2); }
 .ml-text { white-space: pre-wrap; line-height: 1.55; position: relative; }
-.ml-bubble { background: var(--bubble); padding: var(--space-8) var(--space-16); border-radius: var(--radius-bubble); }
+.ml-bubble { background: var(--bubble); padding: max(var(--space-8), .4em) max(var(--space-16), .6em); border-radius: var(--radius-bubble); }
 .ml-tachi { color: var(--text); }
 .ml-light { color: var(--text-2); }
 .ml-senior .ml-tools { display: flex; margin: -4px 0 -10px -14px; }
@@ -35,11 +35,8 @@
 .ml-auto-cap { font-size: var(--senior-caption); color: var(--text-2); }
 .ml-chips { display: flex; flex-wrap: wrap; gap: var(--space-8); margin-top: var(--space-6); }
 .ml-senior .ml-chips .chip { min-height: 48px; font-size: var(--senior-control-text); padding: 0 18px; white-space: normal; text-align: center; }
-.ml-typing { display: inline-flex; align-items: center; gap: 4px; color: var(--text-2); font-size: var(--text-caption); padding: 6px 0; }
-.ml-typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--text-2); animation: tachi-pulse 1.2s ease-in-out infinite; }
-.ml-typing i:nth-child(2) { animation-delay: .2s; }
-.ml-typing i:nth-child(3) { animation-delay: .4s; }
-.ml-typing span { margin-left: 6px; }
+.ml-typing { display: inline-flex; align-items: center; gap: var(--space-4); color: var(--text-2); font-size: var(--text-caption); padding: var(--space-6) 0; }
+.ml-typing span { margin-left: var(--space-2); }
 .ml-senior .ml-typing { font-size: var(--senior-caption); }
 .ml-new { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 6px; padding: 0 14px; min-height: 36px; border-radius: var(--radius-pill); background: var(--inverse-bg); color: var(--inverse-text); font-size: var(--text-caption); font-weight: var(--weight-medium); }
 .ml-senior .ml-new { min-height: 56px; font-size: var(--senior-caption); }
@@ -50,7 +47,7 @@
 .ml-spin { animation: ml-spin 0.9s linear infinite; }
 @keyframes ml-spin { to { transform: rotate(360deg); } }
 .ml-retry { font-size: var(--text-caption); color: var(--text); font-weight: var(--weight-medium); margin: 0; }
-.ml-retry-s, .ml-senior .ml-retry { font-size: var(--senior-body); }
+.ml-senior .ml-retry { font-size: var(--senior-body); }
 @media (prefers-reduced-motion: reduce) { .ml-spin { animation: none; } }
 .ml-result { display: inline-flex; align-items: center; gap: var(--space-6); margin: 0; font-size: var(--text-caption); font-weight: var(--weight-medium); }
 .ml-senior .ml-result { font-size: var(--senior-body); }

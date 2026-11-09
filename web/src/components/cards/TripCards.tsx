@@ -11,7 +11,7 @@ export function TripSuggestionCard({ message, variant, actionSlot }: CardProps) 
     <article className="cd" aria-label={message.text || p.title}>
       <div className="cd-row cd-between"><h3 className="cd-title">{p.title}</h3>
         <span className="cd-row">
-          <span className="badge">{p.durationLabel}</span>
+          {!p.title.includes(p.durationLabel) && <span className="badge">{p.durationLabel}</span>}
           {variant === 'senior' && <SpeakButton text={`${p.title}. ${p.reason}`} />}
         </span></div>
       <p className="cd-warm">{p.reason}</p>
@@ -60,9 +60,9 @@ export function ItineraryCard({ message, variant, actionSlot }: CardProps) {
               aria-selected={i === di} tabIndex={i === di ? 0 : -1} className="cd-tab"
               onClick={() => { setDay(i); setAll(false); }}
               onKeyDown={e => {
-                if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+                if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(e.key)) return;
                 e.preventDefault();
-                const n = (i + (e.key === 'ArrowRight' ? 1 : -1) + p.days.length) % p.days.length;
+                const n = e.key === 'Home' ? 0 : e.key === 'End' ? p.days.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + p.days.length) % p.days.length;
                 setDay(n); setAll(false); tabRefs.current[n]?.focus();
               }}>{x.label}</button>
           ))}

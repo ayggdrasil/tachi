@@ -61,7 +61,7 @@ function MemoryTab() {
   return (
     <>
       {shared.length === 0 ? (
-        <p className="caption muted mp-empty">아직 공유된 추억이 없어요. 어머님이 가족에게 보내 주시면 여기에 모여요.</p>
+        <p className="caption muted mp-empty">아직 공유된 추억이 없어요. 어머니가 가족에게 보내 주시면 여기에 모여요.</p>
       ) : (
         <ul className="mp-list">
           {shared.map(m => <li key={m.id}><MemoryTile memory={m} onClick={() => setOpen(m)} /></li>)}
@@ -69,7 +69,7 @@ function MemoryTab() {
       )}
       {nodes.length > 0 && (
         <section className="mp-graph" aria-label="기억 그래프">
-          <h3 className="mp-h">기억 그래프 <span className="faint">· 노드 {nodes.length} · 관계 {edges.length}</span></h3>
+          <h3 className="mp-h">기억 그래프 <span className="faint">· 연결 {edges.length}개</span></h3>
           <div className="mp-graph-box"><MemoryGraph nodes={nodes} edges={edges} highlightIds={fresh} height={220} compact /></div>
         </section>
       )}
@@ -99,8 +99,8 @@ function HealthTab() {
     return (
       <div className="mp-locked">
         <Lock size={20} strokeWidth={1.5} aria-hidden />
-        <p>어머님이 건강 정보를 비공개로 설정하셨어요</p>
-        <p className="caption faint">어머님이 공개하시면 이곳에서 함께 볼 수 있어요.</p>
+        <p>어머니께서 건강 정보를 비공개로 설정하셨어요</p>
+        <p className="caption faint">어머니께서 공개하시면 이곳에서 함께 볼 수 있어요.</p>
       </div>
     );
   }

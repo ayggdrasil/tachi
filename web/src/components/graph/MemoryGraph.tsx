@@ -107,8 +107,8 @@ function relaxRects(sn: { id: string; name: string; label: GraphNodeLabel; x: nu
   }
 }
 
-export function MemoryGraph({ nodes, edges, highlightIds, height, interactive, compact, large }: {
-  nodes: GraphNode[]; edges: GraphEdge[]; highlightIds?: string[]; height?: number; interactive?: boolean; compact?: boolean; large?: boolean;
+export function MemoryGraph({ nodes, edges, highlightIds, height, interactive, compact, large, labelMode = 'all' }: {
+  nodes: GraphNode[]; edges: GraphEdge[]; highlightIds?: string[]; height?: number; interactive?: boolean; compact?: boolean; large?: boolean; labelMode?: 'all' | 'focus';
 }) {
   const H = height ?? (compact ? 220 : 280);
   const fs = large ? (compact ? 14 : 15) : (compact ? 12 : 13);
@@ -257,6 +257,7 @@ export function MemoryGraph({ nodes, edges, highlightIds, height, interactive, c
             return (
               <g key={n.id} transform={`translate(${p.x},${p.y})`} className={`mg-node ${hi ? 'mg-fade' : ''} ${dim ? 'mg-dim' : ''} ${interactive ? 'mg-grab' : ''}`}
                 onPointerDown={e => onPointerDown(e, n.id)} onPointerEnter={() => interactive && setHover(n.id)} onPointerLeave={() => setHover(null)}>
+                {interactive && large && <circle r={16} className="mg-hit" />}
                 {hi && pulse && <circle r={16} className="mg-pulse" />}
                 <Shape label={n.label} />
                 {(() => {
@@ -265,6 +266,7 @@ export function MemoryGraph({ nodes, edges, highlightIds, height, interactive, c
                   const txt = trunc(n.name, compact ? (isMem ? (large ? 9 : 7) : maxChars) : isMem ? 11 : 8);
                   // Compact: the card title above already names the centre memory, so its label never competes for space.
                   if (compact && isMem) return <title>{n.name}</title>;
+                  if (labelMode === 'focus' && !isMem && !hi && hover !== n.id) return <title>{n.name}</title>;
                   return lp
                     ? <text x={lp.x - p.x} y={lp.y - p.y} textAnchor={lp.anchor} className={cls}>{txt}<title>{n.name}</title></text>
                     : <text y={isMem ? 22 : n.label === 'Emotion' ? 16 : 20} textAnchor="middle" className={cls}>{txt}<title>{n.name}</title></text>;

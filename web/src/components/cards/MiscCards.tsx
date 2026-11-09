@@ -30,7 +30,7 @@ export function ReportCard({ message }: CardProps) {
           </li>
         ))}
       </ul>
-      {p.moodLabel && <p className="cd-row"><span className="cd-label">오늘 기분</span><span className="badge">{p.moodLabel}</span></p>}
+      {p.moodLabel && <p className="cd-row"><span className="cd-label">기분</span><span className="badge">{p.moodLabel}</span></p>}
       {p.highlight && <p className="cd-warm">{p.highlight}</p>}
     </article>
   );

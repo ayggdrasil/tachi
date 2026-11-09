@@ -58,18 +58,23 @@ export function ScheduleRequestCard({ message, variant }: CardProps) {
   return (
     <article className="cd" aria-label="가능한 시간 선택">
       <h3 className="cd-title">{p.artifactTitle}</h3>
-      <p className="cd-meta">가능한 시간을 모두 골라 주세요</p>
-      <div className={`cd-slots ${senior ? 'cd-slots-s' : ''}`}>
-        {shown.map(s => (
-          <button key={s.id} type="button" className="chip cd-slot" aria-pressed={chosen.includes(s.id)} disabled={answered || busy}
-            onClick={() => toggle(s.id)}>
-            {chosen.includes(s.id) && <Check size={14} />}{s.label}
-          </button>
-        ))}
-      </div>
+      {!answered && <p className="cd-meta">가능한 시간을 모두 골라 주세요</p>}
+      {!answered && (
+        <div className={`cd-slots ${senior ? 'cd-slots-s' : ''}`}>
+          {shown.map(s => (
+            <button key={s.id} type="button" className="chip cd-slot" aria-pressed={chosen.includes(s.id)} disabled={busy}
+              onClick={() => toggle(s.id)}>
+              {chosen.includes(s.id) && <Check size={14} />}{s.label}
+            </button>
+          ))}
+        </div>
+      )}
       {limited && <button type="button" className="cd-link cd-more" aria-expanded={more} onClick={() => setMore(true)}>다른 시간 더 보기 (+{p.slots.length - shown.length})</button>}
       {answered ? (
-        <p className="cd-cap"><Check size={13} /> {chosen.length === 0 ? '이번엔 모두 어려워요' : `보냈어요 · ${chosen.length}개 선택`}</p>
+        <>
+          {chosen.length > 0 && <ul className="cd-chosen" aria-label="보낸 시간">{p.slots.filter(s => chosen.includes(s.id)).map(s => <li key={s.id}><Check size={14} aria-hidden />{s.label}</li>)}</ul>}
+          <p className="cd-cap" role="status"><Check size={13} aria-hidden /> {chosen.length === 0 ? '이번엔 모두 어렵다고 전했어요' : `가족 일정 조율에 보냈어요 · ${chosen.length}개`}</p>
+        </>
       ) : (
         <>
           <div className="cd-btns">

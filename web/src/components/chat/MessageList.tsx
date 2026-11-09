@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowDown } from 'lucide-react';
+import { ArrowDown, Loader2 } from 'lucide-react';
 import type { CardAction, Message, User } from '../../../../shared/types';
 import { SYSTEM_ID, TACHI_ID, dayHeaderLabel, koreanTime } from '../../../../shared/constants';
 import { selectRoomMessages, tachi, useTachi } from '../../lib/store';
@@ -17,14 +17,14 @@ const INLINE_ACTIONS = new Set(['memory_card', 'itinerary', 'trip_suggestion']);
 const TEXT_ABOVE = new Set(['recall_card']);
 const reducedMotion = () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-function ModelLine({ message, variant }: { message: Message; variant: 'senior' | 'family' }) {
+function ModelLine({ message, variant, inline }: { message: Message; variant: 'senior' | 'family'; inline?: boolean }) {
   // Seniors never see technical provenance; the family variant shows what actually produced the text.
   if (variant === 'senior') return null;
   const m = message.meta; if (!m?.model && !m?.fallback && !m?.source) return null;
   const line = m.source === 'rule' ? '자동 안내'
     : m.source === 'heuristic' || m.fallback ? '기본 응답'
     : m.model ?? '타치';
-  return <span className="ml-model">{line}</span>;
+  return <span className="ml-model">{inline ? `· ${line}` : line}</span>;
 }
 
 function GenBadge({ message }: { message: Message }) {
@@ -136,7 +136,7 @@ export function MessageList({ roomId, variant, onOpenArtifact, onOpenRoom, empty
                 <div data-mid={m.id} className={`ml-row ${mine ? 'ml-me' : 'ml-other'} ${head ? 'ml-head' : ''}`}>
                   {!mine && <div className="ml-av">{head && <Avatar user={sender} size={senior ? 36 : 30} decorative />}</div>}
                   <div className="ml-col">
-                    {!mine && head && <div className="ml-name">{isTachi ? '타치' : sender?.shortName ?? m.senderId}<GenBadge message={m} /><span className="ml-time">{koreanTime(date)}</span></div>}
+                    {!mine && head && <div className="ml-name">{isTachi ? '타치' : sender?.shortName ?? m.senderId}<GenBadge message={m} /><span className="ml-time">{koreanTime(date)}</span>{isTachi && <ModelLine message={m} variant={variant} inline />}</div>}
                     {!head && !mine && m.meta?.generatedBy && <div className="ml-name"><GenBadge message={m} /></div>}
                     {isTachi && m.meta?.proactive && head && <div className="ml-pro">타치가 먼저 말을 걸었어요 · {koreanTime(date)}</div>}
                     {m.kind === 'text' && (
@@ -151,7 +151,7 @@ export function MessageList({ roomId, variant, onOpenArtifact, onOpenRoom, empty
                     {body && <div className="ml-card">{body}</div>}
                     {senior && mine && m.meta?.generatedBy === 'assisted' && <span className="ml-auto-cap">자동 응답</span>}
                     {!inline && <ActionBar message={m} onOpenArtifact={onOpenArtifact} />}
-                    {isTachi && <ModelLine message={m} variant={variant} />}
+                    {isTachi && !head && <ModelLine message={m} variant={variant} />}
                     {isTachi && isLast && m.quickReplies && m.quickReplies.length > 0 && (
                       <div className="ml-chips">
                         {m.quickReplies.map(q => <button key={q} type="button" className="chip" onClick={() => tachi.send(roomId, q)}>{q}</button>)}
@@ -164,9 +164,9 @@ export function MessageList({ roomId, variant, onOpenArtifact, onOpenRoom, empty
           );
         })}
         {showTyping && (
-          <div className="ml-row ml-other ml-head" aria-hidden={false}>
+          <div className="ml-row ml-other ml-head">
             <div className="ml-av"><Avatar user={typer} size={senior ? 36 : 30} decorative /></div>
-            <div className="ml-col"><div className="ml-typing"><i /><i /><i /><span>{typingText}</span></div></div>
+            <div className="ml-col"><div className="ml-typing"><Loader2 size={senior ? 18 : 14} className="ml-spin" aria-hidden /><span>{typingText}</span></div></div>
           </div>
         )}
       </div>

@@ -79,7 +79,7 @@ export function ShareCard({ message }: CardProps) {
   const meta = [p.era, p.place].filter(Boolean).join(' · ');
   return (
     <article className="cd cd-share" aria-label={p.title}>
-      <p className="cd-cap cd-cap-top">어머님이 공유한 추억</p>
+      <p className="cd-cap cd-cap-top">어머니가 공유한 추억</p>
       {p.photoUrl && <img className="cd-photo-in" src={p.photoUrl} alt="" loading="lazy" decoding="async" />}
       <h3 className="cd-title">{p.title}</h3>
       {meta && <p className="cd-meta">{meta}</p>}
@@ -118,7 +118,7 @@ export function RecallCard({ message, variant }: CardProps) {
       <div className="cd-row cd-between"><h3 className="cd-title">{m.title}</h3>
         {senior && <SpeakButton text={[message.text, m.title, m.story].filter(Boolean).join('. ')} />}</div>
       <p className="cd-warm cd-clamp2">{excerpt}</p>
-      {m.story.length > anecdote.length && (
+      {(m.story.length > anecdote.length || m.story.length > 110) && (
         <details className="cd-disc cd-disc-story">
           <summary>이야기 전체 보기</summary>
           <blockquote className="cd-story">“{m.story}”</blockquote>

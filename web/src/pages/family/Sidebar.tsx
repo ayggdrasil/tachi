@@ -39,13 +39,15 @@ export function Sidebar({ me, family, rooms, activeId, unread, onSelect, onNew, 
       <button className={`fam-room ${r.id === activeId ? 'is-on' : ''}`} onClick={() => onSelect(r.id)} aria-current={r.id === activeId ? 'page' : undefined}>
         <span className="fam-room-title">{r.title}</span>
         {r.pollId && !r.title.includes('일정 조율') && <span className="badge">일정 조율</span>}
-        {unread[r.id] > 0 && <span className="fam-unread" aria-label={`읽지 않은 메시지 ${unread[r.id]}개`}>{unread[r.id]}</span>}
+        {unread[r.id] > 0 && <span className="fam-unread"><span aria-hidden>{unread[r.id]}</span><span className="sr-only">읽지 않은 메시지 {unread[r.id]}개</span></span>}
       </button>
     </li>
   );
 
+  const Root = full ? 'main' : 'aside';
   return (
-    <aside className={`fam-side ${full ? 'is-full' : ''}`} aria-label="대화방 목록">
+    <Root className={`fam-side ${full ? 'is-full' : ''}`} aria-label="대화방 목록">
+      {full && <h1 className="sr-only">대화방 목록</h1>}
       <div className="fam-side-head">
         <span className="fam-mark">타치</span>
         <div className="fam-persona" ref={box}>
@@ -89,6 +91,6 @@ export function Sidebar({ me, family, rooms, activeId, unread, onSelect, onNew, 
       <div className="fam-side-foot">
         <ModelSwitcher compact />
       </div>
-    </aside>
+    </Root>
   );
 }

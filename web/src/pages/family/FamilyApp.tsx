@@ -38,6 +38,8 @@ export default function FamilyApp() {
   const [invite, setInvite] = useState(false);
   const [newRoom, setNewRoom] = useState(false);
   const [more, setMore] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
+  const panelOpener = useRef<HTMLElement | null>(null);
   const moreBox = useRef<HTMLDivElement>(null);
   const moreBtn = useRef<HTMLButtonElement>(null);
   const [seen, setSeen] = useState<Record<string, number>>({});
@@ -136,25 +138,39 @@ export default function FamilyApp() {
 
   const openRoom = (id: string) => { setActiveId(id); setView('chat'); setPanel(null); };
   const selectRoom = (id: string) => { setActiveId(id); setView('chat'); setPanel(null); };
-  const togglePanel = (p: Panel) => setPanel(cur => (cur && p && cur.kind === p.kind && (cur.kind === 'mom' || (p.kind === 'artifact' && cur.kind === 'artifact' && cur.id === p.id)) ? null : p));
+  const openPanel = (p: Panel) => { panelOpener.current = document.activeElement as HTMLElement | null; setPanel(p); };
+  const closePanel = () => {
+    const inside = !!document.activeElement?.closest('.fam-panel, .fam-sheet');
+    setPanel(null);
+    if (inside) requestAnimationFrame(() => panelOpener.current?.focus({ preventScroll: true }));
+  };
+  const togglePanel = (p: Panel) => {
+    const same = !!(panel && p && panel.kind === p.kind && (panel.kind === 'mom' || (p.kind === 'artifact' && panel.kind === 'artifact' && panel.id === p.id)));
+    if (same) closePanel(); else openPanel(p);
+  };
 
   // Esc closes panel
   useEffect(() => {
     if (!panel) return;
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('[role="dialog"]')) setPanel(null); };
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('[role="dialog"]')) closePanel(); };
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [panel]);
 
   // "더 보기" menu: outside press / Escape close, focus moves in on open
   useEffect(() => {
     if (!more) return;
+    const placeMenu = () => { const r = moreBtn.current?.getBoundingClientRect(); if (r) setMenuPos({ top: r.bottom + 4, right: window.innerWidth - r.right }); };
+    placeMenu();
+    const onResize = () => setMore(false);
+    window.addEventListener('resize', onResize);
     moreBox.current?.querySelector<HTMLElement>('#fam-more-menu button')?.focus({ preventScroll: true });
     const on = (e: PointerEvent) => { if (!moreBox.current?.contains(e.target as Node)) setMore(false); };
     const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { setMore(false); moreBtn.current?.focus(); } };
     document.addEventListener('pointerdown', on);
     document.addEventListener('keydown', key);
-    return () => { document.removeEventListener('pointerdown', on); document.removeEventListener('keydown', key); };
+    return () => { window.removeEventListener('resize', onResize); document.removeEventListener('pointerdown', on); document.removeEventListener('keydown', key); };
   }, [more]);
 
   if (status === 'error') {
@@ -183,7 +199,7 @@ export default function FamilyApp() {
     <div className="fam-panel-body">
       <header className="fam-panel-head">
         <h2 className="fam-panel-title" id="fam-panel-title">{panel.kind === 'mom' ? '어머니 소식' : '모임 계획'}</h2>
-        <button className="btn btn-icon" data-autofocus onClick={() => setPanel(null)} aria-label="패널 닫기"><X size={18} strokeWidth={1.5} /></button>
+        <button className="btn btn-icon" data-autofocus onClick={closePanel} aria-label="패널 닫기"><X size={18} strokeWidth={1.5} /></button>
       </header>
       <div className="fam-panel-scroll">
         {panel.kind === 'mom' ? <MomPanel /> : <ArtifactPanel artifactId={panel.id} />}
@@ -192,6 +208,11 @@ export default function FamilyApp() {
   );
 
   const showSidebar = !narrow || view === 'list';
+
+  const SIDE_PREFIX = '일정 조율 · ';
+  const fullTitle = room?.title ?? '대화방';
+  const kicker = room?.type === 'side' && fullTitle.startsWith(SIDE_PREFIX) ? '일정 조율' : null;
+  const name = kicker ? fullTitle.slice(SIDE_PREFIX.length) : fullTitle;
 
   return (
     <div className={`fam ${narrow ? 'is-narrow' : ''} ${panel && !narrow ? 'has-panel' : ''}`}>
@@ -208,15 +229,15 @@ export default function FamilyApp() {
                 <ArrowLeft size={18} strokeWidth={1.5} />
               </button>
             )}
-            <h1 className="fam-head-title" title={room?.title}>{room?.title ?? '대화방'}</h1>
+            <h1 className="fam-head-title" title={fullTitle}>{kicker && <span className="fam-head-kicker">{kicker}</span>}<span className="fam-head-name">{name}</span></h1>
             <div className="fam-stack" role="group" aria-label={`참여자 ${members.length}명`}>
               {members.slice(0, 5).map(u => <span key={u.id} className="fam-stack-i"><Avatar user={u} size={24} /></span>)}
               {members.length > 5 && <span className="fam-stack-more">+{members.length - 5}</span>}
             </div>
             <span className="fam-spacer" />
             {room?.type === 'side' && (
-              <button className={`btn ${answeredHere ? 'btn-primary' : ''} fam-head-btn`} onClick={goFamily}>
-                <Home size={16} strokeWidth={1.5} /><span>가족방으로</span>
+              <button className={`btn ${answeredHere ? 'btn-primary' : ''} fam-head-btn`} onClick={goFamily} aria-label="가족방으로">
+                <Home size={16} strokeWidth={1.5} /><span className="fam-head-label">가족방으로</span>
               </button>
             )}
             {room?.type === 'family' && (
@@ -231,7 +252,7 @@ export default function FamilyApp() {
             <div className="fam-more" ref={moreBox}>
               <button ref={moreBtn} className="btn btn-icon" onClick={() => setMore(v => !v)} aria-label="더 보기" aria-expanded={more} aria-controls="fam-more-menu"><MoreHorizontal size={18} strokeWidth={1.5} /></button>
               {more && (
-                <div className="fam-menu fam-more-menu" id="fam-more-menu">
+                <div className="fam-menu fam-more-menu" id="fam-more-menu" style={menuPos ?? undefined}>
                   <p className="caption muted fam-menu-h">참여자 {members.length}명</p>
                   {members.map(u => (
                     <div key={u.id} className="fam-menu-item"><Avatar user={u} size={22} /><span>{u.name} · {u.relation === '본인' ? '어머니' : u.relation}</span></div>
@@ -257,9 +278,8 @@ export default function FamilyApp() {
             <>
               <div className="fam-thread">
                 <div className="fam-thread-inner">
-                  <h2 className="sr-only">대화</h2>
                   <MessageList roomId={room.id} variant="family"
-                    onOpenArtifact={id => { setPanel({ kind: 'artifact', id }); }}
+                    onOpenArtifact={id => openPanel({ kind: 'artifact', id })}
                     onOpenRoom={id => openRoom(id)} />
                 </div>
               </div>
@@ -279,8 +299,8 @@ export default function FamilyApp() {
       {panel && !narrow && <aside className="fam-panel" aria-label={panel.kind === 'mom' ? '어머니 소식' : '모임 계획'}>{panelNode}</aside>}
       {panel && narrow && (
         <>
-          <div className="scrim" aria-hidden="true" onClick={() => setPanel(null)} />
-          <PanelSheet onClose={() => { if (!document.querySelector('.dlg-wrap')) setPanel(null); }}>{panelNode}</PanelSheet>
+          <div className="scrim" aria-hidden="true" onClick={closePanel} />
+          <PanelSheet onClose={() => { if (!document.querySelector('.dlg-wrap')) closePanel(); }}>{panelNode}</PanelSheet>
         </>
       )}
 

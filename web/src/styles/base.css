@@ -44,7 +44,7 @@ h3 { font-size: var(--text-body); font-weight: var(--weight-semibold); }
 .btn-primary { background: var(--inverse-bg); color: var(--inverse-text); border-color: var(--inverse-bg); }
 .btn-primary:disabled { background: var(--fill-disabled); border-color: var(--fill-disabled); color: var(--text-3); }
 .btn-ghost { border-color: transparent; background: transparent; }
-.btn-icon { min-height: 36px; width: 36px; padding: 0; border-color: transparent; background: transparent; }
+.btn-icon { min-height: 36px; width: 36px; padding: 0; border: 0; border-color: transparent; background: transparent; }
 
 .chip {
   display: inline-flex; align-items: center; gap: var(--space-6);
@@ -58,7 +58,7 @@ h3 { font-size: var(--text-body); font-weight: var(--weight-semibold); }
 
 .badge {
   display: inline-flex; align-items: center; gap: var(--space-4);
-  padding: 1px var(--space-6); border-radius: var(--radius-badge);
+  padding: 0.125em 0.5em; border-radius: var(--radius-badge);
   background: var(--bg-chrome); color: var(--text-2);
   font-size: var(--text-micro); font-weight: var(--weight-medium); line-height: 1.5;
 }

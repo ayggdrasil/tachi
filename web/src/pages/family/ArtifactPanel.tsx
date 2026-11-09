@@ -192,9 +192,9 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
               const ok = poll.responses[id] !== undefined;
               return (
                 <span key={id} className={`ap-poll-p ${ok ? 'is-in' : ''}`} title={u?.name}>
-                  <Avatar user={u} size={28} />
+                  <Avatar user={u} size={28} hollow={!ok} />
                   <span className="caption">{u?.shortName ?? id}</span>
-                  <span className="ap-poll-st faint">{ok ? <Check size={12} strokeWidth={2} aria-label="응답함" /> : '대기'}</span>
+                  <span className="ap-poll-st muted">{ok ? <><Check size={12} strokeWidth={2} aria-hidden /><span className="sr-only">응답함</span></> : '대기'}</span>
                 </span>
               );
             })}

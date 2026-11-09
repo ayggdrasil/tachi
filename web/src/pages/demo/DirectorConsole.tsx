@@ -376,9 +376,9 @@ export default function DirectorConsole() {
 
   const graphSection = third === 'graph' && (
     <section className={`dc-graph ${graphBelow ? 'is-below' : ''}`} style={graphBelow ? { width: phonesW, height: STRIP_H } : { width: graphW, height: graphBoxH + LABEL_H }} aria-label="기억 그래프">
-              <div className="dc-label">기억 그래프 · {engineLabel} · 노드 {nodes.length} · 관계 {edges.length}{fresh.length > 0 ? ` · 방금 +${fresh.length}` : ''}</div>
+              <div className="dc-label">기억 그래프 · {engineLabel} · 연결 {edges.length}개{fresh.length > 0 ? ` · 방금 +${fresh.length}` : ''}</div>
               <div className="dc-graph-box" style={{ height: graphBoxH }}>
-                <MemoryGraph nodes={nodes} edges={edges} highlightIds={fresh} height={graphBelow ? Math.max(100, graphBoxH - 8) : Math.max(160, graphBoxH - 56 - (recall ? 150 : 0))} interactive />
+                <MemoryGraph nodes={nodes} edges={edges} highlightIds={fresh} labelMode={graphBelow ? 'focus' : 'all'} height={graphBelow ? Math.max(100, graphBoxH - 8) : Math.max(160, graphBoxH - 56 - (recall ? 150 : 0))} interactive />
                 {recall ? (
                   <div className="dc-recall" aria-label="회상 근거">
                     <div className="dc-recall-h"><b>회상 근거</b><span className="caption muted"> · {recall.memory?.title}</span></div>
@@ -403,7 +403,7 @@ export default function DirectorConsole() {
   );
 
   const statusLabel = status === 'ready' ? '연결됨' : status === 'error' ? '연결 오류' : '연결 중';
-  const modelLabel = models?.options.find(o => o.key === models.active)?.label ?? '—';
+  const modelLabel = models?.options.find(o => o.key === models.active)?.label ?? '확인 중';
   const family = Object.values(users).filter(u => u.role !== 'ai' && u.id !== DIRECTOR_ID);
   const nextStep = DEMO_SCRIPT[cursor];
   const busy = !!running;

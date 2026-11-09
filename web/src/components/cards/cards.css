@@ -27,7 +27,7 @@
 .cd-graph { border-top: 1px solid var(--border); padding-top: var(--space-10); display: flex; flex-direction: column; gap: var(--space-4); }
 .cd-people { display: inline-flex; gap: var(--space-6); align-items: center; font-size: var(--text-caption); color: var(--text-2); }
 .cd-path { display: flex; flex-wrap: wrap; gap: var(--space-4); min-width: 0; }
-.cd-hop { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px var(--space-6); max-width: 100%; min-width: 0; font-size: var(--text-small); padding: 2px var(--space-10); border: 1px solid var(--border); border-radius: var(--radius-pill); overflow-wrap: anywhere; word-break: break-word; }
+.cd-hop { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-6); max-width: 100%; min-width: 0; font-size: var(--text-small); padding: var(--space-2) var(--space-10); border: 1px solid var(--border); border-radius: var(--radius-pill); overflow-wrap: anywhere; word-break: break-word; }
 .cd-hop-n { min-width: 0; overflow-wrap: anywhere; }
 .cd-hop b { font-weight: var(--weight-medium); color: var(--text-2); font-size: var(--text-micro); }
 .cd-cypher { display: block; white-space: pre-wrap; word-break: break-all; }
@@ -87,7 +87,7 @@
 .cd-photo-recall { height: 120px; }
 .senior .cd-photo-mem { height: 120px; }
 .cd-recall .cd-clamp2 { -webkit-line-clamp: 3; }
-.senior .cd-memory .cd-dl-2 { row-gap: 2px; }
+.senior .cd-memory .cd-dl-2 { row-gap: var(--space-2); }
 .cd-facts { gap: var(--space-4) var(--space-12); }
 .cd-facts dd, .cd-facts dt { line-height: 1.35; overflow-wrap: anywhere; }
 .cd-graph-c { border-top: 1px solid var(--border); padding-top: var(--space-8); }
@@ -104,3 +104,7 @@
 @media (prefers-reduced-motion: reduce) { .cd-spin { animation: none; } }
 @media (pointer: coarse) { .cd-tab, .cd-more, .cd-disc summary { min-height: var(--target-min); } }
 @media (hover: hover) { button.cd-art-head:hover { background: var(--hover); } }
+
+.cd-chosen { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-4); font-size: var(--text-caption); }
+.cd-chosen li { display: flex; align-items: center; gap: var(--space-6); }
+.senior .cd-chosen { font-size: var(--senior-body); }

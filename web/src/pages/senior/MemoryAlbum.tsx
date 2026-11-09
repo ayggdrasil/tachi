@@ -29,7 +29,7 @@ export function MemoryAlbum({ onAskTachi }: { onAskTachi: () => void }) {
         </div>
       )}
       <h2 className="sa-h sa-h2">기억 그래프</h2>
-      <p className="muted sa-pad-s">타치가 추억을 서로 이어 놓은 모습이에요. 점을 눌러 끌어 보세요.</p>
+      <p className="muted sa-pad-s">타치가 추억을 서로 이어 놓은 모습이에요. 점을 누르면 이름이 크게 보여요. 끌어서 옮길 수도 있어요.</p>
       <div className="sa-graph"><MemoryGraph nodes={nodes} edges={edges} highlightIds={fresh} interactive large height={340} /></div>
 
       {open && (

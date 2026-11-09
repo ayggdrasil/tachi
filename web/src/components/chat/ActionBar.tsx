@@ -13,8 +13,8 @@ const RESULT: Record<string, string> = {
 };
 
 /** Card actions: idle → pending (spinner) → sent (stays disabled until the server marks it done) → or failed (retry). */
-export function ActionBar({ message, onOpenArtifact, inline, senior }: {
-  message: Message; onOpenArtifact?: (id: string) => void; inline?: boolean; senior?: boolean;
+export function ActionBar({ message, onOpenArtifact, inline }: {
+  message: Message; onOpenArtifact?: (id: string) => void; inline?: boolean;
 }) {
   const [phase, setPhase] = useState<Record<string, Phase>>({});
   const [chosen, setChosen] = useState<string | null>(null);
@@ -36,7 +36,9 @@ export function ActionBar({ message, onOpenArtifact, inline, senior }: {
       </div>
     );
   }
-  const failed = actions.some(a => !a.done && phase[a.id] === 'failed');
+  const doneActs = actions.filter(a => a.done);
+  const pending = actions.filter(a => !a.done);
+  const failedAct = actions.find(a => !a.done && phase[a.id] === 'failed');
   const run = (a: CardAction) => {
     if (a.id === 'open_artifact') {
       const id = (a.data?.artifactId as string | undefined) ?? (message.payload?.type === 'artifact' ? message.payload.artifactId : undefined);
@@ -57,21 +59,21 @@ export function ActionBar({ message, onOpenArtifact, inline, senior }: {
   };
   return (
     <div className={`ml-actions-wrap ${inline ? 'ml-actions-inline' : ''}`}>
-      <div className={`ml-actions ${inline ? 'ml-actions-row' : ''}`}>
-        {actions.map(a => {
-          const done = !!a.done;
+      {doneActs.map(a => <p key={a.id} className="ml-result" role="status"><Check size={16} aria-hidden />{RESULT[a.id] ?? `${a.label} 완료`}</p>)}
+      {pending.length > 0 && <div className={`ml-actions ${inline ? 'ml-actions-row' : ''}`}>
+        {pending.map(a => {
           const ph = phase[a.id];
           const busy = ph === 'pending';
-          const disabled = done || busy || ph === 'sent';
+          const disabled = busy || ph === 'sent';
           return (
-            <button key={a.id} type="button" className={`btn ${a.style === 'primary' && !done ? 'btn-primary' : ''}`} disabled={disabled}
+            <button key={a.id} type="button" className={`btn ${a.style === 'primary' ? 'btn-primary' : ''}`} disabled={disabled}
               data-primary-action={a.style === 'primary' ? a.id : undefined} aria-busy={busy || undefined} onClick={() => run(a)}>
-              {done && <Check size={16} />}{busy && <Loader2 size={16} className="ml-spin" aria-hidden />}{a.label}
+              {busy && <Loader2 size={16} className="ml-spin" aria-hidden />}{a.label}
             </button>
           );
         })}
-      </div>
-      {failed && <p className={`ml-retry ${senior ? 'ml-retry-s' : ''}`} role="alert">다시 시도해 주세요</p>}
+      </div>}
+      {failedAct && <p className="ml-retry" role="alert">‘{failedAct.label}’을 보내지 못했어요. 다시 눌러 주세요.</p>}
     </div>
   );
 }

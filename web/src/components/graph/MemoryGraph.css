@@ -2,7 +2,7 @@
 .mg-svg { display: block; touch-action: pan-y; user-select: none; }
 .mg-interactive .mg-svg { touch-action: pan-x pan-y; }
 .mg-interactive .mg-node { touch-action: none; }
-.mg-edge { stroke: var(--border-strong); stroke-width: 1; }
+.mg-edge { stroke: var(--border-field); stroke-width: 1; }
 .mg-edge-on { stroke: var(--text-2); }
 .mg-edge-hi { stroke: var(--text); stroke-width: 1.5; }
 .mg-memory { fill: var(--text); }
@@ -33,3 +33,4 @@
 @media (prefers-reduced-motion: reduce) { .mg-pulse { animation: none; } }
 .mg-text { list-style: none; }
 .mg-large .mg-rel, .mg-large .mg-tip-text { font-size: 14px; }
+.mg-hit { fill: transparent; }

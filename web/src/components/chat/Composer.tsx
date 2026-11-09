@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Camera, Image as ImageIcon, Images, Mic, Send, Square } from 'lucide-react';
 import { tachi } from '../../lib/store';
 import './Composer.css';
@@ -14,6 +14,19 @@ function normalizePhotos(json: unknown): string[] {
     if (!s) return '';
     return /^(https?:)?\//.test(s) ? s : `/demo-photos/${s}`;
   }).filter(Boolean);
+}
+
+/** Shrinks large phone photos before upload; falls back to the original on any failure. */
+async function downscale(f: File): Promise<File> {
+  try {
+    if (!/^image\/(jpeg|png|webp)$/.test(f.type) || f.size <= 600 * 1024) return f;
+    const bmp = await createImageBitmap(f);
+    const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    c.getContext('2d')!.drawImage(bmp, 0, 0, c.width, c.height);
+    const blob = await new Promise<Blob | null>(r => c.toBlob(r, 'image/jpeg', 0.85));
+    return blob && blob.size < f.size ? new File([blob], f.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' }) : f;
+  } catch { return f; }
 }
 
 export function Composer({ roomId, variant, placeholder, allowPhoto = true }: {
@@ -55,6 +68,13 @@ export function Composer({ roomId, variant, placeholder, allowPhoto = true }: {
   // Opening the popover moves focus to the first thumbnail.
   const popOpen = showSamples && samples.length > 0;
   useEffect(() => { if (popOpen) sampleRef.current?.querySelector<HTMLElement>('.cp-thumb')?.focus(); }, [popOpen]);
+  const [popStyle, setPopStyle] = useState<React.CSSProperties | undefined>();
+  useLayoutEffect(() => {
+    if (!popOpen) return;
+    const place = () => { const r = popRef.current?.getBoundingClientRect(); if (r) setPopStyle({ left: r.left, right: window.innerWidth - r.right, bottom: window.innerHeight - r.top + 8 }); };
+    place(); window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
+  }, [popOpen]);
   const closeSamples = () => { setShowSamples(false); triggerRef.current?.focus(); };
 
   useEffect(() => () => { window.clearTimeout(errTimer.current); try { recRef.current?.abort?.(); } catch { /* noop */ } }, []);
@@ -87,7 +107,7 @@ export function Composer({ roomId, variant, placeholder, allowPhoto = true }: {
     if (!f) return;
     if (f.size > 15 * 1024 * 1024) { showErr('사진이 너무 커요. 다른 사진을 골라 주세요'); return; }
     setErr(null); setUploading(true);
-    try { await tachi.sendPhoto(roomId, f); } catch { showErr('사진을 보내지 못했어요. 다시 눌러 주세요'); } finally { setUploading(false); }
+    try { await tachi.sendPhoto(roomId, await downscale(f)); } catch { showErr('사진을 보내지 못했어요. 다시 눌러 주세요'); } finally { setUploading(false); }
   };
 
   const toggleMic = () => {
@@ -115,7 +135,7 @@ export function Composer({ roomId, variant, placeholder, allowPhoto = true }: {
   const pickSample = (url: string) => { setShowSamples(false); tachi.sendPhotoUrl(roomId, url); };
 
   const samplePop = showSamples && samples.length > 0 && (
-    <div className="cp-pop" id="cp-samples" role="group" aria-label="예시 사진" ref={sampleRef}
+    <div className="cp-pop" id="cp-samples" role="group" aria-label="예시 사진" ref={sampleRef} style={popStyle}
       onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); closeSamples(); } }}>
       <p className="cp-pop-t">예시 사진</p>
       <div className="cp-thumbs">
@@ -155,7 +175,7 @@ export function Composer({ roomId, variant, placeholder, allowPhoto = true }: {
             </button>
           )}
           <input className="input cp-input" value={text} onChange={e => onChange(e.target.value)} onKeyDown={onKeyDown}
-            placeholder={listening ? '듣고 있어요…' : (placeholder ?? '타치에게 말해 보세요')} aria-label="메시지 입력" enterKeyHint="send" />
+            placeholder={listening ? '듣고 있어요…' : (placeholder ?? '말씀해 보세요')} aria-label="메시지 입력" enterKeyHint="send" />
           <button type="button" className="cp-round cp-send" disabled={!text.trim()} aria-label="보내기" onClick={submit}><Send size={24} /></button>
         </div>
       </div>
