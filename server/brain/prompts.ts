@@ -21,7 +21,7 @@ const SLOT_KO: Record<InterviewSlot, string> = { when: '언제 찍은 사진인�
 
 export function interviewStartPrompt() {
   return {
-    system: `${TACHI_PERSONA}\n어머님이 방금 옛 사진을 보여주셨어요. 사진에서 실제로 보이는 것만 한 문장(40자 이내, 해요체)으로 짧게 말하세요. 사람 얼굴이나 신원은 추측하지 마세요.\n${JSON_ONLY}\n스키마: {"observation": "사진에서 보이는 것을 한 문장으로"}`,
+    system: `${TACHI_PERSONA}\n어머님이 방금 옛 사진을 보여주셨어요. 사진에서 실제로 보이는 것만 한 문장(40자 이내, 해요체)으로 따뜻하게 말하세요. 사람은 '분'으로 세고(예: '탑 앞에 네 분이 나란히 서 계시네요'), '모양·그림·일러스트' 같은 말은 쓰지 마세요. 사람 얼굴이나 신원은 추측하지 마세요.\n${JSON_ONLY}\n스키마: {"observation": "사진에서 보이는 것을 한 문장으로"}`,
     user: '사진을 보고 한 문장으로 말해 주세요.',
   };
 }
@@ -126,7 +126,7 @@ export function gatheringPrompt(input: GatheringInput) {
   const ms = input.members.map(m => `${m.id}:${m.name}(${m.relation})`).join(', ');
   return {
     system: `${FAMILY_PERSONA}\n가족 모임 계획(아티팩트) 초안을 JSON으로 만드세요. title은 "어머니 생신 · 경주 가족 여행"처럼. background에는 제안 배경과 연결된 추억/여행을 한두 문장. tasks의 assigneeId는 구성원 id 중에서만 고르고, 성격에 맞게 배정해요(KTX·차량은 minjun, 숙소·식당은 suyeon, 케이크·꽃은 harin(있으면) 아니면 jieun, 어머님 복약·컨디션은 jieun). 날짜는 정하지 않아요.\n${JSON_ONLY}\n스키마: {"title":"...","background":"...","purpose":"...","place":"...","agenda":["4~6개"],"tasks":[{"text":"...","assigneeId":"minjun"}],"notes":"..."}`,
-    user: `[제안] ${input.proposer.name}: ${input.proposalText}\n[구성원] ${ms}\n[연결된 추억] ${input.linkedMemory ? memoryBlock(input.linkedMemory as Memory) : '(없음)'}\n[연결된 여행] ${input.linkedTrip ? `${input.linkedTrip.title} (${input.linkedTrip.destination})` : '(없음)'}`,
+    user: `[제안] ${input.proposer.name}: ${input.proposalText}\n[구성원] ${ms}\n[연결된 추억] ${input.linkedMemory ? memoryBlock(input.linkedMemory) : '(없음)'}\n[연결된 여행] ${input.linkedTrip ? `${input.linkedTrip.title} (${input.linkedTrip.destination})` : '(없음)'}`,
   };
 }
 
@@ -152,9 +152,9 @@ export function botPrompt(ctx: BotContext) {
   };
 }
 
-export function memoryBlock(m: Pick<Memory, 'title' | 'summary' | 'year' | 'place' | 'people' | 'emotions'> & Partial<Memory>): string {
-  const people = m.people.map(p => (p.relation ? `${p.relation} ${p.name}` : p.name)).join(', ');
-  return `${m.title} / ${m.summary} / 시기 ${m.year ?? m.era ?? '미상'} / 장소 ${m.place ?? '미상'} / 인물 ${people || '미상'} / 감정 ${m.emotions.join(', ')}${m.tags?.length ? ` / 키워드 ${m.tags.join(', ')}` : ''}`;
+export function memoryBlock(m: Pick<Memory, 'title' | 'summary'> & Partial<Memory>): string {
+  const people = (m.people ?? []).map(p => (p.relation ? `${p.relation} ${p.name}` : p.name)).join(', ');
+  return `${m.title} / ${m.summary} / 시기 ${m.year ?? m.era ?? '미상'} / 장소 ${m.place ?? '미상'} / 인물 ${people || '미상'} / 감정 ${(m.emotions ?? []).join(', ') || '미상'}${m.tags?.length ? ` / 키워드 ${m.tags.join(', ')}` : ''}`;
 }
 
 export type { PrivacyCategory };

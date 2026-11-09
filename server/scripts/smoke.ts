@@ -17,7 +17,7 @@ let failures = 0;
 const check = (ok: boolean, label: string) => { console.log(`${ok ? '  PASS' : '  FAIL'}  ${label}`); if (!ok) failures++; };
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-async function waitFor<T>(label: string, fn: () => T | undefined | false, timeoutMs = 20000): Promise<T | undefined> {
+async function waitFor<T>(label: string, fn: () => T | undefined | false, timeoutMs = Number(process.env.SMOKE_TIMEOUT_MS ?? 20000)): Promise<T | undefined> {
   const t0 = Date.now();
   while (Date.now() - t0 < timeoutMs) { const v = fn(); if (v) return v; await sleep(80); }
   check(false, `timeout waiting for ${label}`);
