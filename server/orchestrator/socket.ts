@@ -80,9 +80,9 @@ function requireDirector(sock: Sock): boolean {
 export async function preflightModel(key?: ModelKey): Promise<void> {
   const gen = ctx.gen;
   try {
-    const st = ctx.brain.getModelState();
-    const target = key ?? st.active;
-    const opt = st.options.find(o => o.key === target);
+    const ms = ctx.brain.getModelState();
+    const target = key ?? ms.active;
+    const opt = ms.options.find(o => o.key === target);
     if (!opt || opt.provider === 'mock' || !opt.available) return;
     const r = await ctx.brain.preflight(target);
     if (gen !== ctx.gen) return;

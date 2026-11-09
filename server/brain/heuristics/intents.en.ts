@@ -22,7 +22,7 @@ export function seniorIntentEn(text: string, ctx: SeniorIntentContext): SeniorIn
   if (/\b(?:send|share|forward|show)\b[^.?!]{0,16}\b(?:it|that|this|them|these)\b[^.?!]{0,12}\b(?:to|with)\b|\b(?:send|share|forward) (?:it|that|this|them)\b|\b(?:send|share|forward)\b[^.?!]{0,28}\b(?:kids|family|children|everyone)\b|\btell (?:the )?(?:kids|family|children)\b|\bshow (?:the )?(?:kids|family|children)\b/i.test(t) && !/blood\s*pressure/i.test(t)) return { type: 'ask_share' };
   const bp = parseBloodPressureEn(t);
   if (bp) return { type: 'health_log', ...bp, note: t };
-  if (/\b(?:trip|travel|take a trip|go (?:back )?(?:somewhere|there)|would love to (?:go|visit)|want to (?:go|visit)|go for a (?:drive|ride|walk)|outing|getaway|vacation|get some fresh air|visit)\b/i.test(t)) {
+  if (/\b(?:trip|travel|take a trip|go (?:back )?(?:somewhere|there)|would love to (?:go|visit)|want to (?:go|visit)|go for a (?:drive|ride|walk)|outing|getaway|vacation|get some fresh air|visit|(?:love|like|want|wish|would like) to (?:go|see) (?:back|there|again)|go back|go there)\b/i.test(t)) {
     // 'family trip photos' names a stored memory and asks to see it: recall wins over a trip proposal.
     if (PHOTO_WORDS.test(t)) {
       const rk = matchKeywordsEn(t, ctx.knownNodeNames);

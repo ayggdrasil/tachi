@@ -88,7 +88,7 @@ function ackForEn(prev: Analysis, now: Analysis, slot: InterviewSlot | 'extra', 
   const newWhen = !prevWhen && (now.year ?? now.era);
   const newWhere = !prev.place && now.place;
   const newPeople = now.people.filter(p => !prev.people.some(q => q.name === p.name));
-  if (newWhen && newWhere) return `${when}, ${now.place}. How lovely.`;
+  if (newWhen && newWhere) return `${when} at ${now.place}. How lovely.`;
   if (newWhen) return `${when}, I see.`;
   if (newWhere) return `So it was ${now.place}.`;
   if (newPeople.length) return `With ${listEn(newPeople.map(personCallEn))}. How lovely.`;

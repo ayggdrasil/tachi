@@ -63,13 +63,15 @@ export function resolvePhotoPath(url: string): string | undefined {
 export async function handleSeniorInput(room: Room, userId: ID, text?: string, photoUrl?: string, msgId?: ID): Promise<void> {
   try {
     // live model → the LLM agent runs the whole 1:1 conversation; a fallback/failed turn drops through to the offline pipeline below
-    if (ctx.brain.isLive() && (await tryAgent(room, text, photoUrl, msgId))) return;
+    if (brainIsLive() && (await tryAgent(room, text, photoUrl, msgId))) return;
     if (photoUrl) await startInterview(room, photoUrl);
     else if (text) await handleSeniorText(room, text);
   } finally {
     if (userId === SENIOR_ID) noteSeniorReply(room.id);
   }
 }
+
+const brainIsLive = (): boolean => { try { return typeof ctx.brain.isLive === 'function' && ctx.brain.isLive(); } catch { return false; } };
 
 /** Shortcuts that stay deterministic in agent mode: an open poll she answers by typing, and the buttons-as-text on an itinerary. */
 async function tryAgent(room: Room, text: string | undefined, photoUrl: string | undefined, msgId?: ID): Promise<boolean> {
@@ -255,6 +257,10 @@ export async function postRecallCard(roomId: ID, mem: Memory, text: string, ai?:
 const slotNow = (): '아침' | '점심' | '저녁' => { const h = now().getHours(); return h < 11 ? '아침' : h < 16 ? '점심' : '저녁'; };
 
 /** Persist a structured observation into HealthSummary. Returns what was actually stored. */
+/** Observation moods are typed Korean in the contract; show them in the active language. */
+const MOOD_EN: Record<string, string> = { '좋음': 'Good', '보통': 'So-so', '조금 우울': 'A bit down' };
+const moodLabel = (m: string): string => (isKo() ? m : MOOD_EN[m] ?? m);
+
 export function applyObservation(obs: SeniorObservation | undefined): { medication: boolean; mood: boolean; ask: boolean } {
   const done = { medication: false, mood: false, ask: false };
   if (!obs) return done;
@@ -284,7 +290,7 @@ export function applyObservation(obs: SeniorObservation | undefined): { medicati
     }
   }
   if (typeof obs.mood === 'string' && obs.mood.trim()) {
-    h.mood = [...h.mood.filter(x => x.date !== today), { date: today, label: obs.mood.trim().slice(0, 12) }].slice(-7);
+    h.mood = [...h.mood.filter(x => x.date !== today), { date: today, label: moodLabel(obs.mood.trim()).slice(0, 14) }].slice(-7);
     done.mood = true;
   }
   if (done.medication || done.mood) {
@@ -699,3 +705,34 @@ export async function logHealth(room: Room, text: string, sys?: number, dia?: nu
   }
   logSeniorSession('health', st('senior.sess.health'), st('senior.sess.healthSummary'));
 }
+
+// ── helpers for the LLM agent (seniorAgent.ts) ──────────────────────────────
+/** Offer a trip for one memory (one offer per memory; re-surfaces an open one instead of creating a twin). */
+export async function offerTripForMemory(room: Room, mem: Memory): Promise<void> {
+  const open = ctx.db.trips.all().find(t => t.memoryId === mem.id && t.status === 'suggested');
+  if (open) { await resurfaceTripOffer(room.id, open.id); return; }
+  if (hasLiveTrip(mem.id) || offerReserved.has(mem.id)) return;
+  offerReserved.add(mem.id);
+  try { await offerTrip(room.id, mem); } finally { offerReserved.delete(mem.id); queuedAccept.delete(mem.id); }
+}
+
+/** The trip the agent's accept / decline refers to: the pending offer, else the latest open suggestion. */
+function currentOfferedTrip(roomId: ID): Trip | undefined {
+  const p = getPending(roomId);
+  const byPending = p?.type === 'trip_confirm' ? ctx.db.trips.get(p.tripId) : undefined;
+  return byPending?.status === 'suggested' ? byPending : ctx.db.trips.all().filter(t => t.status === 'suggested').at(-1);
+}
+
+export async function acceptCurrentTrip(room: Room): Promise<void> {
+  const trip = currentOfferedTrip(room.id);
+  if (trip) { await acceptTrip(room.id, trip.id); return; }
+  queueAcceptIfReserved(); // the offer is still being prepared: honour the yes when it posts
+}
+
+export async function declineCurrentTrip(room: Room): Promise<void> {
+  const trip = currentOfferedTrip(room.id);
+  if (trip) await declineTrip(room.id, trip.id, { quiet: true });
+}
+
+/** Is a consent / trip confirmation waiting for her answer? */
+export const awaitingConfirmation = (roomId: ID): boolean => confirmationActive(roomId);

@@ -34,3 +34,4 @@
 .ld-lang-i { display: inline-flex; align-items: center; min-height: 44px; padding: 0 var(--space-12); border-radius: var(--radius-lg); font-size: var(--text-caption); color: var(--text-2); text-decoration: none; }
 @media (hover: hover) { .ld-lang-i:hover { background: var(--hover); } }
 .ld-lang-i.is-on { color: var(--text); font-weight: var(--weight-semibold); background: var(--press); }
+.ld-pitch { text-wrap: balance; }

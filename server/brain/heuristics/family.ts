@@ -6,10 +6,13 @@ import { findPlaces, templateFor } from '../../data/places';
 import { hasBatchim, hash, pick } from './ko';
 import { memoryRef, seniorCall } from './compose';
 import { assessBloodPressure } from './health';
+import { getLocale } from '../locale';
+import { BANNED_HEALTH_WORDS_EN, BIRTHDAY_RE_EN, answerFamilyEn, assistArtifactEn, botReplyEn, bpWarningEn, draftGatheringEn, fmtDateEn, questionCategoryEn, stripReassuranceEn } from './family.en';
 
 const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
 const DOW = ['일', '월', '화', '수', '목', '금', '토'];
 export function fmtDate(s: string): string {
+  if (getLocale() === 'en') return fmtDateEn(s);
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (!m) return s;
   const d = new Date(+m[1], +m[2] - 1, +m[3]);
@@ -17,6 +20,7 @@ export function fmtDate(s: string): string {
 }
 
 export function questionCategory(q: string): PrivacyCategory | undefined {
+  if (getLocale() === 'en') return questionCategoryEn(q);
   if (/혈압|복약|약\s|약은|약을|약도|건강|아프|병원|걸음|걷|수면|잠|운동|컨디션|식사|몸/.test(q)) return 'health';
   if (/기분|우울|감정|마음|웃|외로/.test(q)) return 'mood';
   // 일상 대화 only when asking about the content of conversations; general wellbeing ('요즘/오늘/어때') stays undefined.
@@ -45,6 +49,7 @@ const topic = (label: string): string => `${label}${hasBatchim(label) ? '은' : 
 
 /** Deterministic warning sentence when the latest reading is high/crisis; undefined otherwise. */
 export function bpWarning(ctx: FamilyContext): string | undefined {
+  if (getLocale() === 'en') return bpWarningEn(ctx);
   if (!ctx.health?.bloodPressure.length) return undefined;
   const latest = ctx.health.bloodPressure[ctx.health.bloodPressure.length - 1];
   const lv = assessBloodPressure(latest).level;
@@ -57,11 +62,16 @@ export function bpWarning(ctx: FamilyContext): string | undefined {
 export function enforceBpWarning(text: string, ctx: FamilyContext): string {
   const w = bpWarning(ctx);
   if (!w) return text;
+  if (getLocale() === 'en') { const k = stripReassuranceEn(text); return k.startsWith(w) ? k : `${w}${k ? ' ' + k : ''}`; }
   const kept = text.split(/(?<=[.!?。])\s+/).filter(s => !/안정|괜찮|걱정\s*(?:없|안\s*하)|문제\s*없|이상\s*없/.test(s)).join(' ').trim();
   return kept.startsWith(w) ? kept : `${w}${kept ? ' ' + kept : ''}`;
 }
 
 export function answerFamily(question: string, ctx: FamilyContext): FamilyAnswer {
+  if (getLocale() === 'en') {
+    const cat = questionCategory(question);
+    return answerFamilyEn(question, ctx, cat, ctx.health ? healthFacts(ctx.health) : undefined, bpWarning(ctx));
+  }
   const call = seniorCall(ctx.asker);
   const cat = questionCategory(question);
   if (cat && ctx.privateCategories.includes(cat)) {
@@ -117,7 +127,7 @@ export function answerFamily(question: string, ctx: FamilyContext): FamilyAnswer
 }
 
 // ── gathering ──────────────────────────────────────────────────────────────
-export const BIRTHDAY_RE = /생신|생일|칠순|팔순|환갑/;
+export const BIRTHDAY_RE = new RegExp(`생신|생일|칠순|팔순|환갑|${BIRTHDAY_RE_EN.source}`, 'i');
 /** Birthday only from explicit context: the proposal text or the linked memory/trip text. */
 export function isBirthdayContext(input: GatheringInput): boolean {
   const { proposalText, linkedMemory, linkedTrip } = input;
@@ -125,6 +135,7 @@ export function isBirthdayContext(input: GatheringInput): boolean {
 }
 
 export function draftGathering(input: GatheringInput): GatheringDraft {
+  if (getLocale() === 'en') return draftGatheringEn(input, isBirthdayContext(input));
   const { proposalText, proposer, members, linkedMemory, linkedTrip } = input;
   const text = proposalText;
   const pl = findPlaces(text)[0];
@@ -176,6 +187,7 @@ const ASSIST_POOL: { key: RegExp; text: string; who: string }[] = [
   { key: /알레르기|메뉴|식단/, text: '식사 메뉴·음식 제한 확인', who: 'suyeon' },
 ];
 export function assistArtifact(artifact: Artifact, members: User[]): { message: string; newTasks: { text: string; assigneeId?: string }[] } {
+  if (getLocale() === 'en') return assistArtifactEn(artifact, members);
   const existing = artifact.tasks.map(t => t.text).join(' ') + ' ' + artifact.notes;
   const picks = ASSIST_POOL.filter(p => !p.key.test(existing)).slice(0, 3);
   const newTasks = picks.map(p => ({ text: p.text, ...(members.some(m => m.id === p.who) ? { assigneeId: p.who } : {}) }));
@@ -189,6 +201,7 @@ export function assistArtifact(artifact: Artifact, members: User[]): { message: 
 const CALL: Record<string, string> = { jieun: '엄마', minjun: '어머니', suyeon: '어머님', harin: '할머니' };
 
 export function botReply(ctx: BotContext): string {
+  if (getLocale() === 'en') return botReplyEn(ctx);
   const id = ctx.persona.id;
   const kind = ctx.trigger.kind;
   const seed = `${id}|${ctx.trigger.text}|${kind}`;
@@ -276,4 +289,4 @@ export function botReply(ctx: BotContext): string {
 }
 
 /** Reassuring/evaluative wording is banned in bot replies about health. */
-export const BANNED_HEALTH_WORDS = /건강하(?:시|셔|세)|안심|안정적|괜찮아서|다행|문제\s*없|좋은\s*수치/;
+export const BANNED_HEALTH_WORDS = new RegExp(`건강하(?:시|셔|세)|안심|안정적|괜찮아서|다행|문제\\s*없|좋은\\s*수치|${BANNED_HEALTH_WORDS_EN.source}`, 'i');

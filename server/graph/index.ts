@@ -7,15 +7,17 @@ import { ENTITY_PRIORITY, cypherFor, memoryNodeId, memoryToDelta } from './delta
 import { KuzuBackend } from './kuzu';
 import { MemoryBackend } from './memory';
 
+const EN_STOP = new Set(['the', 'and', 'for', 'with', 'from', 'that', 'this', 'was', 'were', 'our', 'her', 'his', 'my', 'of', 'in', 'at', 'to', 'a', 'an', 'on']);
 const PARTICLES = ['이랑', '하고', '에서', '으로', '에게', '한테', '이', '가', '은', '는', '을', '를', '에', '랑', '의', '도', '로', '와', '과'];
 function variants(kw: string): string[] {
-  const base = kw.trim();
+  const base = kw.trim().replace(/['’]s$/i, '').replace(/[,.!?;:]+$/, '');
   const set = new Set<string>();
   const add = (s: string) => { if (s.length >= 2) set.add(s); };
   add(base);
   for (const p of PARTICLES) if (base.length > p.length + 1 && base.endsWith(p)) { add(base.slice(0, -p.length)); break; }
   for (const part of base.split(/\s+/)) {
-    add(part);
+    if (EN_STOP.has(part.toLowerCase())) continue;
+    add(part.replace(/[,.!?;:]+$/, ''));
     for (const p of PARTICLES) if (part.length > p.length + 1 && part.endsWith(p)) { add(part.slice(0, -p.length)); break; }
   }
   return [...set];

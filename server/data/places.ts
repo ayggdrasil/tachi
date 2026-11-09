@@ -259,8 +259,8 @@ export const ITINERARY_TEMPLATES_EN: Record<string, ItineraryTemplate> = {
     highlights: ['Bulguksa Temple and Dabotap Pagoda', 'A stroll through Daereungwon', 'Donggung Palace and Wolji Pond at night', 'Bomun Lake'],
     days: [
       { label: 'Day 1', stops: [
-        { time: '08:30', title: 'Depart Seoul Station', description: 'Ride the KTX in comfort.', travel: 'About 2 hours by KTX to Singyeongju Station', note: 'Bring your medicine, taken on your usual schedule.' },
-        { time: '11:00', title: 'Arrive at Singyeongju Station, lunch', description: 'A hearty Gyeongju set meal.', travel: '20 min by taxi', note: 'We will book a restaurant with seated dining.' },
+        { time: '08:30', title: 'Depart Seoul Station', description: 'Ride the KTX in comfort.', travel: 'KTX 2h 10m', note: 'Bring your medicine, taken on your usual schedule.' },
+        { time: '11:00', title: 'Arrive at Singyeongju Station', description: 'Then a hearty Gyeongju set meal for lunch.', travel: '20 min by taxi', note: 'We will book a restaurant with seated dining.' },
         { time: '13:00', placeId: 'gyeongju-bulguksa', title: 'Bulguksa Temple', description: 'Take a photo in front of Dabotap and Seokgatap pagodas again.', travel: '15 min by taxi', note: 'Mostly flat · wheelchair rental available · take stairs slowly' },
         { time: '15:30', placeId: 'gyeongju-bomun', title: 'Walk around Bomun Lake', description: 'Stroll slowly along the cherry tree path.', travel: '15 min by taxi', note: '30-minute rest on a bench' },
         { time: '18:00', placeId: 'gyeongju-donggung', title: 'Donggung Palace and Wolji Pond at night', description: 'Enjoy the evening lights.', travel: '15 min by taxi', note: 'Flat path · bring a light jacket' },
@@ -280,8 +280,9 @@ export const ITINERARY_TEMPLATES_EN: Record<string, ItineraryTemplate> = {
     highlights: ['Haeundae Beach', 'A walk around Dongbaek Island', 'Gwangalli at night', 'Fresh sashimi at Jagalchi Market'],
     days: [
       { label: 'Day 1', stops: [
-        { time: '08:00', title: 'Depart Seoul Station', description: 'Ride the KTX in comfort.', travel: 'About 2 hr 40 min by KTX to Busan Station', note: 'Bring your medicine, taken on your usual schedule.' },
-        { time: '11:00', placeId: 'busan-jagalchi', title: 'Lunch at Jagalchi Market', description: 'Fresh sashimi for lunch.', travel: '10 min by subway', note: 'We will pick an indoor, seated restaurant.' },
+        { time: '08:00', title: 'Depart Seoul Station', description: 'Ride the KTX in comfort.', travel: 'KTX 2h 40m', note: 'Bring your medicine, taken on your usual schedule.' },
+        { time: '10:50', title: 'Arrive at Busan Station', description: 'Head straight to lunch.', travel: '10 min by subway' },
+        { time: '11:30', placeId: 'busan-jagalchi', title: 'Lunch at Jagalchi Market', description: 'Fresh sashimi for lunch.', travel: '10 min by subway', note: 'We will pick an indoor, seated restaurant.' },
         { time: '14:00', placeId: 'busan-haeundae', title: 'Haeundae Beach', description: 'Walk slowly along the shore.', travel: '30 min by taxi', note: 'Flat promenade · many benches' },
         { time: '16:00', placeId: 'busan-dongbaek', title: 'Dongbaek Island loop', description: 'A gentle walk all the way around.', travel: '10 min on foot', note: 'Rests included' },
         { time: '18:30', title: 'Dinner in Haeundae', description: 'Grilled clams or a warm rice soup.', note: 'Seated restaurant' },
@@ -308,8 +309,8 @@ export function genericTemplateEn(destination: string, place?: Place): Itinerary
     highlights: names.slice(0, 4),
     days: [
       { label: 'Day 1', stops: [
-        { time: '09:00', title: 'Depart Seoul', description: 'Travel in comfort.', travel, note: 'Bring your medicine, taken on your usual schedule.' },
-        { time: '12:00', title: `Arrive in ${destination}, lunch`, description: 'A hearty local meal.', note: 'Seated restaurant' },
+        { time: '09:00', title: 'Depart Seoul Station', description: 'Travel in comfort.', travel, note: 'Bring your medicine, taken on your usual schedule.' },
+        { time: '12:00', title: `Arrive at ${destination}`, description: 'Then a hearty local meal for lunch.', note: 'Seated restaurant' },
         { time: '14:00', placeId: near[0]?.id, title: pick(0), description: 'Take a slow look around.', travel: '15 min by taxi', note: place?.seniorNoteEn || 'Mostly flat paths' },
         { time: '16:30', placeId: near[1]?.id, title: pick(1), description: 'Sightsee at a relaxed pace.', travel: '15 min by taxi', note: 'Benches checked' },
         { time: '18:30', title: 'Dinner and hotel', description: 'Rest early.' },

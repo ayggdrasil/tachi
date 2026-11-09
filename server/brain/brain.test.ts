@@ -9,6 +9,7 @@ import type { FamilyContext, InterviewState } from './contract';
 process.env.TACHI_DEFAULT_MODEL = 'demo';
 const brain = createBrain();
 brain.setActiveModel('demo');
+brain.setLocale('ko');   // these are the Korean-locale tests; English tests live in brain.en.test.ts
 const mom = USERS.find(u => u.id === 'mom')!;
 const user = (id: string) => USERS.find(u => u.id === id)!;
 const step = (id: string) => DEMO_SCRIPT.find(s => s.id === id)!.text!;

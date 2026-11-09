@@ -43,10 +43,15 @@ export function parseWhenEn(text: string): WhenInfo {
 }
 
 export function parseSeasonEn(text: string): string | undefined {
-  if (/\b(?:spring(?:time)?|cherry[- ]blossoms?|blossoms?|azaleas?|forsythia)\b/i.test(text)) return 'spring';
-  if (/\b(?:summer|beach(?:es)?|swimming|monsoon|watermelon|swim ring|tube)\b/i.test(text)) return 'summer';
-  if (/\b(?:autumn|(?:in|the|last|that) fall|fall (?:of|in|colou?rs|leaves)|foliage|maple|chuseok|harvest)\b/i.test(text)) return 'autumn';
-  if (/\b(?:winter|snow(?:y|ing|ed)?|snowman|sledding|skiing|ski|kimjang)\b/i.test(text)) return 'winter';
+  // explicit season words win over implicit cues
+  if (/\b(?:spring(?:time)?)\b/i.test(text)) return 'spring';
+  if (/\bsummer\b/i.test(text)) return 'summer';
+  if (/\b(?:autumn|(?:in|the|last|that) fall|fall (?:of|in|colou?rs|leaves))\b/i.test(text)) return 'autumn';
+  if (/\bwinter\b/i.test(text)) return 'winter';
+  if (/\b(?:cherry[- ]blossoms?|blossoms?|azaleas?|forsythia)\b/i.test(text)) return 'spring';
+  if (/\b(?:swimming|monsoon|watermelon|swim ring)\b/i.test(text)) return 'summer';
+  if (/\b(?:foliage|maple|chuseok|harvest)\b/i.test(text)) return 'autumn';
+  if (/\b(?:snow(?:y|ing|ed)?|snowman|sledding|skiing|ski|kimjang)\b/i.test(text)) return 'winter';
   return undefined;
 }
 
