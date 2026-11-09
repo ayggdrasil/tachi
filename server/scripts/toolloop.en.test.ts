@@ -96,6 +96,7 @@ async function main() {
   await waitFor('health private', () => (ctx.db.kv.get<Record<string, string>>('privacy') ?? {}).health === 'private');
   const r5 = await ask(jieun, FAMILY_ROOM_ID, 'Tachi, what reminders does Mom have?', 'family list', m => !!m.meta?.toolsUsed);
   check(!!r5 && !/blood pressure/i.test(r5.text), `family list hides Mom's private health reminder (${r5?.text})`);
+  check(!!r5 && /hospital/i.test(r5.text) && !/made private/i.test(r5.text), `ISSUE-017: Jieun still sees the hospital reminder she set herself (${r5?.text})`);
 
   // demo-script texts are untouched by the agent
   const r6 = await ask(jieun, FAMILY_ROOM_ID, 'Tachi, what did Mom talk about this morning?', 'private refusal');

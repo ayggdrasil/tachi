@@ -68,7 +68,7 @@ export const reminderCreate: Tool<{ text: string; at: string; repeat: 'none' | '
     return {
       data: { created: !dup, duplicate: !!dup, reminder: view(r, ctx) },
       summary: `알림 ${whenLabel(due)} '${r.text}'${r.repeat === 'daily' ? ' (매일)' : ''}`,
-      provenance: { categories: ctx.audience === 'family' && r.category === 'health' ? ['health'] : [] },
+      provenance: { categories: [] }, // the caller's own reminder: nothing of the senior's is disclosed (ISSUE-017)
     };
   },
 };
@@ -85,7 +85,8 @@ export const reminderList: Tool<{ forUserId?: string }> = {
     if (target !== ctx.seniorId) throw new ToolError('forbidden', 'only the senior has reminders');
     const all = scheduledReminders(ctx.db, target);
     const shown = all.filter(r => visibleTo(r, ctx));
-    const cats = [...new Set(shown.map(r => r.category))].filter(c => ctx.audience === 'family' && c !== 'daily');
+    // only reminders shown because the senior shared that category count; the asker's own ones disclose nothing (ISSUE-017)
+    const cats = [...new Set(shown.filter(r => r.createdBy !== ctx.callerId).map(r => r.category))].filter(c => ctx.audience === 'family' && c !== 'daily');
     return {
       data: { reminders: shown.map(r => view(r, ctx)), hiddenCount: all.length - shown.length },
       summary: `알림 ${shown.length}건${all.length > shown.length ? ` (비공개 ${all.length - shown.length}건)` : ''}`,

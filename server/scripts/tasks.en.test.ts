@@ -108,6 +108,7 @@ async function flowTests(): Promise<void> {
   const side = await waitFor('side room', () => ctx.db.rooms.all().find(r => r.type === 'side' && r.memberIds.includes(cake.assigneeId!) && r.memberIds.length === 2));
   const rem = side && await waitFor('reminder card', () => ctx.db.messages.byRoom(side.id, 50).find(m => m.kind === 'task_card' && Date.parse(m.createdAt) >= t0));
   check(!!side && !HANGUL.test(side.title ?? ''), `side room title is English: ${side?.title}`);
+  check(!!side && !/^(To-do|Scheduling)\s*·/.test(side.title ?? '') && !side.pollId, `ISSUE-016: a to-do room has a plain gathering title and no poll (badge reads To-do): ${side?.title}`);
   check(!!rem && !HANGUL.test(readable(rem)) && rem.actions?.map(a => a.label).join('/') === 'Done/I need help/Later', `reminder card is English: ${readable(rem).slice(0, 160)}`);
   const ownerSock = await client(url, cake.assigneeId!);
   const reply = async (text: string) => { const n = ctx.db.messages.byRoom(side!.id, 200).length; ownerSock.sock.emit('message:send', { roomId: side!.id, text }); return waitFor(`reply to "${text}"`, () => ctx.db.messages.byRoom(side!.id, 200).slice(n).find(m => m.senderId === 'tachi')); };

@@ -200,7 +200,7 @@ const T: Record<string, [string, string]> = {
   // ── gathering to-dos (server/orchestrator/tasks.ts) ── {eul} is the Korean object particle (empty in English)
   'task.honor.senior': [`Mom`, `어머님`],
   'task.honor.member': [`{name}`, `{name}님`],
-  'task.roomTitle': [`To-do · {title}`, `할 일 · {title}`],
+  'task.roomTitle': [`{title}`, `{title}`],
   'task.btn.done': [`Done`, `완료했어요`],
   'task.btn.help': [`I need help`, `도움이 필요해요`],
   'task.btn.later': [`Later`, `나중에 할게요`],

@@ -94,8 +94,8 @@ Scope: the changed and new UI, judged in the context of the whole app.
 | ISSUE-013 | P2 | Task card | The status chip and owner were snapshots, so a card kept showing "To do" after "I need help" or a reassignment. | fixed (reads the live task from the artifact store) | `a0dbebe` |
 | ISSUE-014 | P2 | ArtifactPanel | The owner select (22px) and "Open link" (20px) were under the WCAG 2.5.8 minimum of 24px. | fixed | `a0dbebe` |
 | ISSUE-015 | P2 | QA tooling | `scripts/qa/capture.ts` always replayed the Korean `DEMO_SCRIPT`, even against the English default, and clicked Korean tab names. | fixed (`demoScriptFor(locale)`) | `841e500` |
-| ISSUE-016 | P2 | Side rooms | `taskRoomFor` reuses an existing 1:1 side room. To-do reminders and the scheduling poll can therefore share a room titled "To-do · …" that also shows a "Scheduling" badge. | **deferred**: product decision (one room per member vs. separate rooms) | — |
-| ISSUE-017 | P2 | Family room | With health set to private, the family's "what reminders does Mom have?" answer is masked entirely ("This was made private by Mom."), including the hospital reminder the asker set herself. The cause: the answer carries the `health` category and the projection hides it. | **deferred**: errs on the safe side, Korean behaves the same, and changing it is a privacy-policy decision | — |
+| ISSUE-016 | P2 | Side rooms | `taskRoomFor` reuses an existing 1:1 side room. To-do reminders and the scheduling poll can therefore share a room titled "To-do · …" that also shows a "Scheduling" badge. | **fixed** (decision: one side room per member). To-do rooms get the plain gathering title; the room list and header badge read \"Scheduling\" when a poll uses the room, otherwise \"To-do\". Regression check in `tasks.en.test`. | follow-up commit |
+| ISSUE-017 | P2 | Family room | With health set to private, the family's "what reminders does Mom have?" answer is masked entirely ("This was made private by Mom."), including the hospital reminder the asker set herself. The cause: the answer carries the `health` category and the projection hides it. | **fixed** (decision: a family member sees reminders she set herself). Only reminders shown because the senior shared their category count toward the answer's privacy categories; Mom's private health reminders stay hidden. Regression check in `toolloop.en.test` (failed on the old code). | follow-up commit |
 | ISSUE-018 | P2 | Health card (main) | In English, the medication slot labels inside the health card's aria text are Korean ("아침", "저녁"). They come from main's health seed / `HealthSummaryView`. `en.test` deliberately excludes medications from its Hangul check. | **deferred**: main's surface, outside this PR | — |
 | ISSUE-019 | P2 | Daily report (main) | The highlight template inserts a capitalised session title: "talking about Recalling a memory" / "about Reminders & directions". | **deferred**: main's report template | — |
 | ISSUE-020 | P2 | ArtifactPanel agenda (main) | At 390 the agenda rows' remove buttons do not line up (x=351–360). | **deferred**: main's agenda list, cosmetic | — |
@@ -131,6 +131,5 @@ Layout fixes (009/010/011/013/014) were verified in the browser, per gstack: CSS
 
 ## Needs a decision
 
-1. **ISSUE-016.** Should to-do reminders get their own side room per member, or keep reusing the scheduling room? If they keep sharing, the room title should not say "To-do".
-2. **ISSUE-017.** When health is private, should a family member still see the health reminders she set herself? Today the whole answer is masked.
-3. **ISSUE-018/019/020** are in main's surfaces. Fix them in a main follow-up if wanted.
+1. ~~ISSUE-016~~ and ~~ISSUE-017~~: decided and fixed (see the table).
+2. **ISSUE-018/019/020** are in main's surfaces. Fix them in a main follow-up if wanted.
