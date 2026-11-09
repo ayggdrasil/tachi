@@ -8,6 +8,7 @@ import { sessionHiddenFromFamily } from './sessions';
 import { createGathering, handleGatheringChoice } from './artifacts';
 import { reactBots } from './bots';
 import { startScheduling, handlePickSlots, handleScheduleAction } from './scheduling';
+import { tryAgent } from './agentic';
 
 /** Only PUBLIC categories reach the brain. Private ones are merely named. */
 export function buildFamilyContext(asker: User): FamilyContext {
@@ -36,6 +37,12 @@ export async function handleFamilyInput(room: Room, userId: string, text: string
   if (!asker) return;
   const ai = await ctx.brain.classifyFamilyIntent(text, asker);
   const intent = ai.value;
+  // agent loop for tool-shaped questions (calendar, routes, reminders, memories); kin-only, privacy enforced in the tools.
+  // Falls back to the state machine below on any failure.
+  if ((intent.type === 'ask_tachi' || (intent.type === 'none' && /타치|엄마|어머|할머니/.test(text))) && kinMayAsk(room, asker)) {
+    const m = await tryAgent(room, 'family', asker, text);
+    if (m) { reactBots(room.id, m); return; }
+  }
   switch (intent.type) {
     case 'ask_tachi': return answer(room, asker, text);
     case 'gathering': await createGathering(room.id, asker, text); return;

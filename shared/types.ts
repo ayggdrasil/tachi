@@ -86,6 +86,8 @@ export interface MessageMeta {
   /** resources the answer actually mentioned */
   memoryIdsUsed?: ID[];
   tripIdsUsed?: ID[];
+  /** Korean labels of the tools Tachi checked for this answer (agent loop / offline planner), e.g. ['캘린더', '길찾기'] */
+  toolsUsed?: string[];
 }
 
 export interface Message {

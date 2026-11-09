@@ -18,6 +18,7 @@ import { reactBots } from './bots';
 import { clearProactiveMemory, getProactiveMemory, noteSeniorReply } from './proactive';
 import { logSeniorSession } from './sessions';
 import { tryMomAvailability } from './scheduling';
+import { tryAgent } from './agentic';
 import { nowIso, uid, ymd } from '../util/misc';
 
 type Pending =
@@ -163,6 +164,8 @@ async function handleSeniorText(room: Room, text: string): Promise<void> {
   }
   // a plain yes while the trip offer is still being prepared is remembered and honoured when it posts
   if (!pending && offerReserved.size && yesNo(text) === 'yes' && queueAcceptIfReserved()) return;
+  // agent loop (reminders / calendar / routes); any failure falls through to the state machine below unchanged
+  if (!yesNo(text) && await tryAgent(room, 'senior', senior(), text)) return;
   const names = await ctx.graph.nodeNames().catch(() => [] as string[]);
   const ai = await withTyping(room.id, () => ctx.brain.classifySeniorIntent(text, { knownNodeNames: names, pending: pending?.type ?? null }));
   const intent = ai.value;
