@@ -77,6 +77,9 @@ export interface MessageMeta {
   generatedBy?: 'bot' | 'assisted';
   /** what actually produced the text: a live LLM, the offline demo brain, or a deterministic rule (privacy refusal, flow transition) */
   source?: 'llm' | 'heuristic' | 'rule';
+  /** provenance used for viewer-aware projection (privacy retraction applies to text too) */
+  memoryId?: ID;
+  tripId?: ID;
 }
 
 export interface Message {
@@ -285,6 +288,8 @@ export interface SessionLog {
 export interface Trip {
   id: ID;
   memoryId?: ID;
+  /** derived from a private memory → 'private' until the senior shares it */
+  visibility?: Visibility;
   status: 'suggested' | 'accepted' | 'declined';
   suggestion: TripSuggestionPayload;
   itinerary?: ItineraryPayload;
@@ -347,6 +352,8 @@ export interface ModelOption {
   provider: ProviderKind;
   modelId: string;                  // resolved id ('' for demo)
   available: boolean;               // key present (always true for demo)
+  healthy?: boolean;                // last preflight ping result (undefined = not checked yet)
+  latencyMs?: number;               // last preflight round-trip
 }
 
 export interface ModelState { active: ModelKey; options: ModelOption[] }
@@ -386,7 +393,7 @@ export interface Bootstrap {
 export interface ClientToServerEvents {
   hello: (p: { userId: ID; assisted?: boolean /* embedded in the Director stage: bots may fill in schedule answers */; key?: string /* director key when TACHI_DIRECTOR_KEY is set */ }, ack: (b: Bootstrap | { error: string }) => void) => void;
   'message:send': (p: { roomId: ID; text?: string; photoUrl?: string }) => void;
-  action: (p: { roomId: ID; messageId: ID; actionId: string; data?: Record<string, unknown> }) => void;
+  action: (p: { roomId: ID; messageId: ID; actionId: string; data?: Record<string, unknown> }, ack?: (r: { ok: boolean; error?: string }) => void) => void;
   typing: (p: { roomId: ID }) => void;
   'room:create': (p: { title: string; memberIds: ID[] }, ack: (room: Room | { error: string }) => void) => void;
   'room:invite': (p: { roomId: ID; contactId: ID }) => void;

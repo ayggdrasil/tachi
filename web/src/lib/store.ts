@@ -175,8 +175,13 @@ export const tachi = {
     return photoUrl;
   },
   sendPhotoUrl(roomId: ID, photoUrl: string) { getSocket().emit('message:send', { roomId, photoUrl }); },
-  action(roomId: ID, messageId: ID, actionId: string, data?: Record<string, unknown>) {
-    getSocket().emit('action', { roomId, messageId, actionId, data });
+  /** Resolves when the server finished the action ({ok:false} on failure or after 20s without an ack) so buttons can recover. */
+  action(roomId: ID, messageId: ID, actionId: string, data?: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
+    return new Promise(resolve => {
+      getSocket().timeout(20000).emit('action', { roomId, messageId, actionId, data }, (err: Error | null, r?: { ok: boolean; error?: string }) => {
+        resolve(err ? { ok: false, error: '응답이 늦어요' } : (r ?? { ok: true }));
+      });
+    });
   },
   typing(roomId: ID) { getSocket().emit('typing', { roomId }); },
   createRoom(title: string, memberIds: ID[]): Promise<Room> {

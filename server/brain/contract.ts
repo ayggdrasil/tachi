@@ -50,6 +50,12 @@ export interface ExtractedMemory {
   tags: string[];
 }
 
+/** Polarity-aware facts stated by the senior in small talk; the orchestrator persists them before claiming '기록했어요'. */
+export interface SeniorObservation {
+  medication?: { taken: boolean; name?: string; time?: '아침' | '점심' | '저녁' };
+  mood?: string;               // '좋음' | '보통' | '조금 우울' …
+}
+
 // ── Senior intents ─────────────────────────────────────────────────────────
 export type SeniorIntent =
   | { type: 'recall'; keywords: string[] }
@@ -136,7 +142,9 @@ export interface Brain {
   /** Warm reply when recalling a memory (≤3 sentences). */
   recallReply(memory: Memory, query: string, senior: User): Promise<AIResult<string>>;
   /** Small talk / health log acknowledgements in the senior room. */
-  seniorChat(history: ChatTurn[], text: string, senior: User): Promise<AIResult<{ reply: string; quickReplies: string[]; category: PrivacyCategory }>>;
+  seniorChat(history: ChatTurn[], text: string, senior: User): Promise<AIResult<{ reply: string; quickReplies: string[]; category: PrivacyCategory; observation?: SeniorObservation }>>;
+  /** Quick provider health check for the active (or given) model: tiny prompt, short deadline. */
+  preflight(key?: ModelKey): Promise<{ key: ModelKey; ok: boolean; latencyMs: number; error?: string }>;
 
   /** Emotional summary for the family room. */
   shareSummary(memory: Memory, senior: User): Promise<AIResult<{ title: string; summary: string }>>;
