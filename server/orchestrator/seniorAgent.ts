@@ -68,7 +68,7 @@ function mergeDraft(old: MemoryDraft | undefined, patch: MemoryDraft): MemoryDra
   const o = old ?? {};
   const union = <T,>(a: T[] | undefined, b: T[] | undefined, key: (t: T) => string): T[] | undefined => {
     const m = new Map<string, T>();
-    for (const t of [...(a ?? []), ...(b ?? [])]) m.set(key(t), { ...(m.get(key(t)) ?? {}), ...t });
+    for (const t of [...(a ?? []), ...(b ?? [])]) m.set(key(t), typeof t === 'string' ? t : { ...(m.get(key(t)) ?? {}), ...t });
     return m.size ? [...m.values()] : undefined;
   };
   const out: MemoryDraft = { ...o, ...patch, photoUrl: o.photoUrl };
