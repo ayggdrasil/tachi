@@ -87,12 +87,28 @@ test('openai response mapping: tool_calls (incl. bad JSON), text, refusal', () =
   assert.equal(echo[2], r.raw?.content);
 });
 
-test('openai tool turn request: tools, tool_choice auto, reasoning_effort low', async () => {
+test('openai tool turn request: tools, tool_choice auto, reasoning_effort none (the API rejects tools with any other effort)', async () => {
   let body: Record<string, unknown> = {};
   globalThis.fetch = (async (_u: unknown, init: RequestInit) => { body = JSON.parse(String(init.body)); return json({ choices: [{ finish_reason: 'stop', message: { content: 'ok' } }] }); }) as typeof fetch;
   await openaiToolTurn('gpt-6.1-terra', { system: 's', messages: convo, tools: [spec], maxTokens: 500 }, new AbortController().signal);
   assert.equal(body.tool_choice, 'auto');
-  assert.equal(body.reasoning_effort, 'low');
+  assert.equal(body.reasoning_effort, 'none');
   assert.equal((body.tools as { type: string }[])[0].type, 'function');
   assert.ok(!('temperature' in body) && !('response_format' in body));
+});
+
+test('a rejected tool request (400) never switches ordinary chat to the demo brain; an outage (500) still does', async () => {
+  const { circuitOpen, completeToolTurn, resetCircuit } = await import('../llm');
+  const opt = { key: 'gpt-terra', label: 'ChatGPT Terra', provider: 'openai', modelId: 'gpt-6.1-terra', available: true } as const;
+  const req = { system: 's', messages: convo, tools: [spec], maxTokens: 500 };
+  resetCircuit();
+  const warn = console.warn; console.warn = () => {};
+  try {
+    globalThis.fetch = (async () => json({ error: { message: 'Function tools with reasoning_effort are not supported' } }, 400)) as typeof fetch;
+    for (let i = 0; i < 3; i++) await assert.rejects(completeToolTurn(opt, req));
+    assert.equal(circuitOpen('openai'), false, '400s from tool requests keep chat on the live model');
+    globalThis.fetch = (async () => json({ error: { message: 'overloaded' } }, 500)) as typeof fetch;
+    for (let i = 0; i < 2; i++) await assert.rejects(completeToolTurn(opt, req));
+    assert.equal(circuitOpen('openai'), true, 'two 500s open the breaker');
+  } finally { console.warn = warn; resetCircuit(); }
 });

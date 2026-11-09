@@ -85,7 +85,8 @@ export function fromOpenAIResponse(data: { choices?: OpenAIChoice[] }): LLMToolR
 export async function openaiToolTurn(modelId: string, req: LLMToolRequest, signal: AbortSignal): Promise<LLMToolResponse> {
   const data = await postChat({
     model: modelId, messages: toOpenAIMessages(req.system, req.messages), tools: toOpenAITools(req.tools), tool_choice: 'auto',
-    max_completion_tokens: Math.max(req.maxTokens, 2048), reasoning_effort: 'low',
+    // with function tools, Chat Completions accepts only 'none' on these models ("use /v1/responses or set reasoning_effort to 'none'")
+    max_completion_tokens: Math.max(req.maxTokens, 2048), reasoning_effort: 'none',
   }, signal);
   return fromOpenAIResponse(data as { choices?: OpenAIChoice[] });
 }

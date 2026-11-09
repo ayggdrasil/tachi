@@ -76,8 +76,13 @@ export async function completeToolTurn(option: ModelOption, req: LLMToolRequest,
     return out;
   } catch (e) {
     if (e instanceof LLMStopError) console.warn(`[brain] ${option.provider} ${e.reason}: ${e.message}`);
-    // a refusal is a policy answer, not an outage: it must not trip the breaker for every other feature
-    if (!(e instanceof LLMStopError && e.reason === 'refusal')) recordFailure(option.provider, e);
+    // Only an outage trips the shared breaker. A refusal is a policy answer, a 400/404/422 means this tool request
+    // was rejected (the loop falls back on its own), and the loop's own deadline is not the provider's fault:
+    // none of them may switch ordinary chat to the demo brain for a minute.
+    const rejected = e instanceof Error && /^(openai|anthropic) (400|404|422)\b/.test(e.message);
+    const loopDeadline = !!opts.signal?.aborted;
+    if (!(e instanceof LLMStopError && e.reason === 'refusal') && !rejected && !loopDeadline) recordFailure(option.provider, e);
+    else if (rejected) console.warn(`[brain] ${option.provider} tool request rejected: ${(e as Error).message.slice(0, 160)}`);
     throw e;
   } finally { clearTimeout(timer); opts.signal?.removeEventListener('abort', onOuter); }
 }
