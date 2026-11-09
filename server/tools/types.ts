@@ -53,8 +53,10 @@ export class ToolError extends Error {
 
 export interface Tool<A = Record<string, unknown>> {
   name: string;
-  /** short Korean label for the UI ("타치가 확인한 것") */
+  /** short Korean label for the UI ("타치가 확인한 것" / "Tachi checked") */
   label: string;
+  /** the same label in English (the default product language) */
+  labelEn?: string;
   /** Korean + English description shown to the model */
   description: string;
   inputSchema: JSONSchema;

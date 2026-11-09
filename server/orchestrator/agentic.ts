@@ -16,13 +16,17 @@ import { ctx } from './ctx';
 import { displayName, getPrivacy, isStale, memoryVisibleToFamily, now, senior, tachiSay, withTyping } from './core';
 import { logSeniorSession } from './sessions';
 import { warn } from '../util/misc';
+import { st } from '../i18n';
+import { isKo } from './locale';
 
 const COMMON = String.raw`리마인더|알림|깨워\s*줘|잊지\s*않게|가는\s*길|어떻게\s*가|가려면|교통편?|얼마나\s*걸려|(?:근처|주변).{0,10}(?:어디|뭐|추천|가볼|구경)`;
+// English request shapes (reminders, routes, places); none of the DEMO_SCRIPT_EN lines match them.
+const COMMON_EN = String.raw`\bremind|\breminders?\b|\bwake (?:me|her|mom) up\b|don'?t let (?:me|her|mom) forget|\bhow (?:do|can|would|should|does) (?:i|we|she|mom|you) (?:get|go|travel)\b|\bdirections?\b|\broute to\b|\bhow (?:long|far)\b.{0,40}\b(?:to|from)\b|\b(?:near(?:by)?|around|close to)\b.{0,30}\b(?:visit|see|go|places?|things|spots?|worth|recommend)\b|\b(?:visit|see|go|places?|things|spots?|worth|recommend)\b.{0,30}\b(?:near(?:by)?|around|close to)\b`;
 /** Senior requests worth a live tool loop (reminders, routes, places). Recall / trip / share keep their card flows. */
-export const SENIOR_AGENT_RE = new RegExp(`${COMMON}|알려\\s*(?:줘|주세요)`);
+export const SENIOR_AGENT_RE = new RegExp(`${COMMON}|알려\\s*(?:줘|주세요)|${COMMON_EN}`, 'i');
 /** Family requests worth a live tool loop: the above plus memory questions (graph_search, family-visible only). */
-export const FAMILY_AGENT_RE = new RegExp(`${COMMON}|알려\\s*드려|추억|기억|옛날|사진`);
-const REMINDISH = /리마인더|알림|알려\s*(?:줘|드려)|깨워|잊지\s*않게/;
+export const FAMILY_AGENT_RE = new RegExp(`${COMMON}|알려\\s*드려|추억|기억|옛날|사진|${COMMON_EN}|\\bmemor(?:y|ies)\\b|\\bthe old days\\b|\\bphotos?\\b`, 'i');
+const REMINDISH = /리마인더|알림|알려\s*(?:줘|드려)|깨워|잊지\s*않게|\bremind|\breminders?\b|\bwake (?:me|her|mom) up\b|don'?t let (?:me|her|mom) forget/i;
 
 /** Is a live (non-demo) model active with its key present? (The brain re-checks the circuit breaker.) */
 export function liveModelActive(): boolean {
@@ -50,7 +54,7 @@ async function surface(notices: ToolNotice[]): Promise<void> {
     if (isStale()) return;
     if (n.kind === 'reminder_created' && n.reminder.createdBy !== SENIOR_ID) {
       await tachiSay(SENIOR_ROOM_ID, {
-        text: `어머님, ${displayName(n.reminder.createdBy)} 님 부탁으로 ${whenLabel(new Date(n.reminder.dueAt))}에 '${n.reminder.text}' 알려 드릴게요.`,
+        text: st('agent.reminderBy', { name: displayName(n.reminder.createdBy), when: whenLabel(new Date(n.reminder.dueAt)), text: n.reminder.text }),
         meta: { category: n.reminder.category, source: 'rule' },
       });
     }
@@ -101,7 +105,7 @@ export async function tryToolLoop(room: Room, audience: ToolAudience, asker: Use
   if (audience === 'senior') {
     const health = out.steps.some(s => s.ok && s.name === 'reminder_create' && reminderCategory(String((s.input as { text?: string })?.text ?? '')) === 'health');
     const category: PrivacyCategory = health ? 'health' : 'daily';
-    if (!ctx.db.kv.get<string>('active-proactive')) logSeniorSession(category, '알림·길 안내 도움', '알림과 길 안내를 함께 챙기셨어요.');
+    if (!ctx.db.kv.get<string>('active-proactive')) logSeniorSession(category, st('agent.sess.title'), st('agent.sess.summary'));
   }
   return msg;
 }
@@ -112,10 +116,10 @@ export async function deliverDueReminders(): Promise<number> {
   for (const r of due) {
     markDelivered(ctx.db, r, now()); // first, so a slow post can never deliver twice
     if (r.userId !== SENIOR_ID) continue;
-    const by = r.createdBy !== SENIOR_ID ? ` (${displayName(r.createdBy)} 님 부탁)` : '';
+    const by = r.createdBy !== SENIOR_ID ? st('agent.reminderDue.by', { name: displayName(r.createdBy) }) : '';
     await tachiSay(SENIOR_ROOM_ID, {
-      text: `어머님, 알려 드리기로 한 시간이에요. ${r.text}${/[.!요]$/.test(r.text) ? '' : ' 잊지 마세요.'}${by}`,
-      quickReplies: ['알겠어요', '고마워'], meta: { category: r.category, source: 'rule' },
+      text: st('agent.reminderDue', { text: isKo() ? r.text : r.text.replace(/[.!]+$/, ''), tail: /[.!요]$/.test(r.text) ? '' : st('agent.reminderDue.tail'), by }),
+      quickReplies: [st('agent.qr.ok'), st('agent.qr.thanks')], meta: { category: r.category, source: 'rule' },
     });
   }
   return due.length;

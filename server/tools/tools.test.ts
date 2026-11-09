@@ -13,6 +13,11 @@ import { TOOLS, executeTool, toLLMSpecs, toolsFor } from './index';
 import { dueReminders, markDelivered } from './reminders';
 import { estimateRoute, haversineKm, resolvePoint } from './places';
 import { parseWhen } from './time';
+import { setLocale } from '../brain/locale';
+
+// These suites pin the Korean product language (Korean seed users, Korean replies/labels). The English paths are covered by
+// server/scripts/toolloop.en.test.ts and server/scripts/tasks.en.test.ts.
+setLocale('ko');
 import type { ToolContext, ToolNotice } from './types';
 import { validate } from './validate';
 

@@ -40,7 +40,7 @@ export async function handleFamilyInput(room: Room, userId: string, text: string
   const intent = ai.value;
   // agent loop for tool-shaped questions (routes, reminders, memories); kin-only, privacy enforced in the tools.
   // Falls back to the state machine below on any failure.
-  if ((intent.type === 'ask_tachi' || (intent.type === 'none' && /타치|엄마|어머|할머니/.test(text))) && kinMayAsk(room, asker)) {
+  if ((intent.type === 'ask_tachi' || (intent.type === 'none' && /타치|엄마|어머|할머니|\btachi\b|\bmom\b|\bgrandma\b/i.test(text))) && kinMayAsk(room, asker)) {
     const m = await tryToolLoop(room, 'family', asker, text);
     if (m) { reactBots(room.id, m); return; }
   }

@@ -6,6 +6,7 @@ import { reminderCreate, reminderList } from './reminders';
 import type { AnyTool, ToolAudience, ToolContext, ToolOutput } from './types';
 import { ToolError } from './types';
 import { validate } from './validate';
+import { getLocale } from '../brain/locale';
 
 export const TOOLS: AnyTool[] = [graphSearch, transitRoute, mapSearch, reminderCreate, reminderList];
 const byName = new Map(TOOLS.map(t => [t.name, t]));
@@ -14,7 +15,8 @@ export const getTool = (name: string): AnyTool | undefined => byName.get(name);
 export const toolsFor = (audience: ToolAudience, names?: string[]): AnyTool[] =>
   TOOLS.filter(t => t.audiences.includes(audience) && (!names || names.includes(t.name)));
 export const toLLMSpecs = (tools: AnyTool[]): LLMToolSpec[] => tools.map(t => ({ name: t.name, description: t.description, inputSchema: t.inputSchema as Record<string, unknown> }));
-export const toolLabel = (name: string): string => byName.get(name)?.label ?? name;
+/** UI label of a tool in the active product language. */
+export const toolLabel = (name: string): string => { const t = byName.get(name); return (getLocale() === 'en' ? t?.labelEn ?? t?.label : t?.label) ?? name; };
 
 export interface ToolRun {
   ok: boolean;

@@ -241,6 +241,15 @@ const T: Record<string, [string, string]> = {
   'task.note.took': [`{name} took it`, `{name}님이 맡음`],
   'task.followups.done': [`Followed up on {n} to-do{s}.`, `할 일 {n}건을 챙겼어요.`],
   'task.followups.none': [`No to-dos need a follow-up right now.`, `지금 챙길 할 일이 없어요.`],
+  // ── tool loop (server/orchestrator/agentic.ts) ──
+  'agent.reminderBy': [`Mom, {name} asked me to remind you on {when}: {text}.`, `어머님, {name} 님 부탁으로 {when}에 '{text}' 알려 드릴게요.`],
+  'agent.reminderDue': [`Mom, it's time for your reminder: {text}.{by}`, `어머님, 알려 드리기로 한 시간이에요. {text}{tail}{by}`],
+  'agent.reminderDue.tail': [``, ` 잊지 마세요.`],
+  'agent.reminderDue.by': [` ({name} asked me to remind you.)`, ` ({name} 님 부탁)`],
+  'agent.qr.ok': [`Got it`, `알겠어요`],
+  'agent.qr.thanks': [`Thank you`, `고마워`],
+  'agent.sess.title': [`Reminders & directions`, `알림·길 안내 도움`],
+  'agent.sess.summary': [`Got help with reminders and directions.`, `알림과 길 안내를 함께 챙기셨어요.`],
 };
 
 const en: Record<string, string> = {};

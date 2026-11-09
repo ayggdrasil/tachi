@@ -15,6 +15,11 @@ import { resetCircuit } from './llm';
 import { planOffline, reminderText } from './planner';
 import { LLMStopError } from './providers/anthropic';
 import type { LLMToolResponse } from './providers/types';
+import { setLocale } from './locale';
+
+// These suites pin the Korean product language (Korean seed users, Korean replies/labels). The English paths are covered by
+// server/scripts/toolloop.en.test.ts and server/scripts/tasks.en.test.ts.
+setLocale('ko');
 
 process.env.TACHI_GRAPH_ENGINE = 'memory';
 const NOW = new Date(2026, 10, 9, 14, 10);

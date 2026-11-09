@@ -3,6 +3,7 @@ import { pad2 } from '../../shared/constants';
 import type { PrivacyCategory, User } from '../../shared/types';
 import { executeTool, toLLMSpecs, toolLabel, type AnyTool, type ToolContext, type ToolRun } from '../tools';
 import { extractJson } from './llm';
+import { getLocale } from './locale';
 import type { AgentMessage, LLMToolRequest, LLMToolResponse } from './providers/types';
 
 export type AgentTurnFn = (req: LLMToolRequest, opts: { signal: AbortSignal; timeoutMs: number }) => Promise<LLMToolResponse>;
@@ -27,7 +28,7 @@ export interface AgentOutcome {
   reason?: 'max_steps' | 'deadline' | 'provider_error' | 'refusal' | 'invalid_output' | 'verify_failed' | 'no_plan' | 'offline' | 'aborted';
   detail?: string;
   steps: AgentStep[];
-  /** Korean labels of tools that ran successfully, in order (for the "타치가 확인한 것" line) */
+  /** labels (active language) of tools that ran successfully, in order (for the "Tachi checked" line) */
   toolsUsed: string[];
   provenance: AgentProvenance;
   /** a state-changing tool succeeded (reminder set) — the answer must reflect it even if the loop failed */
@@ -54,6 +55,12 @@ const VERIFY_PROMPT = [
   '1) 사용자의 목표를 모두 이뤘나요? 2) 모든 사실(시간·장소·이름·숫자)이 도구 결과와 일치하나요? 3) 비공개 정보는 빠졌나요?',
   '부족하면 필요한 도구를 더 호출해도 됩니다. 다 됐으면 도구 없이 JSON 하나만 답하세요:',
   '{"verified": true, "answer": "<최종 답, 해요체 1~3문장>"} — 목표를 이룰 수 없으면 {"verified": false, "answer": "<솔직한 안내>"}',
+].join('\n');
+const VERIFY_PROMPT_EN = [
+  '[Verification] Check the answer you just wrote before it is sent.',
+  '1) Did you achieve everything the user asked for? 2) Does every fact (time, place, name, number) match the tool results? 3) Is all private information left out?',
+  'If something is missing you may call more tools. When you are done, reply with a single JSON object and no tool call:',
+  '{"verified": true, "answer": "<final answer, warm and plain, 1-3 sentences>"} — if the goal cannot be achieved: {"verified": false, "answer": "<an honest explanation>"}',
 ].join('\n');
 
 export function emptyOutcome(reason: AgentOutcome['reason'], detail?: string): AgentOutcome {
@@ -143,7 +150,7 @@ export async function runAgentLoop(cfg: AgentConfig): Promise<AgentOutcome> {
         if (!wantVerify || !usedTools()) return done({ ok: true, answer: cleanAnswer(text) });
         if (verifyRounds >= 2) return done({ ok: true, answer: cleanAnswer(text) });
         verifying = true; verifyRounds++;
-        messages.push({ role: 'user', text: VERIFY_PROMPT });
+        messages.push({ role: 'user', text: getLocale() === 'en' ? VERIFY_PROMPT_EN : VERIFY_PROMPT });
         continue;
       }
       // verification answer
@@ -160,6 +167,7 @@ export async function runAgentLoop(cfg: AgentConfig): Promise<AgentOutcome> {
 
 // ── prompt ───────────────────────────────────────────────────────────────────
 export function agentSystemPrompt(p: { audience: 'senior' | 'family'; senior: User; asker: User; users: User[]; now: Date }): string {
+  if (getLocale() === 'en') return agentSystemPromptEn(p);
   const d = p.now;
   const DOW = ['일', '월', '화', '수', '목', '금', '토'];
   const today = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}(${DOW[d.getDay()]}) ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
@@ -177,5 +185,27 @@ export function agentSystemPrompt(p: { audience: 'senior' | 'family'; senior: Us
     '비공개 정보(공개하지 않은 추억이나 건강 정보)는 절대 말하지 마세요.',
     '알림 등록처럼 무언가를 바꾸는 도구는 사용자가 분명히 원할 때만 쓰세요.',
     '마크다운, 목록 기호, 이모지는 쓰지 마세요.',
+  ].join('\n');
+}
+
+function agentSystemPromptEn(p: { audience: 'senior' | 'family'; senior: User; asker: User; users: User[]; now: Date }): string {
+  const d = p.now;
+  const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const today = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} (${DOW[d.getDay()]}) ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  const roster = p.users.filter(u => u.id !== 'tachi').map(u => `${u.id}=${u.name} (${u.relation})`).join(', ');
+  const who = p.audience === 'senior'
+    ? `You are talking with Mom, ${p.senior.name} (${p.senior.persona ?? ''}). Answer her warmly in plain, simple English, briefly (1-3 sentences).`
+    : `${p.asker.name} (${p.asker.relation}) asked in the family room. Call the senior "Mom" ("Grandma" to grandchildren) and answer warmly and briefly (1-3 sentences).`;
+  return [
+    'You are Tachi, a warm AI companion who keeps an older adult\'s memories alive and brings the family together.',
+    who,
+    'Always answer in English.',
+    `Current time: ${today} (all times are Korea local time; write ISO times without an offset, as "YYYY-MM-DDTHH:MM").`,
+    `User ids: ${roster}.`,
+    'How you work: first plan what you need to check, check the facts with tools, then answer. Never make up facts that are not in the tool results.',
+    'If a tool returns an error, fix the input and try once more, or say honestly that you cannot do it.',
+    'Never mention private information (memories she has not shared, or health information she keeps private).',
+    'Only use tools that change something (such as setting a reminder) when the user clearly wants it.',
+    'Do not use Markdown, bullet points or emoji.',
   ].join('\n');
 }

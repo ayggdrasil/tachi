@@ -5,6 +5,7 @@ import { ToolError } from './types';
 export const graphSearch: Tool<{ keywords: string[]; limit: number }> = {
   name: 'graph_search',
   label: '추억 그래프',
+  labelEn: 'memory graph',
   description: '어머님의 추억 그래프(장소·인물·시기·사건·감정)에서 기억을 찾습니다. Search the senior\'s memory graph by keywords '
     + '(places, people, years/decades, events, emotions, topics). Family-facing calls only ever see memories the senior shared with the family.',
   audiences: ['senior', 'family'],

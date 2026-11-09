@@ -6,7 +6,7 @@ import type { Reminder, Tool, ToolContext } from './types';
 import { ToolError } from './types';
 import { parseWhen, whenLabel } from './time';
 
-const HEALTH_RE = /약|혈압|병원|진료|검진|주사|혈당|복용|내과|치과|한의원|물리치료/;
+const HEALTH_RE = /약|혈압|병원|진료|검진|주사|혈당|복용|내과|치과|한의원|물리치료|\bpills?\b|\bmedic(?:ine|ation)s?\b|\bblood (?:pressure|sugar)\b|\bhospital\b|\bdoctor\b|\bclinic\b|check-?up|\bdentist\b|\binsulin\b|\binjection\b|\bphysio(?:therapy)?\b|\btablets?\b|\bprescription\b/i;
 export const reminderCategory = (text: string): PrivacyCategory => (HEALTH_RE.test(text) ? 'health' : 'daily');
 
 export function createReminder(db: Db, r: Omit<Reminder, 'id' | 'createdAt' | 'status' | 'category'> & { category?: PrivacyCategory }, now: Date): Reminder {
@@ -39,8 +39,10 @@ const view = (r: Reminder, ctx: ToolContext) => ({
 export const reminderCreate: Tool<{ text: string; at: string; repeat: 'none' | 'daily'; forUserId?: string }> = {
   name: 'reminder_create',
   label: '알림 등록',
+  labelEn: 'set a reminder',
   description: '어머님께 정해진 시간에 알림을 보내도록 등록합니다. Schedule a reminder that Tachi will say to the senior at the given time '
-    + '(in her chat). at: ISO local time or Korean ("내일 아침 8시", "오후 3시 반", "30분 뒤"). repeat: none | daily. Only the senior can be reminded.',
+    + '(in her chat). at: ISO local time, English ("tomorrow 8am", "3:30 pm", "in 30 minutes") or Korean ("내일 아침 8시", "오후 3시 반", "30분 뒤"). '
+    + 'text: what to remind her of, in the language of the conversation. repeat: none | daily. Only the senior can be reminded.',
   audiences: ['senior', 'family'],
   mutates: true,
   inputSchema: {
@@ -74,6 +76,7 @@ export const reminderCreate: Tool<{ text: string; at: string; repeat: 'none' | '
 export const reminderList: Tool<{ forUserId?: string }> = {
   name: 'reminder_list',
   label: '알림 목록',
+  labelEn: 'reminder list',
   description: '등록된 알림 목록을 봅니다. List the senior\'s scheduled reminders (family members only see the ones they set or that the senior made public).',
   audiences: ['senior', 'family'],
   inputSchema: { type: 'object', additionalProperties: false, properties: { forUserId: { type: 'string', maxLength: 20 } } },
