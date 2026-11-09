@@ -1,12 +1,13 @@
 // Offline composition: recall, share, trips, proactive, report, chat.
 import { PRIVACY_LABELS, dayHeaderLabel, pad2 } from '../../../shared/constants';
 import type {
-  ItineraryPayload, Memory, MemoryPerson, PrivacyCategory, PrivacySettings, ProactiveKind, ReportPayload, ReportSession, SessionLog,
+  ItineraryPayload, Memory, MemoryPerson, PrivacyCategory, PrivacySettings, ProactiveKind, ReportOpenTask, ReportPayload, ReportSession, SessionLog,
   TripSuggestionPayload, User,
 } from '../../../shared/types';
 import { PLACES, findPlaces, placeById, templateFor, type Place } from '../../data/places';
 import type { SeniorObservation } from '../contract';
 import { medicationObservation, observe } from './observe';
+import { openTasksLine } from './tasks';
 import { callName, hash, hasBatchim, pick } from './ko';
 import { getLocale } from '../locale';
 import { composeReportEn, memoryRefEn, peopleCallsEn, planItineraryEn, proactiveMessageEn, recallReplyEn, seniorChatEn, shareSummaryEn, suggestTripEn } from './compose.en';
@@ -147,8 +148,9 @@ export function proactiveMessage(kind: ProactiveKind, memory?: Memory, now = new
 }
 
 // ── report ─────────────────────────────────────────────────────────────────
-export function composeReport(sessions: SessionLog[], privacy: PrivacySettings, moodToday: string | undefined, now: Date): Omit<ReportPayload, 'type'> {
-  if (getLocale() === 'en') return composeReportEn(sessions, privacy, moodToday, now);
+export function composeReport(sessions: SessionLog[], privacy: PrivacySettings, moodToday: string | undefined, now: Date, openTasks: ReportOpenTask[] = [], people: Record<string, string> = {}): Omit<ReportPayload, 'type'> {
+  const tasksPart = openTasks.length ? { openTasks: openTasks.slice(0, 5), tasksLine: openTasksLine(openTasks, people) } : {};
+  if (getLocale() === 'en') return { ...composeReportEn(sessions, privacy, moodToday, now), ...tasksPart };
   const rows: ReportSession[] = sessions
     .slice()
     .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
@@ -171,6 +173,7 @@ export function composeReport(sessions: SessionLog[], privacy: PrivacySettings, 
     sessions: rows,
     ...(privacy.mood === 'family' && moodToday ? { moodLabel: moodToday } : {}),
     highlight,
+    ...tasksPart,
   };
 }
 

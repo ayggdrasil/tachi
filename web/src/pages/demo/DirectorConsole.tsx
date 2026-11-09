@@ -556,6 +556,7 @@ export default function DirectorConsole() {
             <div className="dc-grid2">
               <button className="btn dc-btn" onClick={() => tachi.demo.report()}>{t('dir.sendReport')}</button>
               <button className="btn dc-btn" onClick={() => tachi.demo.closePoll()}>{t('dir.closePoll')}</button>
+              <button className="btn dc-btn" onClick={() => tachi.demo.followups()} title={t('dir.followupsHint')}>{t('dir.followups')}</button>
             </div>
           </section>
 

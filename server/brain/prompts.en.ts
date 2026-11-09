@@ -161,3 +161,15 @@ export function memoryBlock(m: Pick<Memory, 'title' | 'summary'> & Partial<Memor
   const people = (m.people ?? []).map(p => (p.relation ? `${p.relation} ${p.name}` : p.name)).join(', ');
   return `${m.title} / ${m.summary} / when ${m.year ?? m.era ?? 'unknown'} / place ${m.place ?? 'unknown'} / people ${people || 'unknown'} / feelings ${(m.emotions ?? []).join(', ') || 'unknown'}${m.tags?.length ? ` / keywords ${m.tags.join(', ')}` : ''}`;
 }
+
+export function taskClassifyPrompt(input: { tasks: { id: string; text: string }[]; title?: string; place?: string }) {
+  return {
+    system: `Look at the family gathering's task list and choose what Tachi can do for each task.
+- booking_link: something that needs a reservation, such as a restaurant, lodging, KTX train or rental car (category: restaurant | lodging | train | car | other, query: a short noun for a map search, e.g. "Korean restaurant", "hanok stay")
+- reminder: preparation the assignee must do personally (cake, gift, medication, sharing the schedule, sending invitations, confirming attendance, etc.) → remind the assignee
+- none: a note that needs no action
+${JSON_ONLY}
+Schema: {"tasks":[{"id":"task-1","kind":"booking_link","category":"lodging","query":"hanok stay"}]}`,
+    user: `[Gathering] ${input.title ?? ''} / [Place] ${input.place ?? ''}\n[Tasks]\n${input.tasks.map(t => `${t.id}: ${t.text}`).join('\n')}`,
+  };
+}

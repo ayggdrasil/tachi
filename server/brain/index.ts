@@ -1,13 +1,18 @@
 // Tachi brain: real LLM when an API key + model is active, deterministic demo heuristics otherwise.
 import type { ArtifactTask, ItineraryPayload, MemoryPerson, ModelOption, PrivacyCategory, TripStop } from '../../shared/types';
 import { findPlaces, placeById, placeName, placeTravel, resolvePlace, templateFor } from '../data/places';
-import type { AIResult, Brain, ExtractedMemory, FamilyAnswer, GatheringDraft, SeniorIntent } from './contract';
+import type { AIResult, Brain, ExtractedMemory, FamilyAnswer, GatheringDraft, SeniorIntent, TaskClassification } from './contract';
+import { BOOKING_CATEGORIES, TASK_KINDS, classifyTask } from './heuristics/tasks';
+import type { BookingCategory, TaskActionKind } from '../../shared/types';
 import { BANNED_HEALTH_WORDS, enforceBpWarning, questionCategory, assistArtifact as hAssist, answerFamily as hAnswer, botReply as hBot, draftGathering as hDraft, isBirthdayContext, BIRTHDAY_RE } from './heuristics/family';
 import { composeReport as hReport, planItinerary as hPlan, proactiveMessage as hProactive, recallReply as hRecall, seniorChat as hChat, shareSummary as hShare, suggestTrip as hSuggest } from './heuristics/compose';
 import { extractFromState, planNext, slotQuestion, startTurn } from './heuristics/interview';
 import { availability, familyIntent, seniorIntent } from './heuristics/intents';
 import { decadeEra, emotionLabels } from './heuristics/ko';
-import { circuitOpen, complete, completeJson, loadImage, openCircuit, resetCircuit, str, strArr } from './llm';
+import { circuitOpen, complete, completeJson, completeToolTurn, loadImage, openCircuit, resetCircuit, str, strArr } from './llm';
+import { emptyOutcome, runAgentLoop, summarize, type AgentOutcome, type AgentStep } from './toolLoop';
+import { composeFromSteps, planOffline } from './planner';
+import { executeTool } from '../tools';
 import { mergeObservation, validateObservation } from './heuristics/observe';
 import { ModelRegistry } from './models';
 import * as P from './prompts';
@@ -19,6 +24,7 @@ const DEMO_LABELS = { ko: '데모 브레인', en: 'Demo brain' };
 const RULE_LABELS = { ko: '규칙 기반', en: 'Rule-based' };
 const demoLabel = () => DEMO_LABELS[getLocale()];
 const ruleLabel = () => RULE_LABELS[getLocale()];
+const llmStepTimeout = (): number => Number(process.env.TACHI_AGENT_STEP_TIMEOUT_MS || 12000);
 /** Thrown inside an llm callback when the requested provider operation could not run (heuristic substituted). */
 class Substitute extends Error {}
 type J = Record<string, unknown>;
@@ -252,8 +258,8 @@ export function createBrain(): Brain {
       return { text, quickReplies: qr.length ? qr : h.quickReplies };
     }),
 
-    composeReport: ({ sessions, privacy, moodToday, now }) => {
-      const h = hReport(sessions, privacy, moodToday, now);
+    composeReport: ({ sessions, privacy, moodToday, now, openTasks, people }) => {
+      const h = hReport(sessions, privacy, moodToday, now, openTasks, people);
       if (!h.sessions.length) return Promise.resolve(rule(h));
       return run('composeReport', () => h, async (opt, c) => {
         const j = await ask(opt, P.reportHighlightPrompt(h.sessions, h.moodLabel), 400);
@@ -306,6 +312,27 @@ export function createBrain(): Brain {
       return { message: str(j.message, lim(160)) ?? (getLocale() === 'en' ? 'I suggested a few easily forgotten preparations.' : '빠지기 쉬운 준비를 제안했어요.'), newTasks };
     }),
 
+    classifyTasks: input => {
+      const heur = (): Record<string, TaskClassification> => Object.fromEntries(input.tasks.map(t => [t.id, classifyTask(t.text)]));
+      if (!input.tasks.length) return Promise.resolve(rule(heur()));
+      return run<Record<string, TaskClassification>>('classifyTasks', heur, async (opt, c) => {
+        const j = await ask(opt, P.taskClassifyPrompt(input), 600);
+        const rows = Array.isArray(j.tasks) ? (j.tasks as J[]) : [];
+        const h = heur();
+        const out: Record<string, TaskClassification> = {};
+        for (const t of input.tasks) {
+          const r = rows.find(x => x && x.id === t.id);
+          const kind = r && TASK_KINDS.includes(r.kind as TaskActionKind) ? (r.kind as TaskActionKind) : undefined;
+          if (!kind) { c.sub(); out[t.id] = h[t.id]; continue; }
+          const category = BOOKING_CATEGORIES.includes(r!.category as BookingCategory) ? (r!.category as BookingCategory) : undefined;
+          out[t.id] = kind === 'booking_link'
+            ? { kind, category: category ?? h[t.id].category ?? 'other', query: str(r!.query, 20) ?? h[t.id].query }
+            : { kind };
+        }
+        return out;
+      });
+    },
+
     parseAvailability: (text, slots) => {
       const h = availability(text, slots);
       if (h.length) return Promise.resolve(rule<string[]>(h));
@@ -329,6 +356,46 @@ export function createBrain(): Brain {
         if (healthy && BANNED_HEALTH_WORDS.test(r)) { c.sub(); return heur; }
         return r;
       });
+    },
+
+    // ── agent ────────────────────────────────────────────────────────────
+    runAgent: async input => {
+      const opt = registry.active();
+      const live = !input.offlineOnly && opt.provider !== 'mock' && opt.available && !circuitOpen(opt.provider);
+      const logSteps = process.env.TACHI_LOG_AGENT === '1';
+      const log = (s: AgentStep) => { if (logSteps) console.log(`[agent] #${s.i} ${s.kind}${s.name ? ` ${s.name}` : ''}${s.ok === false ? ' ✕' : ''} ${s.summary} (${s.ms}ms)`); };
+      let liveSteps: AgentStep[] = [];
+      if (live) {
+        const out = await runAgentLoop({
+          turn: (req, o) => completeToolTurn(opt, req, { timeoutMs: o.timeoutMs, signal: o.signal }),
+          tools: input.tools, toolCtx: input.toolCtx, system: input.system, goal: input.goal,
+          maxSteps: input.maxSteps ?? 6, deadlineMs: input.deadlineMs ?? Number(process.env.TACHI_AGENT_DEADLINE_MS || 25000),
+          stepTimeoutMs: Math.max(llmStepTimeout(), 4000), log,
+        });
+        if (out.ok) return { value: out, model: opt.label, fallback: false, source: 'llm' };
+        warnOnce('agent', new Error(`${out.reason}${out.detail ? `: ${out.detail}` : ''}`));
+        // a state-changing tool already ran: never hide that behind the fallback — tell the user what was done
+        if (out.mutated) {
+          const answer = composeFromSteps(out.steps, input.audience);
+          if (answer) return { value: { ...out, ok: true, answer }, model: demoLabel(), fallback: true, source: 'heuristic' };
+        }
+        liveSteps = out.steps;
+        if (!input.allowOffline) return { value: out, model: opt.label, fallback: true, source: 'llm' };
+      }
+      if (!input.allowOffline) return { value: emptyOutcome('offline'), model: demoLabel(), fallback: opt.provider !== 'mock', source: 'heuristic' };
+      const plan = planOffline(input.goal, input.audience, input.toolCtx.now());
+      if (!plan) return { value: { ...emptyOutcome('no_plan'), steps: liveSteps }, model: demoLabel(), fallback: true, source: 'heuristic' };
+      const steps: AgentStep[] = [];
+      for (const call of plan) {
+        const run = await executeTool(call.name, call.input, input.toolCtx, { allowed: input.tools });
+        const st: AgentStep = { i: steps.length, kind: 'tool', name: run.name, input: run.input, ok: run.ok, ms: run.ms, run, summary: run.ok ? run.output!.summary : `${run.error!.code}: ${run.error!.message}` };
+        steps.push(st); log(st);
+      }
+      const answer = composeFromSteps(steps, input.audience);
+      const value: AgentOutcome = answer
+        ? { ok: true, answer, steps, ...summarize(steps, input.tools) }
+        : { ...emptyOutcome('no_plan', 'planner produced no answer'), steps };
+      return { value, model: demoLabel(), fallback: opt.provider !== 'mock', source: 'heuristic' };
     },
   };
   return brain;

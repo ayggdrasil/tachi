@@ -232,7 +232,7 @@ export default function FamilyApp() {
   const meId = me.id;
   const fullTitle = room ? roomDisplayName(room, meId, users, t) : t('fam.roomFallback');
   const side = room?.type === 'side' ? splitSideTitle(room.title) : null;
-  const kicker = side?.prefixed ? t('fam.scheduling') : isDm ? t('fam.dmKicker') : null;
+  const kicker = side ? t(room?.pollId ? 'fam.scheduling' : 'fam.todo') : isDm ? t('fam.dmKicker') : null;
   const name = side ? side.name : fullTitle;
   const titleInner = (
     <>

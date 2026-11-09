@@ -7,7 +7,7 @@ import { useT } from '../../lib/i18n';
 type Phase = 'pending' | 'sent' | 'failed' | 'refused';
 
 /** One clear result line once a mutually exclusive choice has been made. */
-const RESULT_IDS = new Set(['share_memory', 'skip_share', 'accept_trip', 'decline_trip', 'share_trip', 'make_gathering']);
+const RESULT_IDS = new Set(['share_memory', 'skip_share', 'accept_trip', 'decline_trip', 'share_trip', 'make_gathering', 'task_done', 'task_help', 'task_later', 'task_booked', 'task_take']);
 
 /** Card actions: idle → pending (spinner) → sent (stays disabled until the server marks it done) → or failed (retry). */
 export function ActionBar({ message, onOpenArtifact, inline }: {

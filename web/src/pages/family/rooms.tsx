@@ -18,9 +18,9 @@ export function useRoomGroups(rooms: Room[]): RoomGroups {
   }, [rooms]);
 }
 
-/** Side-room titles are "Scheduling · Mom's birthday" (either language): split into kicker + name. */
+/** Side-room titles are "Scheduling · Mom's birthday" (either language; older to-do rooms "To-do · …"): split into kicker + name. */
 export function splitSideTitle(title: string): { prefixed: boolean; name: string } {
-  const m = /^(일정 조율|Scheduling)\s*[·:]\s*(.+)$/.exec(title);
+  const m = /^(일정 조율|Scheduling|할 일|To-do)\s*[·:]\s*(.+)$/.exec(title);
   return m ? { prefixed: true, name: m[2] } : { prefixed: false, name: title };
 }
 
@@ -36,7 +36,7 @@ export function RoomRow({ room, meId, users, active, unread, onSelect }: {
       <button className={`fam-room ${active ? 'is-on' : ''}`} onClick={() => onSelect(room.id)} aria-current={active ? 'page' : undefined}>
         {peer && <Avatar user={peer} size={22} decorative />}
         <span className="fam-room-title">{label}</span>
-        {side && <span className="badge">{t('fam.scheduling')}</span>}
+        {side && <span className="badge">{t(room.pollId ? 'fam.scheduling' : 'fam.todo')}</span>}
         {unread > 0 && <span className="fam-unread"><span aria-hidden>{unread}</span><span className="sr-only">{t('fam.unreadN', { n: unread })}</span></span>}
       </button>
     </li>

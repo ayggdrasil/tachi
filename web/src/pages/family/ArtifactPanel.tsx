@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Plus, Sparkles, CalendarClock, X } from 'lucide-react';
-import type { Artifact } from '../../../../shared/types';
+import { Check, Plus, Sparkles, CalendarClock, X, ExternalLink, Bell, Loader2 } from 'lucide-react';
+import type { Artifact, ArtifactTask, User } from '../../../../shared/types';
+import { TaskStatusChip, dueLabel } from '../../components/cards/TaskCards';
 import { useTachi, tachi } from '../../lib/store';
-import { useT, type Vars } from '../../lib/i18n';
+import { useLocale, useT, type Vars } from '../../lib/i18n';
+import { dateLabelL, timeLabelL } from '../../../../shared/constants';
 import { Avatar } from '../../components/common/Avatar';
 import './ArtifactPanel.css';
 
@@ -212,29 +214,9 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
 
       <Section title={`${t('ap.tasks')} ${artifact.tasks.length ? `${doneCount}/${artifact.tasks.length}` : ''}`}>
         <ul className="ap-tasks">
-          {artifact.tasks.map(task => {
-            const as = task.assigneeId ? users[task.assigneeId] : undefined;
-            return (
-              <li key={task.id} className="ap-task">
-                <label className="ap-check-hit">
-                  <input type="checkbox" className="ap-check" checked={task.done} aria-label={t('ap.taskDone', { text: task.text })}
-                    onChange={() => tachi.artifactTask(artifact.id, 'toggle', { taskId: task.id })} />
-                </label>
-                <span className={`ap-task-text ${task.done ? 'is-done' : ''}`}>{task.text}</span>
-                <span className="ap-assign">
-                  {as ? <Avatar user={as} size={22} /> : <span className="ap-noassign" aria-hidden />}
-                  <select className="ap-select" aria-label={t('ap.assignee', { text: task.text })} value={task.assigneeId ?? ''}
-                    onChange={e => tachi.artifactTask(artifact.id, 'assign', { taskId: task.id, assigneeId: e.target.value })}>
-                    <option value="">{t('ap.unassigned')}</option>
-                    {members.map(m => <option key={m.id} value={m.id}>{m.shortName}</option>)}
-                  </select>
-                </span>
-                <button className="btn btn-icon ap-rm" aria-label={t('ap.taskRemove', { text: task.text })} onClick={() => tachi.artifactTask(artifact.id, 'remove', { taskId: task.id })}>
-                  <X size={14} strokeWidth={1.5} />
-                </button>
-              </li>
-            );
-          })}
+          {artifact.tasks.map(task => (
+            <TaskRow key={task.id} artifact={artifact} task={task} users={users} members={members} />
+          ))}
         </ul>
         <div className="ap-addtask">
           <input className="input" value={newTask} placeholder={t('ap.addTask')} aria-label={t('ap.addTask')}
@@ -255,5 +237,80 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <h3 className="ap-h">{title}</h3>
       {children}
     </section>
+  );
+}
+
+const FOLLOW_KINDS = new Set(['reminder', 'nudge', 'escalate', 'manual', 'reply', 'booking', 'status']);
+
+/** 'Reminded · Tue, Nov 10 2:05 PM' — the latest follow-up step in the active language. */
+function lastFollowUp(t: ArtifactTask, tr: T, locale: 'en' | 'ko'): string | null {
+  const f = [...(t.followUps ?? [])].reverse().find(x => x.kind !== 'status');
+  if (!f) return null;
+  const d = new Date(f.at);
+  return `${FOLLOW_KINDS.has(f.kind) ? tr(`ap.follow.${f.kind}`) : f.kind} · ${dateLabelL(d, locale)} ${timeLabelL(d, locale)}`;
+}
+
+/** One to-do: checkbox, text, owner, then status / due / last follow-up and the action Tachi can run for it. */
+function TaskRow({ artifact, task: t, users, members }: { artifact: Artifact; task: ArtifactTask; users: Record<string, User>; members: User[] }) {
+  const tr = useT();
+  const locale = useLocale();
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  useEffect(() => { if (note) { const x = window.setTimeout(() => setNote(null), 4000); return () => window.clearTimeout(x); } }, [note]);
+  const as = t.assigneeId ? users[t.assigneeId] : undefined;
+  const kind = t.action?.kind ?? 'none';
+  const open = !t.done;
+  const action = kind === 'booking_link' ? { label: tr('ap.act.booking'), Icon: ExternalLink, disabled: false, why: '' }
+    : kind === 'reminder' ? { label: tr('ap.act.remind'), Icon: Bell, disabled: !t.assigneeId, why: t.assigneeId ? '' : tr('ap.act.needOwner') }
+    : null;
+  const run = () => {
+    setBusy(true);
+    tachi.executeTask(artifact.id, t.id).then(r => {
+      setBusy(false);
+      setNote(r.ok ? tr(kind === 'booking_link' ? 'ap.act.sharedLinks' : 'ap.act.reminded') : (r.message ?? tr('ap.act.failed')));
+    });
+  };
+  const last = lastFollowUp(t, tr, locale);
+  const why = action?.disabled ? `why-${t.id}` : undefined;
+  return (
+    <li className="ap-task">
+      <div className="ap-task-main">
+        <label className="ap-check-hit">
+          <input type="checkbox" className="ap-check" checked={t.done} aria-label={tr('ap.taskDone', { text: t.text })}
+            onChange={() => tachi.artifactTask(artifact.id, 'toggle', { taskId: t.id })} />
+        </label>
+        <span className={`ap-task-text ${t.done ? 'is-done' : ''}`}>{t.text}</span>
+        <span className="ap-assign">
+          {as ? <Avatar user={as} size={22} /> : <span className="ap-noassign" aria-hidden />}
+          <select className="ap-select" aria-label={tr('ap.assignee', { text: t.text })} value={t.assigneeId ?? ''}
+            onChange={e => tachi.artifactTask(artifact.id, 'assign', { taskId: t.id, assigneeId: e.target.value })}>
+            <option value="">{tr('ap.unassigned')}</option>
+            {members.map(m => <option key={m.id} value={m.id}>{m.shortName}</option>)}
+          </select>
+        </span>
+        <button className="btn btn-icon ap-rm" aria-label={tr('ap.taskRemove', { text: t.text })} onClick={() => tachi.artifactTask(artifact.id, 'remove', { taskId: t.id })}>
+          <X size={14} strokeWidth={1.5} />
+        </button>
+      </div>
+      <div className="ap-task-meta">
+        <TaskStatusChip status={t.status ?? (t.done ? 'done' : 'todo')} />
+        {open && t.dueAt && <span className="caption muted">{tr('ap.due', { due: dueLabel(t.dueAt, locale) })}</span>}
+        {last && <span className="caption faint">· {last}</span>}
+        {t.link && (
+          <a className="ap-link caption" href={t.link} target="_blank" rel="noopener noreferrer">
+            {tr('ap.openLink')}<span className="sr-only"> · {t.text}</span>
+          </a>
+        )}
+        {open && action && (
+          <button type="button" className="btn ap-act" onClick={run} disabled={busy || action.disabled} aria-busy={busy || undefined}
+            aria-describedby={why} title={action.why || undefined}>
+            {busy ? <Loader2 size={14} className="ap-spin" aria-hidden /> : <action.Icon size={14} strokeWidth={1.5} aria-hidden />}
+            {action.label}<span className="sr-only"> · {t.text}</span>
+          </button>
+        )}
+        {why && open && <span id={why} className="sr-only">{action?.why}</span>}
+      </div>
+      {note && <p className="ap-note caption muted" role="status">{note}</p>}
+    </li>
   );
 }

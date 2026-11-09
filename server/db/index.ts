@@ -3,6 +3,7 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Artifact, Contact, Memory, Message, Poll, Room, SessionLog, Trip, User } from '../../shared/types';
+import type { Reminder } from '../tools/types';
 
 type Stmt = Database.Statement;
 
@@ -66,7 +67,7 @@ class KV {
   del(key: string): void { this.db.prepare('DELETE FROM kv WHERE key = ?').run(key); }
 }
 
-const DOC_TABLES = ['users', 'contacts', 'rooms', 'memories', 'trips', 'artifacts', 'polls', 'sessions'] as const;
+const DOC_TABLES = ['users', 'contacts', 'rooms', 'memories', 'trips', 'artifacts', 'polls', 'sessions', 'reminders'] as const;
 
 export interface Db {
   raw: Database.Database;
@@ -79,6 +80,7 @@ export interface Db {
   artifacts: Doc<Artifact>;
   polls: Doc<Poll>;
   sessions: Doc<SessionLog>;
+  reminders: Doc<Reminder>;
   kv: KV;
   wipe(): void;
   close(): void;
@@ -104,6 +106,7 @@ export function openDb(dataDir: string): Db {
     artifacts: new Doc<Artifact>(raw, 'artifacts'),
     polls: new Doc<Poll>(raw, 'polls'),
     sessions: new Doc<SessionLog>(raw, 'sessions'),
+    reminders: new Doc<Reminder>(raw, 'reminders'),
     kv: new KV(raw),
     wipe() {
       raw.transaction(() => {

@@ -6,6 +6,7 @@ import { enqueue, getUser, isMember, post, tachiSay } from './core';
 import { handleSeniorAction, handleSeniorInput } from './senior';
 import { handleFamilyAction, handleFamilyInput } from './family';
 import { handleSideMessage } from './scheduling';
+import { TASK_ACTIONS, handleTaskAction } from './tasks';
 import { handleDmMessage } from './dm';
 import { st } from '../i18n';
 import { warn } from '../util/misc';
@@ -95,6 +96,10 @@ export function handleAction(userId: ID, p: { roomId: ID; messageId: ID; actionI
             data = undefined; // stored action data / payload only
           }
           await handleFamilyAction(room, actor, msg, p.actionId, data);
+        } else if (TASK_ACTIONS.has(p.actionId)) {
+          // to-do cards: the raw user id (the Director stands in for the assignee, not for the senior); ids from the stored action only
+          const r = await handleTaskAction(userId, msg, p.actionId);
+          if (!r.ok) { resolve(reject(userId, p, r.error ?? 'task action refused')); return; }
         } else {
           resolve(reject(userId, p, 'unknown action')); return;
         }
