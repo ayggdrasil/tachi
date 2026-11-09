@@ -2,7 +2,7 @@
 import { DIRECTOR_ID } from '../../shared/constants';
 import type { Bootstrap, GraphDelta, ID } from '../../shared/types';
 import { ctx } from './ctx';
-import { DIRECTOR_USER, scrubHiddenTitles, getDemo, getPrivacy, healthFor, memoryVisibleToFamily, messageFor, presence, seesAll, tripVisibleToFamily } from './core';
+import { DIRECTOR_USER, scrubHiddenTitles, getDemo, getPrivacy, healthFor, memoryVisibleToFamily, messageFor, presence, seesAll, tripVisibleToFamily, viewerIsKin } from './core';
 import { warn } from '../util/misc';
 
 export async function buildBootstrap(viewerId: ID): Promise<Bootstrap> {
@@ -10,6 +10,7 @@ export async function buildBootstrap(viewerId: ID): Promise<Bootstrap> {
   const director = viewerId === DIRECTOR_ID;
   const me = director ? DIRECTOR_USER : db.users.get(viewerId)!;
   const all = seesAll(viewerId);
+  const kin = viewerIsKin(viewerId);
   const privacy = getPrivacy();
 
   const rooms = db.rooms.all().filter(r => director || r.memberIds.includes(viewerId));
@@ -17,10 +18,10 @@ export async function buildBootstrap(viewerId: ID): Promise<Bootstrap> {
   const messages: Bootstrap['messages'] = {};
   for (const r of rooms) messages[r.id] = db.messages.byRoom(r.id, 200).map(m => messageFor(viewerId, m));
 
-  const memories = db.memories.all().filter(m => all || memoryVisibleToFamily(m));
+  const memories = db.memories.all().filter(m => all || (kin && memoryVisibleToFamily(m)));
   const artifacts = db.artifacts.all().filter(a => roomIds.has(a.roomId)).map(a => scrubHiddenTitles(viewerId, a));
   const polls = db.polls.all().filter(p => roomIds.has(p.familyRoomId) || Object.values(p.sideRoomIds).some(id => roomIds.has(id)));
-  const trips = db.trips.all().filter(t => all || tripVisibleToFamily(t)).map(t => scrubHiddenTitles(viewerId, t));
+  const trips = db.trips.all().filter(t => all || (kin && tripVisibleToFamily(t))).map(t => scrubHiddenTitles(viewerId, t));
 
   let graph: GraphDelta = { nodes: [], edges: [] };
   try {

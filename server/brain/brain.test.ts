@@ -106,7 +106,8 @@ test('recall, share, trip, itinerary', async () => {
   const it = (await brain.planItinerary({ tripId: 't1', ...t }, mom)).value;
   assert.equal(it.days.length, 2);
   for (const d of it.days) assert.ok(d.stops.length >= 4 && d.stops.length <= 5);
-  assert.ok(it.tips.some(x => x.includes('혈압약')));
+  assert.ok(it.tips.some(x => x.includes('복용 시간표')));
+  assert.ok(!JSON.stringify(it).includes('아침 식후'));
   const b = (await brain.planItinerary({ tripId: 't2', ...t, destination: '속초' }, mom)).value;
   assert.equal(b.days.length, 2);
 });
@@ -462,4 +463,53 @@ test('P1-6/P1-7: invite greeting and share summary audience', async () => {
 test('P2: known node + photo word prefers recall over trip', async () => {
   const r = (await brain.classifySeniorIntent('가족여행 사진 보여줘', { knownNodeNames: ['가족여행', '경주 불국사'], pending: null })).value;
   assert.equal(r.type, 'recall');
+});
+
+// ── round-3 additions ──────────────────────────────────────────────────────
+test('R3-F10: out-of-range BP is routed to verification, not small talk', async () => {
+  const cls = async (t: string) => (await brain.classifySeniorIntent(t, { knownNodeNames: [] })).value;
+  const a = await cls('혈압 240에 130이야') as { type: string; systolic: number; diastolic: number };
+  assert.equal(a.type, 'health_log');
+  assert.equal(assessBloodPressure(a).level, 'crisis');
+  const b = await cls('혈압 260에 160이야') as { type: string; systolic: number; diastolic: number };
+  assert.equal(b.type, 'health_log');
+  assert.equal(assessBloodPressure(b).level, 'invalid');
+});
+
+test('R3-F10: reassuring live answer cannot override a 200/120 warning', async () => {
+  const h = baseCtx().health!;
+  const bp = [...h.bloodPressure.slice(0, -1), { ...h.bloodPressure[h.bloodPressure.length - 1], systolic: 200, diastolic: 120 }];
+  await withFakeProvider(() => '{"text":"요즘 아주 안정적이에요. 걱정 없으세요. 약도 잘 챙기고 계세요."}', async b => {
+    const r = await b.answerFamily(step('health'), baseCtx({ health: { ...h, bloodPressure: bp } }));
+    assert.equal(r.source, 'llm');
+    assert.match(r.value.text, /^가장 최근 혈압 200\/120/);
+    assert.doesNotMatch(r.value.text, /안정|괜찮|걱정 없/);
+    assert.match(r.value.text, /약도 잘 챙기고/);
+  });
+});
+
+test('R3-F11: observations merge field by field, deterministic statement wins', async () => {
+  await withFakeProvider(() => '{"reply":"그러셨군요","quickReplies":["응"],"category":"health","observation":{"medication":{"taken":true,"name":"혈압약"}}}', async b => {
+    const r = await b.seniorChat([], '약 안 먹었어', mom);
+    assert.equal(r.value.observation?.medication?.taken, false);
+    assert.equal(r.value.observation?.medication?.name, undefined);
+  });
+  await withFakeProvider(() => '{"reply":"그러셨군요","quickReplies":["응"],"category":"health","observation":{"mood":"좋음"}}', async b => {
+    const r = await b.seniorChat([], '약 안 먹었어', mom);
+    assert.deepEqual(r.value.observation, { medication: { taken: false }, mood: '좋음' });
+  });
+  await withFakeProvider(() => '{"reply":"그러셨군요","quickReplies":["응"],"category":"health","observation":{"medication":{"taken":true,"name":"혈압약"}}}', async b => {
+    const r = await b.seniorChat([], '오늘 날씨 좋다', mom);
+    assert.equal(r.value.observation, undefined); // unsupported medication fact is not persisted
+  });
+  await withFakeProvider(() => '{"reply":"좋네요","quickReplies":["응"],"category":"health","observation":{"medication":{"taken":true,"name":"혈압약","time":"아침"}}}', async b => {
+    const r = await b.seniorChat([], '약 먹었어', mom);
+    assert.deepEqual(r.value.observation, { medication: { taken: true, name: '혈압약', time: '아침' } });
+  });
+});
+
+test('R3-F13: missed-dose copy is prescription-neutral', async () => {
+  const r = (await brain.seniorChat([], '약 안 먹었어', mom)).value.reply;
+  assert.match(r, /처방받은 시간표대로/);
+  assert.doesNotMatch(r, /생각나셨을 때/);
 });

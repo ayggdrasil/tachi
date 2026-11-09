@@ -43,6 +43,24 @@ export function healthFacts(h: HealthSummary) {
 
 const topic = (label: string): string => `${label}${hasBatchim(label) ? '은' : '는'}`;
 
+/** Deterministic warning sentence when the latest reading is high/crisis; undefined otherwise. */
+export function bpWarning(ctx: FamilyContext): string | undefined {
+  if (!ctx.health?.bloodPressure.length) return undefined;
+  const latest = ctx.health.bloodPressure[ctx.health.bloodPressure.length - 1];
+  const lv = assessBloodPressure(latest).level;
+  if (lv !== 'crisis' && lv !== 'high') return undefined;
+  const call = seniorCall(ctx.asker);
+  return `가장 최근 혈압 ${latest.systolic}/${latest.diastolic}은(는) ${lv === 'crisis' ? '매우 높은' : '높은'} 수치예요. 지금 바로 ${call}께 연락해 상태를 확인하시고, 필요하면 병원에 문의해 주세요.`;
+}
+
+/** Enforce the warning on any (e.g. live-model) answer: strip reassuring sentences, then lead with the warning. */
+export function enforceBpWarning(text: string, ctx: FamilyContext): string {
+  const w = bpWarning(ctx);
+  if (!w) return text;
+  const kept = text.split(/(?<=[.!?。])\s+/).filter(s => !/안정|괜찮|걱정\s*(?:없|안\s*하)|문제\s*없|이상\s*없/.test(s)).join(' ').trim();
+  return kept.startsWith(w) ? kept : `${w}${kept ? ' ' + kept : ''}`;
+}
+
 export function answerFamily(question: string, ctx: FamilyContext): FamilyAnswer {
   const call = seniorCall(ctx.asker);
   const cat = questionCategory(question);
@@ -67,7 +85,7 @@ export function answerFamily(question: string, ctx: FamilyContext): FamilyAnswer
       parts.push(`${call}께서는 최근 7일 평균 혈압이 ${f.avgS}/${f.avgD}이고, 가장 최근 기록은 ${f.latest.systolic}/${f.latest.diastolic}이에요.`);
       parts.push(`복약은 ${f.totalDays}일 중 ${f.takenDays}일 챙기셨고${f.missed.length ? `, ${f.missed.map(fmtDate).join(', ')}에는 빠뜨리셨어요` : ''}.`);
       const lv = f.latest ? assessBloodPressure(f.latest).level : 'invalid';
-      if (lv === 'crisis' || lv === 'high') parts.unshift(`가장 최근 혈압 ${f.latest.systolic}/${f.latest.diastolic}은(는) ${lv === 'crisis' ? '매우 높은' : '높은'} 수치예요. 지금 바로 ${call}께 연락해 상태를 확인하시고, 필요하면 병원에 문의해 주세요.`);
+      if (lv === 'crisis' || lv === 'high') parts.unshift(bpWarning(ctx)!);
       else if (lv === 'elevated' || f.avgS >= 140) parts.push('조금 높은 편이라 주치의와 상의해 보시면 좋겠어요.');
       else if (lv === 'invalid') parts.push('최근 혈압 기록은 다시 확인이 필요해요.');
       else parts.push(lv === 'low' ? '최근 혈압이 낮은 편이라 어지럽지 않으신지 살펴봐 주세요.' : '최근 7일 흐름은 큰 변동이 없어요.');

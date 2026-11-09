@@ -4,7 +4,7 @@ import type { Memory, ModelKey, ProactiveKind, Visibility } from '../../shared/t
 import { ctx, type IO, type Sock } from './ctx';
 import { buildBootstrap } from './bootstrap';
 import {
-  applyMemoryVisibility, emitPresence, getPrivacy, patchDemo, resyncFamilyViewers, roomChannel, runWithGen, seesAll,
+  applyMemoryVisibility, emitPresence, getPrivacy, patchDemo, resyncFamilyViewers, rotateHiddenPhotos, roomChannel, runWithGen, seesAll,
   setDemoClock, userChannel,
 } from './core';
 import { handleAction, handleIncoming } from './messages';
@@ -144,7 +144,7 @@ export function attachSocketHandlers(io: IO): void {
       if (u && p) safe('message:send', () => handleIncoming(u, p.roomId, { text: p.text, photoUrl: p.photoUrl }), sock);
     });
     sock.on('action', (p, ack) => {
-      const reply = (r: { ok: boolean; error?: string }) => { if (typeof ack === 'function') ack(r); };
+      const reply = (r: { ok: boolean; error?: string; message?: string }) => { if (typeof ack === 'function') ack(r); };
       const u = uid();
       if (!u || !p) { reply({ ok: false, error: '먼저 연결해 주세요.' }); return; }
       if (ctx.resetting) { sock.emit('toast', { text: BUSY }); reply({ ok: false, error: BUSY }); return; }
@@ -180,6 +180,7 @@ export function attachSocketHandlers(io: IO): void {
         if (!(p.category in priv) || (p.visibility !== 'family' && p.visibility !== 'private')) return;
         priv[p.category] = p.visibility;
         ctx.db.kv.set('privacy', priv);
+        if (p.category === 'memory' && p.visibility === 'private') rotateHiddenPhotos();
         resyncFamilyViewers(); // privacy:update + health to everyone, projected re-hello for family clients
       }, sock);
     });

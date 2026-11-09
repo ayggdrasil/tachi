@@ -39,9 +39,12 @@ async function route(room: Room, userId: ID, text: string | undefined, photoUrl:
   else await handleSideMessage(fresh, userId, text);
 }
 
-export interface ActionResult { ok: boolean; error?: string }
+export interface ActionResult { ok: boolean; error?: string; message?: string }
 
-const FAMILY_ACTIONS = new Set(['start_scheduling', 'pick_slots', 'confirm_slot', 'repoll']);
+/** Thrown by a flow for a deliberate privacy refusal: the card stays pending and usable (no failure toast). */
+export const isActionRefused = (e: unknown): e is Error => e instanceof Error && e.name === 'ActionRefused';
+
+const FAMILY_ACTIONS = new Set(['start_scheduling', 'pick_slots', 'confirm_slot', 'repoll', 'revise_gathering', 'new_gathering']);
 const reject = (userId: ID, p: { roomId: ID; messageId: ID; actionId: string }, why: string): ActionResult => {
   warn(`action rejected (${why}): user=${userId} room=${String(p.roomId)} msg=${String(p.messageId)} action=${String(p.actionId)}`);
   return { ok: false, error: why };
@@ -93,6 +96,7 @@ export function handleAction(userId: ID, p: { roomId: ID; messageId: ID; actionI
         }
         resolve({ ok: true });
       } catch (e) {
+        if (isActionRefused(e)) { resolve({ ok: false, error: 'refused', message: e.message }); return; }
         resolve({ ok: false, error: '처리하지 못했어요. 다시 시도해 주세요.' });
         await fallback(p.roomId, e);
       }

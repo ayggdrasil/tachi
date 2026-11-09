@@ -1,0 +1,191 @@
+{
+  "model": "gpt-6.1-sol",
+  "effort": "xhigh",
+  "seconds": 298,
+  "usage": {
+    "input_tokens": 209350,
+    "input_tokens_details": {
+      "cache_write_tokens": 209347,
+      "cached_tokens": 0
+    },
+    "output_tokens": 15101,
+    "output_tokens_details": {
+      "reasoning_tokens": 11394
+    },
+    "total_tokens": 224451
+  },
+  "scores": {
+    "demo_readiness": 7.7,
+    "senior_ux": 7.6,
+    "family_ux": 7.8,
+    "ai_behavior": 6.9,
+    "robustness": 6.6,
+    "design_fidelity": 8.2,
+    "overall": 7.4
+  },
+  "summary": "The captures show a complete offline flow, and the source contains substantial improvements in consent handling, action authorization, clock/report deduplication, and non-unanimous scheduling. The biggest remaining presentation issues are the Director’s graph-induced phone shrink, clipped memory facts, and a model-switch step that can silently do nothing on replay. Privacy enforcement still has gaps across general Q&A, non-kin viewers, media URLs, and derived plans; live-model health responses can also bypass the deterministic safety fixes. The visual foundation is coherent, but these presentation and trust issues prevent a 9+/10 score.",
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "high",
+      "area": "demo",
+      "file": "web/src/pages/demo/DirectorConsole.tsx",
+      "problem": "Automatically revealing the graph makes the two product screens substantially smaller during the central memory-to-trip sequence, and clips the stage on smaller laptops.",
+      "evidence": "GRAPH_W stays fixed at 560 while only the phones scale. At the supplied 1440px desktop width, the 320px rail leaves a 1120px stage: the graph layout calculates a phone scale of approximately 0.595, reducing each 390px phone to 232px. At 1024px, the 0.3 minimum scale produces an 842px row inside approximately 656px of usable stage width. The graph is automatically enabled at a-story and remains until scheduling.",
+      "fix": "Make the graph column responsive and subordinate to a minimum readable phone size. Use a compact graph panel or overlay when three columns cannot fit, and add desktop viewport checks at 1024, 1280, and 1440px covering the automatically revealed graph state."
+    },
+    {
+      "id": "F2",
+      "severity": "medium",
+      "area": "senior-ux",
+      "file": "web/src/components/cards/cards.css",
+      "problem": "The newly saved memory card truncates the very facts the audience and senior need to verify.",
+      "evidence": "05-senior-a-story.png shows the date as '1980년대 1984…', people as '박영수, 김지은,…', and truncated emotions. The two-column .cd-facts layout applies white-space: nowrap, overflow: hidden, and text-overflow: ellipsis to every value. MemoryCards.tsx also unnecessarily combines decade, exact year, and season.",
+      "fix": "Display the exact year and season without the redundant decade. Let people and emotions wrap or span both columns, preserving senior-readable type. Move the graph behind an expandable section if necessary rather than cutting the factual content."
+    },
+    {
+      "id": "F3",
+      "severity": "high",
+      "area": "demo",
+      "file": "web/src/pages/demo/DirectorConsole.tsx",
+      "problem": "The scripted model-switch beat can complete without switching models, including after a successful rehearsal followed by reset.",
+      "evidence": "runStep selects the requested gpt-terra option without excluding the currently active model, then sends the question even when no model:set occurs. resetDemo resets persisted state but leaves ctx.brain's active model unchanged. Consequently, a second run after switching to Terra—or a fresh run with only an OpenAI key—can show this beat as completed while Terra remains active throughout.",
+      "fix": "If the requested target is already active, select a different available, healthy provider/model or explicitly mark the beat unavailable. Require an observed active-model change before sending the comparison question and completing the switch step."
+    },
+    {
+      "id": "F4",
+      "severity": "medium",
+      "area": "senior-ux",
+      "file": "web/src/components/chat/MessageList.tsx",
+      "problem": "The trip offer repeats its title and full reason above and inside the card, consuming most of the senior viewport.",
+      "evidence": "07-senior-invite.png repeats the '다시 찾는 경주' explanation immediately before the card and again inside it, leaving the secondary action partly below the composer boundary. TEXT_ABOVE includes trip_suggestion, while TripSuggestionCard independently renders the same title and reason.",
+      "fix": "Render the trip explanation once, preferably inside the card, and position both offer actions immediately after that content. Keep message.text as the accessible summary without also displaying the duplicated paragraph."
+    },
+    {
+      "id": "F5",
+      "severity": "medium",
+      "area": "demo",
+      "file": "web/src/components/cards/TripCards.tsx",
+      "problem": "The itinerary preview shows only transport logistics, hiding the memory-linked destination during the live demo.",
+      "evidence": "09-senior-trip.png displays '08:30 서울역 출발' and '11:00 신경주역 도착, 점심', but no 불국사 visit. ItineraryCard always previews d.stops.slice(0, 2), so the defining attraction is hidden behind an expansion control below the initial viewport.",
+      "fix": "Compress departure/arrival into a route summary and include the memory-linked attraction in the initial preview. Preserve the complete chronological itinerary behind the existing expansion control."
+    },
+    {
+      "id": "F6",
+      "severity": "high",
+      "area": "server",
+      "file": "server/orchestrator/family.ts",
+      "problem": "General wellbeing answers lose their privacy provenance, so previously public health or mood facts remain visible after the senior makes those categories private.",
+      "evidence": "buildFamilyContext supplies health, mood, memories, trips, and sessions. For questions such as '타치, 엄마 요즘 어때?', the orchestrator's questionCategory returns undefined, while the offline answer can include blood-pressure and mood facts. The resulting message has no category or resource provenance, so projectMessage cannot retract it. The same missing category also bypasses the current-privacy check if settings change while the provider is responding.",
+      "fix": "Return the categories and resource IDs actually used by an answer, attach them to the stored message, and revalidate all dependencies immediately before posting. Project or regenerate mixed-category answers when any contributing category becomes private. Add a regression covering a general wellbeing answer followed by health/mood retraction."
+    },
+    {
+      "id": "F7",
+      "severity": "high",
+      "area": "server",
+      "file": "server/orchestrator/bootstrap.ts",
+      "problem": "The non-kin privacy fix protects questions but not the data delivered to an invited friend or other non-family persona.",
+      "evidence": "kinMayAsk is enforced only in the family answer flow. buildBootstrap gives every non-senior viewer all family-visible memories, health, trips, and their graph regardless of relation. healthFor, emitMemory, emitTrip, and message projection likewise do not enforce kin membership. A contact created with relation '친구' can therefore receive the protected data even though their health question is refused.",
+      "fix": "Introduce one viewer authorization predicate that includes kin status and apply it consistently to bootstrap data, live emissions, message history, and bot context. Test a friend joining a room that already contains a health card and shared memory, not just a subsequent Q&A refusal."
+    },
+    {
+      "id": "F8",
+      "severity": "high",
+      "area": "server",
+      "file": "server/orchestrator/core.ts",
+      "problem": "Making a source memory private does not consistently retract its derived trips from family state.",
+      "evidence": "applyMemoryVisibility updates the memory and resynchronizes clients but does not synchronize linked trips. tripVisibleToFamily checks only the trip category and t.visibility. A trip created while its memory was public therefore remains in Bootstrap.trips after that memory becomes private. scrubHiddenTitles replaces only the complete memory title, leaving suggestion reasons containing the year, place, or memory-specific hook. artifacts.ts also selects trips without filtering through tripVisibleToFamily.",
+      "fix": "Define effective visibility for derived resources using current source visibility, with an explicit separate-consent flag if independent trip sharing is intended. Apply that rule to bootstrap, emissions, gathering selection, and derived artifact content. Test retraction through the album visibility switch as well as skip_share."
+    },
+    {
+      "id": "F9",
+      "severity": "high",
+      "area": "server",
+      "file": "server/orchestrator/app.ts",
+      "problem": "Private uploaded photos remain retrievable through unauthenticated media URLs.",
+      "evidence": "The server mounts express.static on /uploads before any viewer authorization. New photo memories default to private, but their uploaded files are immediately served to anyone with the URL; changing visibility does not affect those requests. The predictable private wedding sample is also publicly served under /demo-photos.",
+      "fix": "Serve personal uploads through an authorized media route or revocable viewer-scoped URL that checks current memory visibility. Keep public demo assets explicitly separate from protected personal media. Add an HTTP regression proving a private upload cannot be fetched by an unauthorized viewer."
+    },
+    {
+      "id": "F10",
+      "severity": "high",
+      "area": "ai",
+      "file": "server/brain/index.ts",
+      "problem": "Blood-pressure safety is still bypassable outside the tested offline answer path.",
+      "evidence": "answerFamily computes the deterministic severity-aware answer, but a live provider's arbitrary nonempty j.text replaces it without preserving crisis warnings. Separately, seniorIntent accepts readings only up to 230/140 even though assessBloodPressure accepts up to 250/150. '혈압 240에 130이야' therefore falls into small talk, whose offline reply merely thanks the senior and says not to overexert.",
+      "fix": "Centralize numeric BP parsing and severity enforcement before generative responses. Route out-of-range readings to explicit verification rather than ordinary small talk, and ensure crisis guidance cannot be removed or contradicted by a live-model answer. Test both 240/130 input and a reassuring fake-provider response to a 200/120 family context."
+    },
+    {
+      "id": "F11",
+      "severity": "high",
+      "area": "ai",
+      "file": "server/brain/index.ts",
+      "problem": "A structurally valid but contradictory LLM observation can overwrite an explicit medication statement and persist the wrong health record.",
+      "evidence": "seniorChat chooses observation ?? h.observation. validateObservation checks types and allowed labels, not agreement with the user's words. For '약 안 먹었어', a valid provider observation with taken:true wins over the deterministic taken:false result. A valid mood-only observation also discards a deterministically extracted medication fact because the fallback operates on the whole object.",
+      "fix": "Merge observations field by field, giving deterministic extraction of explicit statements precedence over conflicting model fields. Require confirmation for unsupported medication facts. Add tests for valid contradictory booleans and valid partial observations, not only invalid JSON field types."
+    },
+    {
+      "id": "F12",
+      "severity": "medium",
+      "area": "senior-ux",
+      "file": "web/src/components/chat/ActionBar.tsx",
+      "problem": "A refused share can leave its button permanently disabled even though the server deliberately keeps the decision pending.",
+      "evidence": "When the memory category is private, doShare posts a refusal and returns normally without marking the action done. handleAction consequently acknowledges ok:true. ActionBar interprets every successful acknowledgment as phase='sent' and disables the button indefinitely. Changing the category back to family does not clear that local phase.",
+      "fix": "Distinguish committed, refused, and retryable action results. A privacy refusal must not enter the sent state; keep the action usable after the setting changes. Add a UI regression that taps share while the category is private, enables family sharing, and successfully retries the same card."
+    },
+    {
+      "id": "F13",
+      "severity": "medium",
+      "area": "ai",
+      "file": "server/brain/heuristics/compose.ts",
+      "problem": "Medication copy gives unsupported dosing instructions rather than deferring to the senior's prescription.",
+      "evidence": "For a missed dose, seniorChatCore says '생각나셨을 때 천천히 챙겨 드세요' without knowing the medicine or proximity to the next dose. The itinerary prompt also explicitly requests '혈압약은 아침 식후 챙기기', and that instruction appears in 09-senior-trip.png despite no prescription-specific after-meal information in the health schema.",
+      "fix": "Use prescription-neutral reminders: follow the prescribed schedule and consult the medication instructions or pharmacist for a missed dose. Generate a specific dosing time only when that instruction exists in the provided record."
+    },
+    {
+      "id": "F14",
+      "severity": "medium",
+      "area": "family-ux",
+      "file": "server/orchestrator/artifacts.ts",
+      "problem": "The duplicate-artifact fix now silently absorbs unrelated proposals without applying what the family actually requested.",
+      "evidence": "Any gathering artifact created within 24 hours is reused, regardless of event or destination. mergeIntoArtifact passes only the existing artifact and members to assistArtifact; the new proposal text is not included. An explicit 부산 proposal after a 경주 plan can therefore return '기존 모임 기획서에 반영했어요' while retaining the old title and nonempty place and adding unrelated generic tasks.",
+      "fix": "Merge only proposals referring to the same gathering, and pass the requested change into the merge operation. For a different destination or event, ask whether to revise the existing plan or create a new one. Verify the requested field changes before claiming they were applied."
+    },
+    {
+      "id": "F15",
+      "severity": "medium",
+      "area": "family-ux",
+      "file": "web/src/components/health/HealthSummaryView.tsx",
+      "problem": "The medication chart presents an absent record as a missed dose.",
+      "evidence": "10-family-health.png shows an empty final dot for 관절약. The seed intentionally omits today's evening entry, but the renderer makes items.length === 0 equivalent to taken:false and labels both '거름'. The card consequently shows 14 dose positions while its actual-record total is 12/13, visually implying another omission not supported by the data.",
+      "fix": "Represent taken, explicitly missed, and not recorded/not yet due as distinct states. Calculate and label totals consistently from actual records or an explicit dosing schedule, and expose each day's state accessibly on mobile."
+    },
+    {
+      "id": "F16",
+      "severity": "medium",
+      "area": "family-ux",
+      "file": "web/src/pages/family/FamilyApp.tsx",
+      "problem": "The mobile family-room header cannot display even the short room name.",
+      "evidence": "The phone captures consistently show '우리 …' instead of '우리 가족', becoming tighter after Harin joins. The header reserves an avatar stack plus back, invite, mother-news, and more controls, while the title is the element allowed to shrink and ellipsize.",
+      "fix": "On narrow screens, remove or reduce the avatar stack and keep the full room name visible. Put participant detail in the existing more menu, or use a two-line header with independently budgeted title and controls."
+    },
+    {
+      "id": "F17",
+      "severity": "medium",
+      "area": "family-ux",
+      "file": "web/src/pages/family/FamilyApp.tsx",
+      "problem": "A family bootstrap timeout has no in-app recovery even when the socket remains connected.",
+      "evidence": "store.ts turns an unanswered hello into status='error' after eight seconds. FamilyApp then renders only a connection message, with no retry action. Its initialization effect depends only on personaId, so a late discarded acknowledgment does not trigger another hello unless a new socket connection occurs. The senior screen already provides a retry control.",
+      "fix": "Add an explicit retry button calling initTachi(personaId, true), show the actual recoverable error, and provide a route back to persona selection. Cover the connected-socket/hello-timeout case rather than testing only transport reconnection."
+    },
+    {
+      "id": "F18",
+      "severity": "low",
+      "area": "design",
+      "file": "web/src/pages/demo/DirectorConsole.css",
+      "problem": "Several Director-only styles depart from the otherwise intentional achromatic system.",
+      "evidence": "91-director.png contains a beige stale-state banner. The stylesheet also hardcodes green .dc-ok, red .dc-bad, and orange-tinted .dc-chip.is-node and .dc-stale backgrounds instead of the graphite semantic tokens.",
+      "fix": "Replace these hardcoded hues with the existing achromatic tokens, retaining the check/cross icons, text labels, borders, and weight differences to communicate state."
+    }
+  ]
+}

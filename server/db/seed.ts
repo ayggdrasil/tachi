@@ -6,6 +6,9 @@ import {
 import type {
   DemoState, HealthSummary, Memory, Message, ReportPayload, Room, SessionLog,
 } from '../../shared/types';
+import fs from 'node:fs';
+import path from 'node:path';
+import { nanoid } from 'nanoid';
 import { ctx } from '../orchestrator/ctx';
 import { warn, ymd } from '../util/misc';
 
@@ -38,6 +41,20 @@ function seedHealth(): HealthSummary {
   };
 }
 
+/** The private wedding sample is served from a non-guessable file under data/uploads, never from the public /demo-photos path. */
+function privateSeedPhoto(): string {
+  const fallback = '/demo-photos/wedding-1976.jpg';
+  try {
+    const src = path.join(ctx.rootDir, 'demo', 'photos', 'wedding-1976.jpg');
+    if (!fs.existsSync(src)) return fallback;
+    const dir = path.join(ctx.dataDir, 'uploads');
+    fs.mkdirSync(dir, { recursive: true });
+    const name = `${nanoid(24)}.jpg`;
+    fs.copyFileSync(src, path.join(dir, name));
+    return `/uploads/${name}`;
+  } catch (e) { warn('private seed photo copy failed:', e); return fallback; }
+}
+
 function seedMemories(): Memory[] {
   const base = { ownerId: SENIOR_ID, status: 'saved' as const };
   return [
@@ -47,7 +64,7 @@ function seedMemories(): Memory[] {
       summary: '명동성당에서 영수 씨와 올린 설레는 가을 결혼식.',
       year: 1976, era: '1970년대', season: '가을', place: '서울 명동성당', placeId: 'seoul-myeongdong-cathedral',
       people: [{ name: '박영수', relation: '남편' }], event: '결혼식', emotions: ['설렘', '행복'], tags: ['웨딩드레스', '국화'],
-      visibility: 'private', photoUrl: '/demo-photos/wedding-1976.jpg', createdAt: at(21, '10:20').toISOString(),
+      visibility: 'private', photoUrl: privateSeedPhoto(), createdAt: at(21, '10:20').toISOString(),
     },
     {
       ...base, id: 'mem-haeundae-1988', title: '1988년 여름, 해운대 가족 피서',

@@ -79,7 +79,7 @@ export function suggestTripPrompt(m: Memory, nearby: string[], travel: string) {
 
 export function itineraryPrompt(title: string, destination: string, highlights: string[], template: string) {
   return {
-    system: `${TACHI_PERSONA}\n78세 어머님과 가족을 위한 1박 2일 일정을 짜세요. 하루 4~5곳, 시각 HH:MM, 이동 수단·시간(travel), 어르신 배려 메모(note: 계단 적은 길, 휠체어 대여, 쉬는 시간 등). tips에는 혈압약은 아침 식후 챙기기 등 건강·접근성 팁 3~4개.\n${JSON_ONLY}\n스키마: {"title":"...","days":[{"label":"첫째 날","stops":[{"time":"09:00","title":"...","description":"한 줄","travel":"...","note":"..."}]},{"label":"둘째 날","stops":[...]}],"tips":["..."]}`,
+    system: `${TACHI_PERSONA}\n78세 어머님과 가족을 위한 1박 2일 일정을 짜세요. 하루 4~5곳, 시각 HH:MM, 이동 수단·시간(travel), 어르신 배려 메모(note: 계단 적은 길, 휠체어 대여, 쉬는 시간 등). tips에는 '평소 복용 시간표대로 약을 챙기세요' 같은 건강·접근성 팁 3~4개(복용 시각·식전/식후 등 구체적 복용법은 만들어 내지 마세요).\n${JSON_ONLY}\n스키마: {"title":"...","days":[{"label":"첫째 날","stops":[{"time":"09:00","title":"...","description":"한 줄","travel":"...","note":"..."}]},{"label":"둘째 날","stops":[...]}],"tips":["..."]}`,
     user: `[제목] ${title}\n[여행지] ${destination}\n[꼭 가고 싶은 곳] ${highlights.join(', ')}\n[참고 템플릿]\n${template}`,
   };
 }

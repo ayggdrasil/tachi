@@ -1,12 +1,15 @@
 // Core helpers: clock, post/emit helpers, viewer-aware emitters.
 import {
-  DAILY_REPORT_TIME, DIRECTOR_ID, SENIOR_ID, TACHI_ID, USERS,
+  DAILY_REPORT_TIME, DIRECTOR_ID, KIN_RELATIONS, SENIOR_ID, TACHI_ID, USERS,
 } from '../../shared/constants';
 import type {
   DemoState, GraphDelta, HealthSummary, ID, Memory, Message, MessageKind, MessageMeta, MessagePayload, CardAction,
   Poll, Presence, PrivacySettings, ReportSession, Room, Trip, User,
 } from '../../shared/types';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import fs from 'node:fs';
+import path from 'node:path';
+import { nanoid } from 'nanoid';
 import { ctx, type Sock } from './ctx';
 import { clockNow, getClockOffsetMinutes, nowIso, setClockOffsetMinutes, sleep, uid, wallNow, warn, ymd } from '../util/misc';
 
@@ -15,6 +18,17 @@ export const roomChannel = (id: ID): string => `room:${id}`;
 export const userChannel = (id: ID): string => `user:${id}`;
 export const isDirector = (id?: ID): boolean => id === DIRECTOR_ID;
 export const seesAll = (id?: ID): boolean => id === DIRECTOR_ID || id === SENIOR_ID;
+
+/**
+ * THE viewer authorization predicate for the senior's data: the senior, the Director, or kin (relation in KIN_RELATIONS).
+ * Everyone else (friends, neighbours, clinic ...) gets NO senior memory / health / trip / report data at all.
+ */
+export function viewerIsKin(userId?: ID): boolean {
+  if (!userId) return false;
+  if (seesAll(userId)) return true;
+  const u = ctx.db.users.get(userId);
+  return !!u && (u.role === 'senior' || KIN_RELATIONS.includes(u.relation));
+}
 
 export const DIRECTOR_USER: User = {
   id: DIRECTOR_ID, name: '디렉터', shortName: '디렉터', role: 'family', relation: '운영', phone: '', initials: '디', isBot: false,
@@ -226,7 +240,7 @@ export function memoryVisibleToFamily(m: Memory | undefined | null): boolean {
 /** What a given viewer may know about a memory (null = nothing at all). */
 export function memoryFor(viewerId: ID, m: Memory): Memory | null {
   if (seesAll(viewerId)) return m;
-  if (m.status !== 'saved') return null;
+  if (!viewerIsKin(viewerId) || m.status !== 'saved') return null;
   return memoryVisibleToFamily(m) ? m : memoryStub(m);
 }
 
@@ -239,7 +253,7 @@ export function emitMemory(m: Memory): void {
 export function emitGraphDelta(delta: GraphDelta, m: Memory): void {
   if (isStale() || (!delta.nodes.length && !delta.edges.length)) return;
   const visible = memoryVisibleToFamily(m);
-  forViewers((s, v) => { if (seesAll(v) || visible) s.emit('graph:delta', delta); });
+  forViewers((s, v) => { if (seesAll(v) || (visible && viewerIsKin(v))) s.emit('graph:delta', delta); });
 }
 
 /** Health as the family may see it: null when private; mood stripped when only mood is private. */
@@ -250,19 +264,26 @@ export function healthForFamily(h: HealthSummary | undefined = getHealth()): Hea
 export function healthFor(viewerId: ID): HealthSummary | null {
   const h = getHealth();
   if (!h) return null;
-  return seesAll(viewerId) ? h : healthForFamily(h);
+  if (seesAll(viewerId)) return h;
+  return viewerIsKin(viewerId) ? healthForFamily(h) : null;
 }
 export function emitHealth(): void { if (!isStale()) forViewers((s, v) => s.emit('health:update', healthFor(v))); }
 
 /** Category gate for sharing: a private memory CATEGORY blocks sharing any memory to the family until the senior resolves it. */
 export function canShareToFamily(_memory?: Memory | null): boolean { return getPrivacy().memory === 'family'; }
 
-/** A trip reaches the family only if the trip category is public and the trip itself is not marked private (derived from a private memory). */
+/**
+ * A trip reaches the family only if the trip category is public, the trip itself is not marked private, and — unless the senior
+ * shared the trip separately — the memory it was derived from is still family-visible (derived resources follow their source).
+ */
 export function tripVisibleToFamily(t: Trip | undefined | null): boolean {
-  return !!t && getPrivacy().trip === 'family' && t.visibility !== 'private';
+  if (!t || getPrivacy().trip !== 'family' || t.visibility === 'private') return false;
+  if (t.sharedSeparately === true || !t.memoryId) return true;
+  return memoryVisibleToFamily(ctx.db.memories.get(t.memoryId));
 }
 
 export const PRIVATE_NOTICE = '어머님이 비공개로 바꾼 내용이에요.';
+export const KIN_ONLY_TEXT = '가족에게만 공유된 내용이에요.';
 const redact = (m: Message, text: string): Message => ({ ...m, kind: 'text', text, payload: undefined, actions: undefined, quickReplies: undefined });
 
 const MASKED_TITLE = '대화';
@@ -280,6 +301,14 @@ export function projectMessage(viewerId: ID, m: Message): Message {
   if (seesAll(viewerId)) return m;
   const p = m.payload;
   const privacy = getPrivacy();
+
+  // 0. non-kin viewers never see anything derived from the senior's data
+  if (!viewerIsKin(viewerId)) {
+    const sensitivePayload = !!p && ['health_card', 'share_card', 'memory_card', 'recall_card', 'trip_suggestion', 'itinerary', 'report'].includes(p.type);
+    const mm = m.meta;
+    const tagged = !!mm && !!(mm.category || mm.memoryId || mm.tripId || mm.categoriesUsed?.length || mm.memoryIdsUsed?.length || mm.tripIdsUsed?.length);
+    if (sensitivePayload || tagged || m.kind === 'health_card' || m.kind === 'report') return redact(m, KIN_ONLY_TEXT);
+  }
 
   // 1. memory provenance (meta or card payload)
   const memoryId = m.meta?.memoryId ?? (p && (p.type === 'share_card' || p.type === 'memory_card' || p.type === 'recall_card') ? p.memoryId : undefined);
@@ -302,6 +331,12 @@ export function projectMessage(viewerId: ID, m: Message): Message {
   // 2. trip provenance
   const tripId = m.meta?.tripId ?? (p && (p.type === 'trip_suggestion' || p.type === 'itinerary') ? p.tripId : undefined);
   if (tripId && !tripVisibleToFamily(ctx.db.trips.get(tripId))) return redact(m, PRIVATE_NOTICE);
+
+  // 2b. answer provenance: any resource / category the answer drew on that is private now retracts it
+  const usedMem = m.meta?.memoryIdsUsed ?? [];
+  const usedTrip = m.meta?.tripIdsUsed ?? [];
+  if (usedMem.some(id => !memoryVisibleToFamily(ctx.db.memories.get(id))) || usedTrip.some(id => !tripVisibleToFamily(ctx.db.trips.get(id)))
+    || (m.meta?.categoriesUsed ?? []).some(c => privacy[c] === 'private')) return redact(m, PRIVATE_NOTICE);
 
   // 3. category provenance (health / mood / daily / trip ...) — applies to plain text too
   if (m.meta?.category && privacy[m.meta.category] === 'private') {
@@ -338,10 +373,15 @@ export function messageFor(viewerId: ID, m: Message): Message {
 export function scrubHiddenTitles<T>(viewerId: ID, value: T): T {
   if (seesAll(viewerId)) return value;
   const titles = ctx.db.memories.all().filter(x => !memoryVisibleToFamily(x)).map(x => x.title).filter(t => t && t.length >= 3 && !t.includes('"'));
+  // derived trips that are hidden: their title / reason leak the source memory
+  for (const t of ctx.db.trips.all()) {
+    if (!t.memoryId || tripVisibleToFamily(t)) continue;
+    for (const x of [t.suggestion.title, t.suggestion.reason, t.itinerary?.title]) if (x && x.length >= 3 && !x.includes('"')) titles.push(x);
+  }
   if (!titles.length) return value;
   let j = JSON.stringify(value);
   const before = j;
-  for (const t of titles) j = j.split(JSON.stringify(t).slice(1, -1)).join('비공개 추억');
+  for (const t of titles.sort((a, b) => b.length - a.length)) j = j.split(JSON.stringify(t).slice(1, -1)).join('비공개 추억');
   return j === before ? value : (JSON.parse(j) as T);
 }
 
@@ -358,15 +398,49 @@ export function applyMemoryVisibility(memoryId: ID, visibility: 'family' | 'priv
   const m = ctx.db.memories.get(memoryId);
   if (!m) return undefined;
   if (m.visibility !== visibility) { m.visibility = visibility; ctx.db.memories.put(m); }
+  if (visibility === 'private') rotateUploadedPhoto(m);
   emitMemory(m);
+  for (const t of ctx.db.trips.all()) if (t.memoryId === m.id) emitTrip(t); // derived trips follow their source
   resyncFamilyViewers();
   return m;
+}
+
+/**
+ * Uploaded photos are capability URLs. When the memory stops being shared, move the file to a fresh random name so every
+ * URL that leaked earlier answers 404. Updates the memory, stored messages and the graph node. Returns true if rotated.
+ */
+export function rotateUploadedPhoto(m: Memory): boolean {
+  const old = m.photoUrl;
+  if (!old || !old.startsWith('/uploads/') || isStale()) return false;
+  const name = path.basename(old);
+  const dir = path.join(ctx.dataDir, 'uploads');
+  const from = path.join(dir, name);
+  if (!fs.existsSync(from)) return false;
+  const next = `${nanoid(24)}${path.extname(name)}`;
+  try { fs.renameSync(from, path.join(dir, next)); } catch (e) { warn('photo rotate failed:', e); return false; }
+  const url = `/uploads/${next}`;
+  m.photoUrl = url;
+  ctx.db.memories.put(m);
+  for (const msg of ctx.db.rooms.all().flatMap(r => ctx.db.messages.byRoom(r.id, 5000))) {
+    const j = JSON.stringify(msg);
+    if (!j.includes(old)) continue;
+    const upd = JSON.parse(j.split(old).join(url)) as Message;
+    ctx.db.messages.update(upd);
+    emitMessage('message:update', upd);
+  }
+  void ctx.graph.upsertMemory(m).then(d => emitGraphDelta(d, m)).catch(e => warn('graph photo update failed:', e));
+  return true;
+}
+
+/** After the memory CATEGORY turns private: every family-flagged memory is hidden, so rotate their uploaded photos too. */
+export function rotateHiddenPhotos(): void {
+  for (const m of ctx.db.memories.all()) if (!memoryVisibleToFamily(m)) rotateUploadedPhoto(m);
 }
 
 export function emitTrip(t: Trip): void {
   if (isStale()) return;
   const pub = tripVisibleToFamily(t);
-  forViewers((s, v) => { if (seesAll(v) || pub) s.emit('trip:upsert', t); });
+  forViewers((s, v) => { if (seesAll(v) || (pub && viewerIsKin(v))) s.emit('trip:upsert', t); });
 }
 
 export function emitPoll(p: Poll): void {

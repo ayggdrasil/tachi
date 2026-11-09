@@ -5,7 +5,7 @@ import type { FamilyContext } from '../brain/contract';
 import { ctx } from './ctx';
 import { getHealth, getPrivacy, getUser, healthForFamily, markActionDone, memoryVisibleToFamily, now, senior, tachiSay, tripVisibleToFamily, withTyping, PRIVATE_NOTICE } from './core';
 import { sessionHiddenFromFamily } from './sessions';
-import { createGathering } from './artifacts';
+import { createGathering, handleGatheringChoice } from './artifacts';
 import { reactBots } from './bots';
 import { startScheduling, handlePickSlots, handleScheduleAction } from './scheduling';
 
@@ -61,22 +61,58 @@ export function kinMayAsk(room: Room, asker: User): boolean {
   return room.memberIds.every(id => { const u = getUser(id); return !u || id === TACHI_ID || isKin(u); });
 }
 
+const SENSITIVITY: PrivacyCategory[] = ['health', 'mood', 'memory', 'trip', 'daily'];
+
+/** Which categories / resources an answer actually drew on, derived from the context it was given and its text. */
+export function answerProvenance(fctx: FamilyContext, text: string, asked: PrivacyCategory | undefined, showHealthCard?: boolean): {
+  categories: PrivacyCategory[]; memoryIds: string[]; tripIds: string[];
+} {
+  const used = new Set<PrivacyCategory>();
+  if (asked) used.add(asked);
+  if (fctx.health && (showHealthCard || /혈압|맥박|수면|걸음|복약|약|건강|병원|컨디션/.test(text))) used.add('health');
+  if (fctx.moodToday && (text.includes(fctx.moodToday) || /기분|마음|컨디션|감정|외로|우울/.test(text))) used.add('mood');
+  const memoryIds = fctx.memories.filter(m => (m.title && text.includes(m.title)) || (m.place && m.place.length >= 2 && text.includes(m.place))).map(m => m.id);
+  if (memoryIds.length) used.add('memory');
+  const tripIds = ctx.db.trips.all()
+    .filter(t => t.status !== 'declined' && tripVisibleToFamily(t) && (text.includes(t.suggestion.title) || (t.suggestion.destination.length >= 2 && text.includes(t.suggestion.destination))))
+    .map(t => t.id);
+  if (tripIds.length) used.add('trip');
+  for (const s of fctx.recentSessions) if (s.title && text.includes(s.title)) used.add(s.category);
+  return { categories: SENSITIVITY.filter(c => used.has(c)), memoryIds, tripIds };
+}
+
+/** Is everything an answer used still public right now? */
+function stillPublic(prov: { categories: PrivacyCategory[]; memoryIds: string[]; tripIds: string[] }): boolean {
+  const privacy = getPrivacy();
+  return prov.categories.every(c => privacy[c] === 'family')
+    && prov.memoryIds.every(id => memoryVisibleToFamily(ctx.db.memories.get(id)))
+    && prov.tripIds.every(id => tripVisibleToFamily(ctx.db.trips.get(id)));
+}
+
 async function answer(room: Room, asker: User, question: string): Promise<void> {
   if (!kinMayAsk(room, asker) && (questionCategory(question) !== undefined || /엄마|어머|할머니|요즘|어때|괜찮|지내|여행|생신|일정|하루/.test(question))) {
     await tachiSay(room.id, { text: KIN_ONLY_NOTICE, meta: { source: 'rule' } });
     return;
   }
-  const fctx = buildFamilyContext(asker);
-  const ai = await withTyping(room.id, () => ctx.brain.answerFamily(question, fctx));
-  // privacy may have changed while the provider was thinking: re-check against the CURRENT settings before posting
-  const asked = questionCategory(question, ai.value.showHealthCard);
-  const wasPublic = !!asked && fctx.privacy[asked] === 'family'; // an already-private category got the brain's own gentle refusal: leave it untagged
-  const category = wasPublic ? asked : undefined;
-  if (category && getPrivacy()[category] === 'private') {
-    await tachiSay(room.id, { text: PRIVATE_NOTICE, meta: { category, source: 'rule' } });
-    return;
+  let fctx = buildFamilyContext(asker);
+  let ai = await withTyping(room.id, () => ctx.brain.answerFamily(question, fctx));
+  let asked = questionCategory(question, ai.value.showHealthCard);
+  let prov = answerProvenance(fctx, ai.value.text, asked && fctx.privacy[asked] === 'family' ? asked : undefined, ai.value.showHealthCard);
+  // privacy may have changed while the provider was thinking: revalidate everything the answer used; rebuild + re-ask once
+  if (!stillPublic(prov)) {
+    fctx = buildFamilyContext(asker);
+    ai = await withTyping(room.id, () => ctx.brain.answerFamily(question, fctx));
+    asked = questionCategory(question, ai.value.showHealthCard);
+    prov = answerProvenance(fctx, ai.value.text, asked && fctx.privacy[asked] === 'family' ? asked : undefined, ai.value.showHealthCard);
+    if (!stillPublic(prov)) {
+      await tachiSay(room.id, { text: PRIVATE_NOTICE, meta: { ...(prov.categories[0] ? { category: prov.categories[0] } : {}), source: 'rule' } });
+      return;
+    }
   }
-  const t = await tachiSay(room.id, { text: ai.value.text, meta: { ...(category ? { category } : {}) } }, ai);
+  const meta = prov.categories.length
+    ? { category: prov.categories[0], categoriesUsed: prov.categories, ...(prov.memoryIds.length ? { memoryIdsUsed: prov.memoryIds } : {}), ...(prov.tripIds.length ? { tripIdsUsed: prov.tripIds } : {}) }
+    : {};
+  const t = await tachiSay(room.id, { text: ai.value.text, meta }, ai);
   let last: Message = t;
   const fh = healthForFamily();
   if (ai.value.showHealthCard && fh) {
@@ -91,6 +127,8 @@ export async function handleFamilyAction(room: Room, userId: string, msg: Messag
     if (act?.done) return;
     markActionDone(msg, 'start_scheduling');
     await startScheduling(room.id, { id: userId });
+  } else if (actionId === 'revise_gathering' || actionId === 'new_gathering') {
+    await handleGatheringChoice(userId, msg, actionId);
   } else if (actionId === 'pick_slots') {
     await handlePickSlots(userId, msg, data);
   } else if (actionId === 'confirm_slot' || actionId === 'repoll') {

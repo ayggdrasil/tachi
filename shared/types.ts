@@ -80,6 +80,11 @@ export interface MessageMeta {
   /** provenance used for viewer-aware projection (privacy retraction applies to text too) */
   memoryId?: ID;
   tripId?: ID;
+  /** every privacy category the answer drew on (category = the most sensitive of them); a retraction of ANY hides the text */
+  categoriesUsed?: PrivacyCategory[];
+  /** resources the answer actually mentioned */
+  memoryIdsUsed?: ID[];
+  tripIdsUsed?: ID[];
 }
 
 export interface Message {
@@ -290,6 +295,8 @@ export interface Trip {
   memoryId?: ID;
   /** derived from a private memory → 'private' until the senior shares it */
   visibility?: Visibility;
+  /** the senior explicitly shared this trip itself: it stays visible even if its source memory is private */
+  sharedSeparately?: boolean;
   status: 'suggested' | 'accepted' | 'declined';
   suggestion: TripSuggestionPayload;
   itinerary?: ItineraryPayload;
@@ -393,7 +400,7 @@ export interface Bootstrap {
 export interface ClientToServerEvents {
   hello: (p: { userId: ID; assisted?: boolean /* embedded in the Director stage: bots may fill in schedule answers */; key?: string /* director key when TACHI_DIRECTOR_KEY is set */ }, ack: (b: Bootstrap | { error: string }) => void) => void;
   'message:send': (p: { roomId: ID; text?: string; photoUrl?: string }) => void;
-  action: (p: { roomId: ID; messageId: ID; actionId: string; data?: Record<string, unknown> }, ack?: (r: { ok: boolean; error?: string }) => void) => void;
+  action: (p: { roomId: ID; messageId: ID; actionId: string; data?: Record<string, unknown> }, ack?: (r: { ok: boolean; error?: string; message?: string }) => void) => void;
   typing: (p: { roomId: ID }) => void;
   'room:create': (p: { title: string; memberIds: ID[] }, ack: (room: Room | { error: string }) => void) => void;
   'room:invite': (p: { roomId: ID; contactId: ID }) => void;

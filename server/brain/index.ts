@@ -2,13 +2,13 @@
 import type { ArtifactTask, ItineraryPayload, MemoryPerson, ModelOption, PrivacyCategory, TripStop } from '../../shared/types';
 import { findPlaces, placeById, resolvePlace, templateFor } from '../data/places';
 import type { AIResult, Brain, ExtractedMemory, FamilyAnswer, GatheringDraft, SeniorIntent } from './contract';
-import { BANNED_HEALTH_WORDS, questionCategory, assistArtifact as hAssist, answerFamily as hAnswer, botReply as hBot, draftGathering as hDraft } from './heuristics/family';
+import { BANNED_HEALTH_WORDS, enforceBpWarning, questionCategory, assistArtifact as hAssist, answerFamily as hAnswer, botReply as hBot, draftGathering as hDraft } from './heuristics/family';
 import { composeReport as hReport, planItinerary as hPlan, proactiveMessage as hProactive, recallReply as hRecall, seniorChat as hChat, shareSummary as hShare, suggestTrip as hSuggest } from './heuristics/compose';
 import { extractFromState, planNext, startTurn, SLOT_QUESTION } from './heuristics/interview';
 import { availability, familyIntent, seniorIntent } from './heuristics/intents';
 import { EMOTION_LABELS, decadeEra } from './heuristics/ko';
 import { circuitOpen, complete, completeJson, loadImage, openCircuit, resetCircuit, str, strArr } from './llm';
-import { validateObservation } from './heuristics/observe';
+import { mergeObservation, validateObservation } from './heuristics/observe';
 import { ModelRegistry } from './models';
 import * as P from './prompts';
 
@@ -164,7 +164,7 @@ export function createBrain(): Brain {
       return {
         reply, quickReplies: c.or(qr.length ? qr : undefined, h.quickReplies), category: c.or(['health', 'mood', 'daily'].includes(cat) ? cat : undefined, h.category),
         // explicit statements are also extracted deterministically, so a missed LLM observation never loses a fact
-        ...((observation ?? h.observation) ? { observation: observation ?? h.observation } : {}),
+        ...(() => { const o = mergeObservation(observation, h.observation); return o ? { observation: o } : {}; })(),
       };
     }),
 
@@ -240,7 +240,7 @@ export function createBrain(): Brain {
         const j = await ask(opt, P.familyAnswerPrompt(question, ctx), 700);
         const text = str(j.text, 500);
         if (!text) throw new Error('missing text');
-        return { text, showHealthCard: h.showHealthCard };
+        return { text: enforceBpWarning(text, ctx), showHealthCard: h.showHealthCard };
       });
     },
 

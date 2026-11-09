@@ -71,7 +71,8 @@ export async function createApp(opts: AppOptions = {}) {
 
   // ── REST ──
   app.use(express.json({ limit: '1mb' }));
-  app.use('/uploads', express.static(uploadsDir));
+  // uploaded photos are capability URLs (unguessable, rotated when the memory goes private): never cache them
+  app.use('/uploads', express.static(uploadsDir, { index: false, dotfiles: 'ignore', setHeaders: res => { res.setHeader('Cache-Control', 'private, no-store'); } }));
   app.use('/demo-photos', express.static(photosDir));
 
   const upload = multer({
@@ -80,7 +81,7 @@ export async function createApp(opts: AppOptions = {}) {
       filename: (_req, file, cb) => {
         const ext = path.extname(file.originalname || '').toLowerCase().replace(/[^.a-z0-9]/g, '');
         const fallbackExt = file.mimetype === 'image/png' ? '.png' : file.mimetype === 'image/webp' ? '.webp' : '.jpg';
-        cb(null, `${nanoid(12)}${ext && ext.length <= 6 ? ext : fallbackExt}`);
+        cb(null, `${nanoid(24)}${ext && ext.length <= 6 ? ext : fallbackExt}`);
       },
     }),
     limits: { fileSize: 15 * 1024 * 1024 },

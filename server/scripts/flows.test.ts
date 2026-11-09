@@ -173,6 +173,28 @@ async function main() {
     dir.sock.close();
   } else check(false, 'director client unavailable for F17');
 
+  // F12: a refused share keeps the card usable: private category -> ack not ok; after switching to family the same card shares
+  {
+    const tA = Date.now();
+    say(mom, SENIOR_ROOM_ID, undefined, photo);
+    await sleep(1200);
+    for (let i = 0; i < 6 && !find(mom, SENIOR_ROOM_ID, 'memory_card', tA); i++) { await turn(texts[i] ?? '그냥 참 좋았지', `F12 turn ${i}`); }
+    const c2 = await waitFor('F12 memory_card', () => find(mom, SENIOR_ROOM_ID, 'memory_card', tA));
+    if (c2) {
+      const ackOf = () => new Promise<{ ok: boolean; error?: string }>(res => mom.sock.emit('action', { roomId: SENIOR_ROOM_ID, messageId: c2.id, actionId: 'share_memory' }, r => res(r)));
+      mom.sock.emit('privacy:set', { category: 'memory', visibility: 'private' });
+      await sleep(300);
+      const r1 = await ackOf();
+      check(r1.ok === false && r1.error === 'refused', `F12: private category -> ack {ok:false,error:'refused'} (${JSON.stringify(r1)})`);
+      check(!c2 || !(mom.msgs.find(m => m.id === c2.id)?.actions?.find(x => x.id === 'share_memory')?.done), 'F12: card action not marked done after refusal');
+      mom.sock.emit('privacy:set', { category: 'memory', visibility: 'family' });
+      await sleep(300);
+      const r2 = await ackOf();
+      check(r2.ok === true && !!find(jieun, FAMILY_ROOM_ID, 'share_card', tA), `F12: same card shares after the category changes (${JSON.stringify(r2)})`);
+    }
+  }
+
+
   // ── round-3 additions: invite, casual sentences, merge, availability hijack ──
   {
     const arts = new Map<string, { id: string; roomId: string; place: string; title: string }>();
@@ -215,6 +237,18 @@ async function main() {
     say(jieun, croom.id, '그날 케이크도 다 같이 준비하자!');
     const m2 = await waitFor('merged artifact post', () => jieun.msgs.find(m => m.roomId === croom.id && m.kind === 'artifact' && Date.parse(m.createdAt) >= t1), 10000);
     check(m2?.payload?.type === 'artifact' && m2.payload.artifactId === aid && /기존 모임 기획서/.test(m2.text), 'P1-4: second proposal merges into the existing artifact');
+
+    // F14: a different destination asks instead of silently merging; choosing "new" makes a second artifact with 부산
+    t1 = Date.now();
+    say(jieun, croom.id, '부산으로 가족여행 가자');
+    const q = await waitFor('gathering choice', () => jieun.msgs.find(m => m.roomId === croom.id && m.senderId === 'tachi' && Date.parse(m.createdAt) >= t1 && m.actions?.some(x => x.id === 'revise_gathering')), 10000);
+    check(!!q && !!q.actions?.some(x => x.id === 'new_gathering') && !jieun.msgs.some(m => m.roomId === croom.id && /기존 모임 기획서/.test(m.text) && Date.parse(m.createdAt) >= t1), 'F14: different destination -> choice prompt, no silent merge');
+    check(!/부산/.test(arts.get(aid)?.place ?? ''), 'F14: existing artifact untouched');
+    if (q) {
+      jieun.sock.emit('action', { roomId: croom.id, messageId: q.id, actionId: 'new_gathering' }, () => undefined);
+      const second = await waitFor('second artifact', () => [...arts.values()].find(x => x.roomId === croom.id && x.id !== aid), 10000);
+      check(!!second && /부산/.test(`${second.place} ${second.title}`), `F14: new_gathering -> second artifact with 부산 (${second?.title})`);
+    }
 
     // P2: 점심 먹었어 during an open poll is not availability
     const nReq = mom.msgs.filter(m => m.kind === 'schedule_request').length;

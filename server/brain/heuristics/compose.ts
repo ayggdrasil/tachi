@@ -178,7 +178,7 @@ function seniorChatCore(text: string): { reply: string; quickReplies: string[]; 
   if (/아파|아프|쑤시|저리|시려|무릎|허리|어지|두통|열이|병원|기침/.test(t)) return { reply: pick(t, ['어머, 많이 불편하시겠어요. 오늘은 무리하지 말고 편히 쉬세요.', '그러셨군요. 따뜻하게 하고 쉬시는 게 좋겠어요. 심하면 꼭 병원에 가세요.']), quickReplies: ['좀 쉴게', '병원 가볼까'], category: 'health' };
   if (/약\s*(?:먹|챙|드)|약을|복약|깜빡|약.*(?:못|안)/.test(t)) {
     const o = medicationObservation(t);
-    const reply = o?.taken === false ? '그러셨군요. 생각나셨을 때 천천히 챙겨 드세요. 제가 곁에서 살펴볼게요.' : o?.taken ? '말씀해 주셔서 고마워요. 약 잘 챙기셨군요.' : '약 이야기 고마워요. 복용은 의사 선생님 안내대로 챙겨 주세요.';
+    const reply = o?.taken === false ? '그러셨군요. 처방받은 시간표대로 드시고, 놓친 약은 약 봉투 설명이나 약사님께 여쭤보세요.' : o?.taken ? '말씀해 주셔서 고마워요. 약 잘 챙기셨군요.' : '약 이야기 고마워요. 복용은 의사 선생님 안내대로 챙겨 주세요.';
     return { reply, quickReplies: ['고마워', '옛날 사진 볼래'], category: 'health' };
   }
   if (/잠|잤|못 잤|설쳤|불면/.test(t)) return { reply: /못|설쳤|불면/.test(t) ? '잠을 설치셨군요. 오늘은 낮에 잠깐 쉬어 가세요.' : '푹 주무셨다니 다행이에요. 오늘도 기분 좋게 시작해요.', quickReplies: ['고마워', '옛날 사진 볼래'], category: 'health' };

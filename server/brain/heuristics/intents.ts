@@ -2,9 +2,9 @@
 import type { Slot, User } from '../../../shared/types';
 import type { FamilyIntent, SeniorIntent, SeniorIntentContext } from '../contract';
 import { findPlaces } from '../../data/places';
+import { parseBloodPressure } from './health';
 import { stemToken, tokens, yesNo } from './ko';
 
-const BP_RE = /(?:혈압[^\d]{0,12})?(\d{2,3})\s*(?:에|\/|-|,|하고|\s)\s*(\d{2,3})/;
 
 export function seniorIntent(text: string, ctx: SeniorIntentContext): SeniorIntent {
   const t = text.trim();
@@ -18,11 +18,8 @@ export function seniorIntent(text: string, ctx: SeniorIntentContext): SeniorInte
     if (/(?:여행|계획|일정).{0,12}(?:보내|공유)/.test(t)) return { type: 'share_trip' };
   }
   if (/보내\s*줘|보내줘|공유|애들한테|아이들한테|가족한테|가족에게|식구들한테/.test(t) && !/혈압/.test(t)) return { type: 'ask_share' };
-  const bp = /혈압/.test(t) ? t.match(BP_RE) : t.match(/(?<!\d)(\d{2,3})\s*\/\s*(\d{2,3})(?!\d)/);
-  if (bp) {
-    const s = +bp[1], d = +bp[2];
-    if (s >= 70 && s <= 230 && d >= 40 && d <= 140) return { type: 'health_log', systolic: s, diastolic: d, note: t };
-  }
+  const bp = parseBloodPressure(t);
+  if (bp) return { type: 'health_log', ...bp, note: t };
   if (/여행|가보고\s*싶|가 보고\s*싶|놀러|나들이|바람\s*쐬/.test(t)) {
     // '가족여행 사진' names a stored memory and asks to see it: recall wins over a trip proposal.
     if (/사진|앨범|기억|추억|보여|그때|옛날/.test(t)) {

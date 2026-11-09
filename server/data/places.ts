@@ -122,7 +122,7 @@ export const ITINERARY_TEMPLATES: Record<string, ItineraryTemplate> = {
     highlights: ['불국사 다보탑', '대릉원 산책', '동궁과 월지 야경', '보문호수'],
     days: [
       { label: '첫째 날', stops: [
-        { time: '08:30', title: '서울역 출발', description: 'KTX 타고 편안하게 가요.', travel: 'KTX 신경주역까지 약 2시간', note: '혈압약은 아침 식후에 꼭 챙겨 드세요.' },
+        { time: '08:30', title: '서울역 출발', description: 'KTX 타고 편안하게 가요.', travel: 'KTX 신경주역까지 약 2시간', note: '평소 복용 시간표대로 약을 챙기세요.' },
         { time: '11:00', title: '신경주역 도착, 점심', description: '경주 한정식으로 든든하게 드셔요.', travel: '택시 20분', note: '앉아서 먹는 식당으로 예약해 둘게요.' },
         { time: '13:00', placeId: 'gyeongju-bulguksa', title: '불국사', description: '다보탑과 석가탑 앞에서 다시 사진을 남겨요.', travel: '택시 15분', note: '평지 위주 · 휠체어 대여 가능 · 계단은 천천히' },
         { time: '15:30', placeId: 'gyeongju-bomun', title: '보문호수 산책', description: '벚나무 길을 천천히 걸어요.', travel: '택시 15분', note: '벤치에서 쉬는 시간 30분' },
@@ -136,14 +136,14 @@ export const ITINERARY_TEMPLATES: Record<string, ItineraryTemplate> = {
         { time: '15:30', title: '신경주역에서 귀가', description: '집에 돌아가는 KTX를 타요.', travel: '택시 25분 + KTX 2시간', note: '피곤하시면 좌석 편히 뒤로 젖혀요.' },
       ] },
     ],
-    tips: ['혈압약은 아침 식후에 꼭 챙겨 드세요.', '불국사 대웅전 쪽 계단은 천천히, 난간 잡고 오르세요.', '휠체어 대여는 불국사 입구에서 가능해요.', '두 시간마다 앉아서 쉬는 시간을 넣었어요.'],
+    tips: ['평소 복용 시간표대로 약을 챙기세요.', '불국사 대웅전 쪽 계단은 천천히, 난간 잡고 오르세요.', '휠체어 대여는 불국사 입구에서 가능해요.', '두 시간마다 앉아서 쉬는 시간을 넣었어요.'],
   },
   부산: {
     region: '부산', destination: '부산',
     highlights: ['해운대 바다', '동백섬 산책', '광안리 야경', '자갈치시장 회'],
     days: [
       { label: '첫째 날', stops: [
-        { time: '08:00', title: '서울역 출발', description: 'KTX로 편하게 가요.', travel: 'KTX 부산역 약 2시간 40분', note: '혈압약은 아침 식후에 챙겨요.' },
+        { time: '08:00', title: '서울역 출발', description: 'KTX로 편하게 가요.', travel: 'KTX 부산역 약 2시간 40분', note: '평소 복용 시간표대로 약을 챙기세요.' },
         { time: '11:00', placeId: 'busan-jagalchi', title: '자갈치시장 점심', description: '싱싱한 회로 점심을 먹어요.', travel: '지하철 10분', note: '실내 좌석 식당으로 가요.' },
         { time: '14:00', placeId: 'busan-haeundae', title: '해운대 해변', description: '바닷가를 천천히 걸어요.', travel: '택시 30분', note: '평탄한 산책로 · 벤치 많음' },
         { time: '16:00', placeId: 'busan-dongbaek', title: '동백섬 둘레길', description: '완만한 길로 한 바퀴 돌아요.', travel: '도보 10분', note: '쉬는 시간 포함' },
@@ -157,7 +157,7 @@ export const ITINERARY_TEMPLATES: Record<string, ItineraryTemplate> = {
         { time: '16:30', title: '부산역에서 귀가', description: 'KTX로 돌아와요.', travel: '택시 30분 + KTX 2시간 40분' },
       ] },
     ],
-    tips: ['혈압약은 아침 식후에 꼭 챙겨 드세요.', '바닷바람이 차요. 겉옷을 챙겨요.', '감천문화마을은 언덕이 많아 이번엔 제외했어요.', '두 시간마다 쉬는 시간을 넣었어요.'],
+    tips: ['평소 복용 시간표대로 약을 챙기세요.', '바닷바람이 차요. 겉옷을 챙겨요.', '감천문화마을은 언덕이 많아 이번엔 제외했어요.', '두 시간마다 쉬는 시간을 넣었어요.'],
   },
 };
 
@@ -172,7 +172,7 @@ export function genericTemplate(destination: string, place?: Place): ItineraryTe
     highlights: names.slice(0, 4),
     days: [
       { label: '첫째 날', stops: [
-        { time: '09:00', title: '서울 출발', description: '편한 교통편으로 가요.', travel, note: '혈압약은 아침 식후에 챙겨요.' },
+        { time: '09:00', title: '서울 출발', description: '편한 교통편으로 가요.', travel, note: '평소 복용 시간표대로 약을 챙기세요.' },
         { time: '12:00', title: `${destination} 도착, 점심`, description: '현지 음식으로 든든하게.', note: '앉아서 먹는 식당' },
         { time: '14:00', placeId: near[0]?.id, title: pick(0), description: '천천히 둘러봐요.', travel: '택시 15분', note: place?.seniorNote || '평탄한 길 위주' },
         { time: '16:30', placeId: near[1]?.id, title: pick(1), description: '쉬엄쉬엄 구경해요.', travel: '택시 15분', note: '벤치 확인' },
@@ -186,7 +186,7 @@ export function genericTemplate(destination: string, place?: Place): ItineraryTe
         { time: '16:00', title: '귀가', description: '집으로 돌아와요.', travel },
       ] },
     ],
-    tips: ['혈압약은 아침 식후에 꼭 챙겨 드세요.', '계단이 적은 길로 안내해요.', '두 시간마다 쉬는 시간을 넣었어요.', '휠체어 대여 가능 여부를 미리 확인할게요.'],
+    tips: ['평소 복용 시간표대로 약을 챙기세요.', '계단이 적은 길로 안내해요.', '두 시간마다 쉬는 시간을 넣었어요.', '휠체어 대여 가능 여부를 미리 확인할게요.'],
   };
 }
 

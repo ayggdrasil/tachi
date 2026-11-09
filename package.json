@@ -13,7 +13,7 @@
     "demo": "npm run build && npm run start",
     "reset": "tsx server/scripts/reset.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "tsx --test server/brain/brain.test.ts server/graph/graph.test.ts server/brain/providers/anthropic.test.ts && tsx server/scripts/flows.test.ts && tsx server/scripts/security.test.ts && tsx server/scripts/p0.test.ts && tsx server/scripts/smoke.ts"
+    "test": "tsx --test server/brain/brain.test.ts server/graph/graph.test.ts server/brain/providers/anthropic.test.ts && tsx server/scripts/flows.test.ts && tsx server/scripts/security.test.ts && tsx server/scripts/privacy3.test.ts && tsx server/scripts/p0.test.ts && tsx server/scripts/smoke.ts"
   },
   "engines": {
     "node": ">=20.12"

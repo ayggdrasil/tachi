@@ -47,3 +47,18 @@ export function validateObservation(v: unknown): SeniorObservation | undefined {
   if (typeof o.mood === 'string' && ['좋음', '보통', '조금 우울'].includes(o.mood.trim())) out.mood = o.mood.trim();
   return out.medication || out.mood ? out : undefined;
 }
+
+/**
+ * Field-by-field merge. Deterministic extraction of explicit statements wins on conflict; an LLM medication
+ * fact with no deterministic support is dropped (unconfirmed); the LLM may add mood or name/time detail.
+ */
+export function mergeObservation(llm: SeniorObservation | undefined, det: SeniorObservation | undefined): SeniorObservation | undefined {
+  const out: SeniorObservation = {};
+  if (det?.medication) {
+    const l = llm?.medication && llm.medication.taken === det.medication.taken ? llm.medication : undefined;
+    out.medication = { ...(l ?? {}), ...det.medication };
+  }
+  const mood = det?.mood ?? llm?.mood;
+  if (mood) out.mood = mood;
+  return out.medication || out.mood ? out : undefined;
+}

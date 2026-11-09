@@ -35,6 +35,8 @@ const plans = new Map<ID, Promise<PlanResult>>();
 
 /** Thrown when a senior-only action is refused (wrong actor / room / message / action). */
 export class ActionDenied extends Error {}
+/** Thrown after a kind in-chat explanation when an action cannot proceed yet (e.g. privacy): ack is {ok:false,error:'refused'} and the card stays usable. */
+export class ActionRefused extends Error { override name = 'ActionRefused'; }
 
 const tripMeta = (tripId?: ID, memoryId?: ID) => ({ category: 'trip' as const, ...(tripId ? { tripId } : {}), ...(memoryId ? { memoryId } : {}) });
 const memMeta = (memoryId: ID) => ({ category: 'memory' as const, memoryId });
@@ -291,7 +293,7 @@ function syncTripVisibility(memoryId: ID, visibility: 'family' | 'private'): voi
   }
 }
 
-export async function doShare(roomId: ID, memoryId: ID): Promise<void> {
+export async function doShare(roomId: ID, memoryId: ID, opts: { refuse?: boolean } = {}): Promise<void> {
   const mem = ctx.db.memories.get(memoryId);
   if (!mem || mem.status !== 'saved' || mem.ownerId !== SENIOR_ID) { await tachiSay(roomId, { text: '공유할 추억을 찾지 못했어요. 사진을 한 장 보여주실래요?' }); return; }
   const card = await cardMessage(roomId, 'memory_card', 'memoryId', memoryId);
@@ -307,12 +309,14 @@ export async function doShare(roomId: ID, memoryId: ID): Promise<void> {
       text: '추억 이야기가 지금 ‘나만 보기’로 되어 있어서 가족에게 보낼 수 없어요. 설정에서 ‘가족 공개’로 바꾸시면 보내 드릴게요.',
       meta: { ...memMeta(mem.id), source: 'rule' },
     });
+    if (opts.refuse) throw new ActionRefused('memory category private');
     return;
   }
 
   const ai = await withTyping(roomId, () => ctx.brain.shareSummary(mem, senior()));
   if (!canShareToFamily(mem)) { // privacy may have changed while the summary was generated
     await tachiSay(roomId, { text: '추억 이야기가 지금 ‘나만 보기’로 되어 있어서 가족에게 보낼 수 없어요. 설정에서 ‘가족 공개’로 바꾸시면 보내 드릴게요.', meta: { ...memMeta(mem.id), source: 'rule' } });
+    if (opts.refuse) throw new ActionRefused('memory category private');
     return;
   }
   const prevShared = mem.sharedAt;
@@ -490,7 +494,9 @@ async function shareTrip(roomId: ID, tripId: ID, card: Message): Promise<void> {
   const trip = ctx.db.trips.get(tripId);
   if (!trip?.itinerary) throw new Error('itinerary missing');
   const wasVisibility = trip.visibility;
+  const wasShared = (trip as { sharedSeparately?: boolean }).sharedSeparately;
   trip.visibility = 'family';
+  (trip as { sharedSeparately?: boolean }).sharedSeparately = true; // explicit separate consent: survives the source memory going private
   ctx.db.trips.put(trip);
   emitTrip(trip);
   let m: Message;
@@ -501,6 +507,7 @@ async function shareTrip(roomId: ID, tripId: ID, card: Message): Promise<void> {
     });
   } catch (e) {
     trip.visibility = wasVisibility;
+    (trip as { sharedSeparately?: boolean }).sharedSeparately = wasShared;
     ctx.db.trips.put(trip);
     emitTrip(trip);
     throw e;
@@ -542,7 +549,7 @@ async function makeGathering(roomId: ID, tripId: ID, card: Message): Promise<voi
   const mem = trip.memoryId ? ctx.db.memories.get(trip.memoryId) : undefined;
   const mom = senior();
   // a gathering shows the trip to the family: it is shared with them from here on
-  if (trip.visibility !== 'family') { trip.visibility = 'family'; ctx.db.trips.put(trip); emitTrip(trip); }
+  if (trip.visibility !== 'family') { trip.visibility = 'family'; (trip as { sharedSeparately?: boolean }).sharedSeparately = true; ctx.db.trips.put(trip); emitTrip(trip); }
   await tachiSay(FAMILY_ROOM_ID, { text: `어머님이 ${trip.suggestion.destination}에 가족과 함께 가고 싶어 하세요. 모임 기획서를 만들어 볼게요.`, meta: tripMeta(tripId, trip.memoryId) });
   await createGathering(FAMILY_ROOM_ID, mom, `${trip.suggestion.title} 가족과 함께 가요`, { memory: mem && memoryVisibleToFamily(mem) ? mem : undefined, trip });
   markActionDone(card, 'make_gathering'); // committed
@@ -570,7 +577,7 @@ export async function handleSeniorAction(roomId: ID, msg: Message, actionId: str
   const memoryId = (act.data?.memoryId ?? payload?.memoryId) as ID | undefined;
   const tripId = (act.data?.tripId ?? payload?.tripId) as ID | undefined;
   switch (actionId) {
-    case 'share_memory': if (memoryId) await doShare(roomId, memoryId); break;
+    case 'share_memory': if (memoryId) await doShare(roomId, memoryId, { refuse: true }); break;
     case 'skip_share': if (memoryId) await skipShare(roomId, memoryId); break;
     case 'accept_trip': if (tripId) await acceptTrip(roomId, tripId); break;
     case 'decline_trip': if (tripId) await declineTrip(roomId, tripId); break;
