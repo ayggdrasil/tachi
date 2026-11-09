@@ -12,6 +12,12 @@ An AI companion that turns a senior's old photos and stories into a living memor
 - 👨‍👩‍👧 **Family rooms.** Create rooms, invite from a (virtual) phonebook, ask Tachi about mom's public health info, turn a gathering idea into a **collaborative artifact**, and let Tachi **coordinate the date in side chats** with each member.
 - 🔁 **Swappable LLMs.** Claude Sonnet 5.5 · Claude Haiku 5.5 · ChatGPT Terra · ChatGPT Luna — switch live; an offline **demo brain** keeps everything working without keys.
 - 🤖 **Demo-ready.** AI family bots chime in with 1–2 lines; a Director console runs the 90-second script; real phones can join over LAN.
+- 🧠 **LLM-driven 1:1 with the senior.** With a live model, the senior's own chat is a real conversation: Tachi answers questions about memories it doesn't have yet, asks one gentle question at a time, and **pushes the new memory into the DB + graph once the story is complete** (never on the first sentence; private until she agrees to share).
+- 🌏 **English by default, Korean on demand.** Switch in the Director or senior settings, or add `?lang=ko`.
+- 🗂 **Room switcher + 1:1 chats.** Jump between rooms from a menu; tap any family member (or their name in a chat) to open a person-to-person side chat. AI-bot relatives answer in character.
+- 🗺 **Trip story cards.** When the senior shares a trip, the family room gets a travel-story card (the memory it grew from, highlights and the date); the day-by-day plan unfolds on tap.
+
+**Live demo:** <https://sb-4ytb6h9dessx.vercel.run> (Director console: `/demo?key=…`, ask the team for the key).
 
 ## Quick start
 
@@ -42,6 +48,8 @@ TACHI_MODEL_GPT_LUNA=gpt-6-luna
 ```
 
 Claude requests use `output_config.effort: "low"` for short, fast replies (Sonnet 5.5 also opts into server-side refusal fallback); OpenAI requests use `reasoning_effort: "low"`.
+
+**No `.env` access (e.g. the hosted demo)?** Open the Director console → **Model → API key**, choose OpenAI or Anthropic, paste a key and press **Connect**. The key is kept in server memory only (never stored, logged or sent to other clients) and disappears on restart; **Remove** switches back to the demo brain.
 
 Without keys Tachi runs on the deterministic **demo brain** (the UI marks those replies as 오프라인 응답). If a live call fails or times out mid-demo, that single reply falls back automatically.
 
