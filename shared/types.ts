@@ -30,13 +30,15 @@ export interface Contact {
 }
 
 // ── Rooms & messages ────────────────────────────────────────────────────────
-export type RoomType = 'tachi' | 'family' | 'side';
+export type Locale = 'en' | 'ko';   // product language: English by default, Korean optional
+
+export type RoomType = 'tachi' | 'family' | 'side' | 'dm';   // dm = person-to-person 1:1 chat (no Tachi)
 
 export interface Room {
   id: ID;
   type: RoomType;
   title: string;          // '타치' | '우리 가족' | '일정 조율 · 어머니 생신 모임'
-  memberIds: ID[];        // always includes 'tachi'
+  memberIds: ID[];        // includes 'tachi' for tachi/family/side rooms; dm rooms hold exactly the two people
   createdBy: ID;
   createdAt: ISODate;
   pollId?: ID;            // side rooms created for scheduling
@@ -373,6 +375,7 @@ export interface DemoState {
   proactiveSchedule: { time: string; kind: ProactiveKind; label: string; firedOn?: string }[];
   lanUrls: string[];                // http://192.168.0.12:4100
   scenarioStep: number;
+  locale: Locale;                   // current product language (agent replies, seed data, UI)
 }
 
 export type ProactiveKind = 'morning' | 'memory' | 'evening' | 'ask_photo';
@@ -395,6 +398,7 @@ export interface Bootstrap {
   demo: DemoState;
   presence: Presence;
   graph: GraphDelta;                // full graph visible to me (family: only public memories' subgraph)
+  locale: Locale;
 }
 
 // ── Socket events ───────────────────────────────────────────────────────────
@@ -404,6 +408,8 @@ export interface ClientToServerEvents {
   action: (p: { roomId: ID; messageId: ID; actionId: string; data?: Record<string, unknown> }, ack?: (r: { ok: boolean; error?: string; message?: string }) => void) => void;
   typing: (p: { roomId: ID }) => void;
   'room:create': (p: { title: string; memberIds: ID[] }, ack: (room: Room | { error: string }) => void) => void;
+  'room:dm': (p: { userId: ID }, ack: (room: Room | { error: string }) => void) => void;   // get-or-create my 1:1 room with a family member
+  'locale:set': (p: { locale: Locale }) => void;              // director/senior: switch product language (re-seeds the demo data in that language)
   'room:invite': (p: { roomId: ID; contactId: ID }) => void;
   'artifact:update': (p: { artifactId: ID; patch: ArtifactPatch }) => void;
   'artifact:task': (p: { artifactId: ID; op: 'add' | 'toggle' | 'assign' | 'remove'; taskId?: ID; text?: string; assigneeId?: ID }) => void;

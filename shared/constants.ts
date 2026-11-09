@@ -1,5 +1,5 @@
 // Shared constants & pure helpers (server + web). FROZEN API — additive changes only.
-import type { Contact, MessageKind, ModelKey, PrivacyCategory, PrivacySettings, ProactiveKind, ProviderKind, Slot, User } from './types';
+import type { Contact, Locale, MessageKind, ModelKey, PrivacyCategory, PrivacySettings, ProactiveKind, ProviderKind, Slot, User } from './types';
 
 export const TACHI_ID = 'tachi';
 export const SENIOR_ID = 'mom';
@@ -181,3 +181,108 @@ export const DEMO_SCRIPT: DemoStep[] = [
   { id: 'model', label: '모델 교체 → 다시 질문', hint: 'Claude ↔ ChatGPT 실시간 교체', director: 'model', modelKey: 'gpt-terra', as: 'jieun', room: 'family', text: '타치, 오늘 엄마 기분은 어떠셔?', waitFor: { room: 'family', kind: 'text', from: 'tachi' } },
   { id: 'report', label: '오늘의 리포트', hint: '몇 시에 대화했는지 가족에게 보고', director: 'report', clock: '21:00', waitFor: { room: 'family', kind: 'report' } },
 ];
+
+// ── English (default product language) ─────────────────────────────────────
+// Korean data above stays as the 'ko' locale. Helpers below pick by locale.
+
+export const DEFAULT_LOCALE: Locale = 'en';
+
+export const USERS_EN: User[] = [
+  { id: 'mom', name: 'Soonja Kim', shortName: 'Mom', role: 'senior', relation: 'self', phone: '010-2384-1947', initials: 'S', isBot: true,
+    persona: '78, lives in Mapo, Seoul. Husband Youngsu Park passed away in 2019. Grew up near Gyeongju. Calm, warm, unhurried way of talking.' },
+  { id: 'jieun', name: 'Jieun Kim', shortName: 'Jieun', role: 'family', relation: 'daughter', phone: '010-5521-0384', initials: 'J', isBot: true,
+    persona: 'Eldest daughter, 49, office worker in Seoul. Caring and meticulous; watches over Mom\'s health most closely.' },
+  { id: 'minjun', name: 'Minjun Park', shortName: 'Minjun', role: 'family', relation: 'son', phone: '010-7710-2290', initials: 'M', isBot: true,
+    persona: 'Son, 46, lives in Daejeon. Few words, gets things done. Short sentences. Volunteers for driving and bookings.' },
+  { id: 'suyeon', name: 'Suyeon Lee', shortName: 'Suyeon', role: 'family', relation: 'daughter-in-law', phone: '010-3349-8812', initials: 'S', isBot: true,
+    persona: 'Daughter-in-law, 44. Great at finding restaurants and stays. Bright and polite.' },
+  { id: 'harin', name: 'Harin Park', shortName: 'Harin', role: 'family', relation: 'granddaughter', phone: '010-9031-4456', initials: 'H', isBot: true,
+    persona: 'Granddaughter, 17. Adores her grandma. Upbeat, short messages, says "lol" and "Grandma is the best". No emoji.' },
+  { id: 'tachi', name: 'Tachi', shortName: 'Tachi', role: 'ai', relation: 'AI', phone: '', initials: 'T', isBot: true,
+    persona: 'A warm AI companion who keeps a senior\'s memories alive.' },
+];
+
+export const CONTACTS_EN: Contact[] = [
+  { id: 'c-jieun', name: 'Jieun Kim', relation: 'daughter', phone: '010-5521-0384', userId: 'jieun' },
+  { id: 'c-minjun', name: 'Minjun Park', relation: 'son', phone: '010-7710-2290', userId: 'minjun' },
+  { id: 'c-suyeon', name: 'Suyeon Lee', relation: 'daughter-in-law', phone: '010-3349-8812', userId: 'suyeon' },
+  { id: 'c-harin', name: 'Harin Park', relation: 'granddaughter', phone: '010-9031-4456', userId: 'harin' },
+  { id: 'c-donghyun', name: 'Donghyun Park', relation: 'grandson', phone: '010-4402-7731', userId: null },
+  { id: 'c-younghee', name: 'Younghee Kim', relation: 'younger sister', phone: '010-6618-2093', userId: null },
+  { id: 'c-cheolsu', name: 'Cheolsu Park', relation: 'nephew', phone: '010-2275-6640', userId: null },
+  { id: 'c-jungsook', name: 'Jungsook Choi', relation: 'friend', phone: '010-8830-1152', userId: null },
+  { id: 'c-misook', name: 'Misook Lee', relation: 'friend', phone: '010-1934-5578', userId: null },
+  { id: 'c-sangho', name: 'Sangho Jung', relation: 'son-in-law', phone: '010-5067-3381', userId: null },
+  { id: 'c-clinic', name: 'Mapo Yonsei Clinic', relation: 'doctor', phone: '02-332-1188', userId: null },
+  { id: 'c-church', name: 'Seogyo Senior Center', relation: 'neighbor', phone: '02-338-4410', userId: null },
+];
+
+/** English kin relations (same meaning as KIN_RELATIONS). */
+export const KIN_RELATIONS_EN = ['self', 'daughter', 'son', 'daughter-in-law', 'son-in-law', 'granddaughter', 'grandson', 'younger sister', 'younger brother', 'older sister', 'older brother', 'nephew', 'niece'];
+
+export const FAMILY_ALIASES_EN: Record<string, { name: string; relation: string }> = {
+  husband: { name: 'Youngsu Park', relation: 'husband' }, youngsu: { name: 'Youngsu Park', relation: 'husband' },
+  daughter: { name: 'Jieun Kim', relation: 'daughter' }, jieun: { name: 'Jieun Kim', relation: 'daughter' },
+  son: { name: 'Minjun Park', relation: 'son' }, minjun: { name: 'Minjun Park', relation: 'son' },
+  'daughter-in-law': { name: 'Suyeon Lee', relation: 'daughter-in-law' }, suyeon: { name: 'Suyeon Lee', relation: 'daughter-in-law' },
+  granddaughter: { name: 'Harin Park', relation: 'granddaughter' }, harin: { name: 'Harin Park', relation: 'granddaughter' },
+  grandson: { name: 'Donghyun Park', relation: 'grandson' }, donghyun: { name: 'Donghyun Park', relation: 'grandson' },
+  sister: { name: 'Younghee Kim', relation: 'younger sister' }, younghee: { name: 'Younghee Kim', relation: 'younger sister' },
+  jungsook: { name: 'Jungsook Choi', relation: 'friend' },
+};
+
+export const PRIVACY_LABELS_EN: Record<PrivacyCategory, { label: string; description: string }> = {
+  health: { label: 'Health', description: 'Blood pressure, medication, sleep, steps' },
+  memory: { label: 'Memories', description: 'Stories shared with old photos' },
+  daily: { label: 'Daily chat', description: 'Greetings and small talk' },
+  mood: { label: 'Mood', description: 'How she feels today' },
+  trip: { label: 'Trips & outings', description: 'Trips Tachi suggested' },
+};
+
+export const PROACTIVE_SCHEDULE_EN: { time: string; kind: ProactiveKind; label: string }[] = [
+  { time: '09:00', kind: 'morning', label: 'Morning check-in' },
+  { time: '14:00', kind: 'memory', label: 'Memory chat' },
+  { time: '19:30', kind: 'evening', label: 'Evening check-in' },
+];
+
+/** The 90-second script in English. Senior lines are written so the offline demo brain extracts everything. */
+export const DEMO_SCRIPT_EN: DemoStep[] = [
+  { id: 'proactive', label: 'Tachi starts the conversation', hint: 'Proactive · based on a past memory', director: 'proactive', kind: 'morning', clock: '09:00', waitFor: { room: 'senior', kind: 'text', from: 'tachi' } },
+  { id: 'photo', label: 'Share an old photo', hint: 'Photo → interview starts', as: 'mom', room: 'senior', photo: '/demo-photos/gyeongju-1984.jpg', clock: '14:10', waitFor: { room: 'senior', kind: 'text', from: 'tachi' } },
+  { id: 'a-when', label: 'Answer: when & where', hint: 'Era and place extracted', as: 'mom', room: 'senior', text: 'It was spring 1984. We went on a family trip to Bulguksa Temple in Gyeongju.', waitFor: { room: 'senior', kind: 'text', from: 'tachi' } },
+  { id: 'a-who', label: 'Answer: who', hint: 'People extracted', as: 'mom', room: 'senior', text: 'My husband Youngsu, Jieun and Minjun. The four of us went together.', waitFor: { room: 'senior', kind: 'text', from: 'tachi' } },
+  { id: 'a-story', label: 'Answer: what she remembers', hint: 'Memory saved → graph DB', as: 'mom', room: 'senior', text: 'Minjun kept running away while we took a photo in front of Dabotap Pagoda, and we laughed so hard. The cherry blossoms were beautiful.', waitFor: { room: 'senior', kind: 'memory_card' } },
+  { id: 'share', label: 'Share with family', hint: 'Warm summary → family room', as: 'mom', room: 'senior', text: 'Yes, send it to the kids.', waitFor: { room: 'family', kind: 'share_card' } },
+  { id: 'invite', label: 'Family: invite Harin', hint: 'Invite from the virtual phonebook', director: 'invite', contactId: 'c-harin', waitFor: { room: 'family', kind: 'system' } },
+  { id: 'recall', label: 'Recall by keyword', hint: 'One word, "Bulguksa", brings it back', as: 'mom', room: 'senior', text: 'Bulguksa', clock: '14:20', waitFor: { room: 'senior', kind: 'recall_card' } },
+  { id: 'trip', label: 'Accept the trip', hint: 'Memory-based trip → itinerary', as: 'mom', room: 'senior', text: "Sounds good, I'd love to go back.", waitFor: { room: 'senior', kind: 'itinerary' } },
+  { id: 'together', label: 'Go with family', hint: 'Trip → family gathering plan', as: 'mom', room: 'senior', text: 'Go with family', waitFor: { room: 'family', kind: 'artifact' } },
+  { id: 'health', label: 'Family: health question', hint: 'Answers only from public health data', as: 'jieun', room: 'family', text: "Tachi, how has Mom's blood pressure been lately?", clock: '19:40', waitFor: { room: 'family', kind: 'health_card' } },
+  { id: 'private', label: 'Family: private question', hint: 'Private daily chat is politely declined', as: 'jieun', room: 'family', text: 'Tachi, what did Mom talk about this morning?', waitFor: { room: 'family', kind: 'text', from: 'tachi' } },
+  { id: 'gathering', label: 'Family: propose a gathering', hint: 'Birthday added to the plan', as: 'minjun', room: 'family', text: "Let's all go to Gyeongju for Mom's birthday!", waitFor: { room: 'family', kind: 'artifact' } },
+  { id: 'schedule', label: 'Family: find a time', hint: 'Side chats with each member to schedule', as: 'jieun', room: 'family', text: 'Tachi, can you find a time for the gathering?', waitFor: { room: 'family', kind: 'schedule_result' } },
+  { id: 'model', label: 'Swap model → ask again', hint: 'Claude ↔ ChatGPT live swap', director: 'model', modelKey: 'gpt-terra', as: 'jieun', room: 'family', text: 'Tachi, how is Mom feeling today?', waitFor: { room: 'family', kind: 'text', from: 'tachi' } },
+  { id: 'report', label: "Today's report", hint: 'Tells the family when they talked', director: 'report', clock: '21:00', waitFor: { room: 'family', kind: 'report' } },
+];
+
+export const usersFor = (l: Locale): User[] => (l === 'ko' ? USERS : USERS_EN);
+export const contactsFor = (l: Locale): Contact[] => (l === 'ko' ? CONTACTS : CONTACTS_EN);
+export const kinRelationsFor = (l: Locale): string[] => (l === 'ko' ? KIN_RELATIONS : KIN_RELATIONS_EN);
+export const familyAliasesFor = (l: Locale) => (l === 'ko' ? FAMILY_ALIASES : FAMILY_ALIASES_EN);
+export const privacyLabelsFor = (l: Locale) => (l === 'ko' ? PRIVACY_LABELS : PRIVACY_LABELS_EN);
+export const proactiveScheduleFor = (l: Locale) => (l === 'ko' ? PROACTIVE_SCHEDULE : PROACTIVE_SCHEDULE_EN);
+export const demoScriptFor = (l: Locale): DemoStep[] => (l === 'ko' ? DEMO_SCRIPT : DEMO_SCRIPT_EN);
+/** True if the relation (either language) counts as kin. */
+export const isKinRelation = (rel: string) => KIN_RELATIONS.includes(rel) || KIN_RELATIONS_EN.includes(rel);
+
+/** English labels for date helpers. */
+const DOW_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MON_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** 'Sun, Nov 22' (en) or '11월 22일(일)' (ko) */
+export function dateLabelL(d: Date, l: Locale): string { return l === 'ko' ? dateLabel(d) : `${DOW_EN[d.getDay()]}, ${MON_EN[d.getMonth()]} ${d.getDate()}`; }
+/** '2:05 PM' (en) or '오후 2:05' (ko) */
+export function timeLabelL(d: Date, l: Locale): string {
+  if (l === 'ko') return koreanTime(d);
+  const h = d.getHours(); const hh = h % 12 === 0 ? 12 : h % 12;
+  return `${hh}:${pad2(d.getMinutes())} ${h < 12 ? 'AM' : 'PM'}`;
+}

@@ -2,7 +2,7 @@
 // FROZEN API — pages use: initTachi(userId), useTachi(selector), tachi.* commands.
 import { useSyncExternalStore } from 'react';
 import type {
-  Artifact, ArtifactPatch, Bootstrap, Contact, DemoState, GraphDelta, GraphEdge, GraphNode, HealthSummary, ID,
+  Artifact, ArtifactPatch, Bootstrap, Locale, Contact, DemoState, GraphDelta, GraphEdge, GraphNode, HealthSummary, ID,
   Memory, Message, ModelKey, ModelState, Poll, Presence, PrivacyCategory, PrivacySettings, ProactiveKind, Room,
   Trip, User, Visibility,
 } from '../../../shared/types';
@@ -33,14 +33,24 @@ export interface TachiState {
   toasts: { id: number; text: string }[];
   /** bumps on every message:new — useful for scroll effects */
   messageTick: number;
+  /** product language (from the server); before bootstrap: ?lang= or the browser language */
+  locale: Locale;
 }
 
 const initial: TachiState = {
   status: 'idle', meId: null, me: null, users: {}, contacts: [], rooms: [], messages: {}, memories: [],
   artifacts: {}, polls: {}, trips: {}, privacy: null, health: null, models: null, demo: null,
   presence: { claimed: [], online: [] }, graph: { nodes: {}, edges: {} }, freshGraphIds: [], typing: {},
-  toasts: [], messageTick: 0,
+  toasts: [], messageTick: 0, locale: initialLocale(),
 };
+
+function initialLocale(): Locale {
+  try {
+    const q = new URLSearchParams(window.location.search).get('lang');
+    if (q === 'en' || q === 'ko') return q;
+    return (navigator.language || '').toLowerCase().startsWith('ko') ? 'ko' : 'en';
+  } catch { return 'en'; }
+}
 
 let state: TachiState = initial;
 const listeners = new Set<() => void>();
@@ -84,7 +94,9 @@ function applyBootstrap(b: Bootstrap) {
     rooms: b.rooms, messages: b.messages, memories: b.memories, artifacts: byId(b.artifacts), polls: byId(b.polls),
     trips: byId(b.trips), privacy: b.privacy, health: b.health, models: b.models, demo: b.demo, presence: b.presence,
     graph: mergeGraph({ nodes: {}, edges: {} }, b.graph), freshGraphIds: [], typing: {},
+    locale: b.locale ?? b.demo?.locale ?? state.locale,
   });
+  try { document.documentElement.lang = b.locale ?? 'en'; } catch { /* ignore */ }
 }
 
 let wired = false;
@@ -135,7 +147,7 @@ function wire() {
   s.on('privacy:update', privacy => set({ privacy }));
   s.on('health:update', health => set({ health }));
   s.on('model:update', models => set({ models }));
-  s.on('demo:update', demo => set({ demo }));
+  s.on('demo:update', demo => set(st => ({ demo, locale: demo.locale ?? st.locale })));
   s.on('presence:update', presence => set({ presence }));
   let toastId = 0;
   s.on('toast', ({ text }) => {
@@ -190,6 +202,12 @@ export const tachi = {
     return new Promise((resolve, reject) => getSocket().emit('room:create', { title, memberIds }, r => ('error' in r ? reject(new Error(r.error)) : resolve(r))));
   },
   invite(roomId: ID, contactId: ID) { getSocket().emit('room:invite', { roomId, contactId }); },
+  /** Get or create my 1:1 room with a family member (person-to-person, no Tachi). */
+  openDm(userId: ID): Promise<Room> {
+    return new Promise((resolve, reject) => getSocket().emit('room:dm', { userId }, r => ('error' in r ? reject(new Error(r.error)) : resolve(r))));
+  },
+  /** Switch the product language (server re-seeds demo data in that language; clients re-bootstrap). */
+  setLocale(locale: Locale) { getSocket().emit('locale:set', { locale }); },
   updateArtifact(artifactId: ID, patch: ArtifactPatch) { getSocket().emit('artifact:update', { artifactId, patch }); },
   artifactTask(artifactId: ID, op: 'add' | 'toggle' | 'assign' | 'remove', opts: { taskId?: ID; text?: string; assigneeId?: ID } = {}) {
     getSocket().emit('artifact:task', { artifactId, op, ...opts });
