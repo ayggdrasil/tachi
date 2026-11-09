@@ -89,6 +89,7 @@ export default function DirectorConsole() {
   const manualRef = useRef(false);
   manualRef.current = manualStage;
   const startedRef = useRef(startedAt);
+  const stepStartRef = useRef(0);   // when the current step was sent (adaptive dwell)
   startedRef.current = startedAt;
   const messages = useTachi(s => s.messages);
   const polls = useTachi(s => s.polls);
@@ -98,6 +99,7 @@ export default function DirectorConsole() {
     if (!step || runningRef.current) return;
     const roomId = step.waitFor ? (step.waitFor.room === 'senior' ? SENIOR_ROOM_ID : FAMILY_ROOM_ID) : null;
     const baseline = new Set((roomId ? getState().messages[roomId] ?? [] : []).map(m => m.id));
+    stepStartRef.current = Date.now();
     if (startedRef.current === null) { const t = Date.now(); startedRef.current = t; setStartedAt(t); setEndedAt(null); }
     if (step.clock) tachi.demo.clock(step.clock);
     if (step.director === 'model') {
@@ -190,7 +192,10 @@ export default function DirectorConsole() {
   const lastDoneKind = DEMO_SCRIPT[cursor - 1]?.waitFor?.kind ?? null;
   useEffect(() => {
     if (!dwell) return;
-    const t = window.setTimeout(() => setDwell(false), lastDoneKind && LONG_KINDS.has(lastDoneKind) ? DWELL_LONG : DWELL);
+    // Adaptive dwell: if the audience already watched Tachi think for a while (slow live model), move on sooner.
+    const base = lastDoneKind && LONG_KINDS.has(lastDoneKind) ? DWELL_LONG : DWELL;
+    const took = stepStartRef.current ? Date.now() - stepStartRef.current : 0;
+    const t = window.setTimeout(() => setDwell(false), Math.max(600, base - Math.max(0, took - 1500)));
     return () => window.clearTimeout(t);
   }, [dwell, lastDoneKind]);
 

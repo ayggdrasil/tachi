@@ -1,0 +1,128 @@
+{
+  "model": "gpt-6.1-sol",
+  "effort": "xhigh",
+  "seconds": 340,
+  "usage": {
+    "input_tokens": 232679,
+    "input_tokens_details": {
+      "cache_write_tokens": 232676,
+      "cached_tokens": 0
+    },
+    "output_tokens": 15762,
+    "output_tokens_details": {
+      "reasoning_tokens": 13466
+    },
+    "total_tokens": 248441
+  },
+  "scores": {
+    "demo_readiness": 8.6,
+    "senior_ux": 8.4,
+    "family_ux": 8.5,
+    "ai_behavior": 8.3,
+    "robustness": 7.8,
+    "design_fidelity": 8.7,
+    "overall": 8.4
+  },
+  "summary": "The supplied offline run reaches every major beat, with clear consent controls, a correct private-conversation refusal, birthday-plan merging, and unanimous scheduling. The main-path round-4 fixes are substantially holding, and the graphite-on-paper interface is cohesive and readable. Remaining demo risks are a retry trap in the Director, buried recall actions, and a saved-memory reveal that still hides its graph below the composer. Scheduling races and incomplete artifact privacy boundaries also prevent a confident 9+/10.",
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "high",
+      "area": "demo",
+      "file": "web/src/pages/demo/DirectorConsole.tsx",
+      "problem": "Replaying an already-committed step can stall the Director for 45 seconds, including when following the advertised retry instruction.",
+      "evidence": "runStep() permits completed steps to run again, but completion requires a new message ID of waitFor.kind. Repeating the invite produces no system message because inviteContact() returns when Harin is already present; repeating share produces a senior confirmation rather than another family share_card. Neither satisfies the completion watcher, while the timeout copy says to press again.",
+      "fix": "Recognize already-satisfied outcomes before dispatching: membership for invite, sharedAt and the existing share card for sharing, and the saved memory for interview completion. Disable replay of non-repeatable completed steps unless resetting, and make retry completion accept an acknowledged existing outcome rather than requiring a fresh card."
+    },
+    {
+      "id": "F2",
+      "severity": "high",
+      "area": "senior-ux",
+      "file": "server/orchestrator/senior.ts",
+      "problem": "Keyword recall removes the trip decision from the visible conversation, breaking the promised one-tap continuation.",
+      "evidence": "07-senior-invite.png shows the trip offer and its accept button. After “불국사,” 08-senior-recall.png shows only the recall response/card, with no trip action. doRecall() leaves the existing trip_confirm pending and does not surface its controls; the next Director step works by sending acceptance text on the senior's behalf.",
+      "fix": "Expose the existing trip's accept/decline controls in a visible contextual action strip after recall, reusing its tripId and pending state. Preserve the one-trip-per-memory invariant rather than creating another Trip."
+    },
+    {
+      "id": "F3",
+      "severity": "medium",
+      "area": "design",
+      "file": "web/src/components/cards/cards.css",
+      "problem": "The saved-memory reveal still crops almost the entire graph out of the phone viewport.",
+      "evidence": "In 05-senior-a-story.png, the graph heading is visible, but only two peripheral nodes appear at the composer boundary; the central memory and its connections are below it. The reveal combines a 168px photo, wrapped title, four fact rows, decision buttons, and a 176px graph inside roughly 573px of available chat height.",
+      "fix": "Give the initial saved reveal a measured height budget: move secondary emotion/story details behind the disclosure and reduce the reveal photo/compact graph enough to show the central node and connections above the composer. Keep the decision buttons at least 56px and verify the complete graph proof at 390×844."
+    },
+    {
+      "id": "F4",
+      "severity": "high",
+      "area": "server",
+      "file": "server/orchestrator/bots.ts",
+      "problem": "A delayed scheduling bot can overwrite a human's submitted availability.",
+      "evidence": "scheduleBotAnswers() checks claims and existing responses, then awaits 600ms before posting and calling submitAvailability(). It does not recheck after that await. A presenter who submits during this interval can have their answer replaced by BOT_SLOT_PREFS because submitAvailability() permits replacing an existing response.",
+      "fix": "After the delay, reload the poll and recheck its status, botsEnabled, canStandIn(userId), and absence of a response before posting anything. Ensure a scheduled stand-in cannot overwrite a human response; add a regression that submits human availability during the 600ms delay."
+    },
+    {
+      "id": "F5",
+      "severity": "high",
+      "area": "server",
+      "file": "server/orchestrator/artifacts.ts",
+      "problem": "A family proposal can silently link a trip that the family is not allowed to see.",
+      "evidence": "pickTrip() checks only the trip category and status, not tripVisibleToFamily(). A trip accepted from a private memory can therefore be selected for a subsequent family proposal, passed to draftGathering(), and persisted as linkedTripId with its title/destination incorporated into the public artifact.",
+      "fix": "Filter family-originated trip selection through tripVisibleToFamily(), including the source-memory gate. Validate linked resources before passing them to the brain or persisting the artifact, and test a private-memory trip followed by a matching family travel proposal."
+    },
+    {
+      "id": "F6",
+      "severity": "high",
+      "area": "server",
+      "file": "server/orchestrator/artifacts.ts",
+      "problem": "Artifact delivery bypasses the non-kin privacy protections applied to memories, health cards, and answers.",
+      "evidence": "emitArtifact() broadcasts the raw artifact to the room. Bootstrap artifacts receive only scrubHiddenTitles(), which does not hide family-visible memory titles from non-kin. An invited friend can consequently receive a gathering's memory-derived background and linked-memory details even though their memories, graph, and health are otherwise withheld. Artifact payloads are also absent from projectMessage()'s non-kin sensitive-payload list.",
+      "fix": "Introduce a viewer-aware artifact projection and use it for bootstrap, live artifact events, and artifact messages. Remove senior-derived background and linked-resource details for non-kin, and prevent non-kin proposals from obtaining those resources through draftGathering(). Add artifact assertions to the existing non-kin privacy regression."
+    },
+    {
+      "id": "F7",
+      "severity": "medium",
+      "area": "senior-ux",
+      "file": "web/src/components/cards/MemoryCards.tsx",
+      "problem": "Recall hides the actual anecdote and provides no way to expand it within the card.",
+      "evidence": "RecallCard takes the beginning of story, truncates it at 110 characters, and then applies cd-clamp2 without an expansion control. In 08-senior-recall.png, the excerpt ends during the year/place introduction, before the memorable incident about Minjun running away. The offline recall response lists people and tags rather than recounting that incident.",
+      "fix": "Lead with the memory's distinctive anecdote instead of the interview's logistical opening, and provide a 56px “이야기 전체 보기” disclosure. Use the expanded narrative for reading aloud without requiring navigation to the album."
+    },
+    {
+      "id": "F8",
+      "severity": "medium",
+      "area": "ai",
+      "file": "server/brain/heuristics/intents.ts",
+      "problem": "The round-4 all-availability fix works for mom but not for family members answering in side chats.",
+      "evidence": "availability() does not recognize phrases such as “전부 가능해요” or “모두 가능해요”: allWords omits 가능 and 모두, and these phrases contain no date constraint. tryMomAvailability() has a separate ALL_AVAIL_RE fallback, but handleSideMessage() does not, so the offline family flow asks the member to clarify instead of recording all slots.",
+      "fix": "Move complete all-availability recognition into the shared availability parser and use it consistently for senior and family responses. Add side-chat flow tests for “전부 가능해요,” “모두 가능해요,” and their negative equivalents."
+    },
+    {
+      "id": "F9",
+      "severity": "medium",
+      "area": "family-ux",
+      "file": "server/orchestrator/scheduling.ts",
+      "problem": "Re-polling an older artifact loses the artifact-specific scheduling fix.",
+      "evidence": "The initial start_scheduling path correctly passes the stored artifactId. However, handleScheduleAction() calls startScheduling() for repoll with only slots and repoll:true. That falls back to latestOpenArtifact(), so a candidate belonging to artifact A can start the replacement poll on newer artifact B.",
+      "fix": "Pass artifactId: poll.artifactId when starting the replacement poll and retain that association through subsequent results. Extend the round-4 regression to re-poll the older selected artifact after creating a newer one."
+    },
+    {
+      "id": "F10",
+      "severity": "medium",
+      "area": "family-ux",
+      "file": "web/src/pages/family/FamilyApp.tsx",
+      "problem": "An embedded side chat can eject the presenter before they answer a replacement poll.",
+      "evidence": "Side rooms are reused, but answeredHere is true when any historical schedule_request in the room was answered. On opening a new request in that room, the old answer therefore schedules goFamily() after 1.5 seconds even though the current request remains unanswered.",
+      "fix": "Compute answeredHere from the request matching the room's current pollId, or the latest request for that poll. Key the return timer to that request so an old response cannot trigger navigation during a new coordination round."
+    },
+    {
+      "id": "F11",
+      "severity": "medium",
+      "area": "ai",
+      "file": "server/orchestrator/senior.ts",
+      "problem": "An ambiguous medication statement can corrupt the wrong dose's recorded history.",
+      "evidence": "applyObservation() initializes target from bySlot[0]. With no explicit medication name or time, this is simply today's first dose. Against the seed, an evening “약 안 먹었어” changes the already-recorded morning blood-pressure dose to missed; the slotNow() fallback is never reached because a target already exists.",
+      "fix": "Resolve observations against an explicitly identified dose or an established current-time medication schedule. When several interpretations remain—or no matching scheduled dose exists—ask which medicine/time the senior means before writing, rather than selecting today's first dose or copying the last medication name."
+    }
+  ]
+}
