@@ -24,8 +24,8 @@ const PROACTIVE: { kind: ProactiveKind; label: string }[] = [
 ];
 
 const STEP_TIMEOUT = 45000;
-const DWELL = 2500;
-const DWELL_LONG = 4000;
+const DWELL = 1500;
+const DWELL_LONG = 3000;
 const LONG_KINDS = new Set(['memory_card', 'share_card', 'itinerary', 'schedule_result']);
 
 type StepStat = 'running' | 'done' | 'timeout' | 'skipped';

@@ -50,8 +50,8 @@ export function createBrain(): Brain {
     }
   }
 
-  const ask = <T = J>(opt: ModelOption, p: { system: string; user: string }, maxTokens = 900, images?: { mime: string; base64: string }[]) =>
-    completeJson<T>(opt, { system: p.system, turns: [{ role: 'user', text: p.user }], maxTokens, images });
+  const ask = <T = J>(opt: ModelOption, p: { system: string; user: string }, maxTokens = 900, images?: { mime: string; base64: string }[], timeoutMs?: number) =>
+    completeJson<T>(opt, { system: p.system, turns: [{ role: 'user', text: p.user }], maxTokens, images, timeoutMs });
 
   const brain: Brain = {
     getModelState: () => registry.state(),
@@ -192,7 +192,8 @@ export function createBrain(): Brain {
       const h = hPlan(suggestion);
       const tpl = templateFor(suggestion.destination);
       const tplText = tpl.days.map(d => `${d.label}: ${d.stops.map(s => `${s.time} ${s.title}`).join(' → ')}`).join('\n');
-      const j = await ask(opt, P.itineraryPrompt(suggestion.title, suggestion.destination, suggestion.highlights, tplText), 2500);
+      // precomputed in the background while the trip offer is on screen → a longer deadline is invisible to the audience
+      const j = await ask(opt, P.itineraryPrompt(suggestion.title, suggestion.destination, suggestion.highlights, tplText), 2500, undefined, Number(process.env.TACHI_LLM_ITINERARY_TIMEOUT_MS || 20000));
       const days = Array.isArray(j.days) ? (j.days as J[]).map((d, i) => {
         const stops: TripStop[] = Array.isArray(d.stops) ? (d.stops as J[]).filter(s => s && typeof s.title === 'string' && /^\d{1,2}:\d{2}$/.test(String(s.time))).map(s => ({
           time: String(s.time).padStart(5, '0'), title: String(s.title).slice(0, 30), description: str(s.description, 80) ?? '',

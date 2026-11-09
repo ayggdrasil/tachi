@@ -7,7 +7,7 @@ if (!process.env.TACHI_DIRECTOR_KEY) process.env.TACHI_DIRECTOR_KEY = nanoid(6);
 const DIRECTOR_KEY = process.env.TACHI_DIRECTOR_KEY;
 const PORT = Number(process.env.PORT || 4100);
 
-const { listen, ctx } = await createApp({ port: PORT });
+const { listen, ctx } = await createApp({ dataDir: process.env.TACHI_DATA_DIR || undefined,  port: PORT });
 await listen(PORT);
 
 const urls = lanUrls(PORT);
