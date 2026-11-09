@@ -7,7 +7,8 @@ import type { Page } from 'playwright';
 const { chromium } = createRequire(import.meta.url)('playwright') as typeof import('playwright');
 import { io } from 'socket.io-client';
 import { mkdirSync } from 'node:fs';
-import { DEMO_SCRIPT, DIRECTOR_ID, FAMILY_ROOM_ID, SENIOR_ROOM_ID } from '../../shared/constants';
+import { DIRECTOR_ID, FAMILY_ROOM_ID, SENIOR_ROOM_ID, demoScriptFor } from '../../shared/constants';
+import type { Bootstrap, Locale } from '../../shared/types';
 
 const BASE = process.env.BASE ?? 'http://localhost:4100';
 const OUT = process.env.OUT ?? 'docs/reviews/shots';
@@ -22,7 +23,11 @@ async function main() {
   mkdirSync(OUT, { recursive: true });
   const socket = io(BASE, { transports: ['websocket'] });
   await new Promise<void>((res, rej) => { socket.on('connect', () => res()); socket.on('connect_error', rej); });
-  await new Promise<void>(res => socket.emit('hello', { userId: DIRECTOR_ID, key: process.env.TACHI_DIRECTOR_KEY }, () => res()));
+  const boot = await new Promise<Bootstrap | { error: string }>(res => socket.emit('hello', { userId: DIRECTOR_ID, key: process.env.TACHI_DIRECTOR_KEY }, b => res(b)));
+  // Drive the script of the server's product language (DEMO_SCRIPT_EN by default, the Korean DEMO_SCRIPT with TACHI_LOCALE=ko).
+  const locale: Locale = ('locale' in boot ? boot.locale : undefined) ?? 'en';
+  const DEMO_SCRIPT = demoScriptFor(locale);
+  console.log('locale', locale);
   socket.emit('demo:reset');
   await sleep(2500);
 
@@ -44,7 +49,7 @@ async function main() {
   // Mirror the Director: set the virtual clock, run the step, wait for its completion message, then dwell.
   const seen: { roomId: string; kind: string; senderId: string; at: number }[] = [];
   socket.on('message:new', (m: any) => seen.push({ roomId: m.roomId, kind: m.kind, senderId: m.senderId, at: Date.now() }));
-  const waitFor = async (step: typeof DEMO_SCRIPT[number], since: number) => {
+  const waitFor = async (step: ReturnType<typeof demoScriptFor>[number], since: number) => {
     if (!step.waitFor) { await sleep(4000); return true; }
     const room = step.waitFor.room === 'family' ? FAMILY_ROOM_ID : SENIOR_ROOM_ID;
     const t0 = Date.now();
@@ -93,8 +98,8 @@ async function main() {
   await desk.goto(`${BASE}/family?as=jieun`); await sleep(2500); await shot(desk, '90-family-desktop');
   await desk.goto(`${BASE}/demo?key=${process.env.TACHI_DIRECTOR_KEY ?? ''}`); await sleep(4000); await shot(desk, '91-director');
   await desk.goto(`${BASE}/`); await sleep(1500); await shot(desk, '92-landing');
-  await senior.locator('.sa-tabs button', { hasText: '추억' }).click().catch(() => {}); await sleep(1500); await shot(senior, '93-senior-album');
-  await senior.locator('.sa-tabs button', { hasText: '설정' }).click().catch(() => {}); await sleep(1000); await shot(senior, '94-senior-privacy');
+  await senior.locator('.sa-tabs button', { hasText: locale === 'ko' ? '추억' : 'Memories' }).click().catch(() => {}); await sleep(1500); await shot(senior, '93-senior-album');
+  await senior.locator('.sa-tabs button', { hasText: locale === 'ko' ? '설정' : 'Settings' }).click().catch(() => {}); await sleep(1000); await shot(senior, '94-senior-privacy');
 
   await browser.close();
   socket.close();
