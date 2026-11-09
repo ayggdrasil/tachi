@@ -4,6 +4,8 @@ import type {
   Artifact, ArtifactTask, HealthSummary, ItineraryPayload, Memory, MemoryPerson, ModelKey, ModelState,
   PrivacyCategory, PrivacySettings, ProactiveKind, ReportPayload, SessionLog, Slot, TripSuggestionPayload, User,
 } from '../../shared/types';
+import type { AnyTool, ToolAudience, ToolContext } from '../tools/types';
+import type { AgentOutcome } from './agent';
 
 /** Every AI result carries which model produced it and whether the heuristic fallback answered. */
 export interface AIResult<T> {
@@ -125,6 +127,21 @@ export interface BotContext {
   trigger: { kind: string; text: string };      // the message being reacted to (kind = MessageKind)
 }
 
+// ── Agent (tool-calling loop) ─────────────────────────────────────────────
+export interface AgentRunInput {
+  goal: string;                  // the user's request (plus any context the orchestrator adds)
+  audience: ToolAudience;
+  tools: AnyTool[];              // the tools this request may use (already filtered by audience)
+  toolCtx: ToolContext;          // privacy is enforced inside tool execution with this context
+  system: string;
+  /** the deterministic offline planner may answer (demo brain, provider down, live failure) */
+  allowOffline: boolean;
+  /** skip the live provider even when one is configured (the request only suits the deterministic planner) */
+  offlineOnly?: boolean;
+  maxSteps?: number;
+  deadlineMs?: number;
+}
+
 // ── Brain ──────────────────────────────────────────────────────────────────
 export interface Brain {
   /** Current model state (for UI), and runtime switching. */
@@ -165,4 +182,10 @@ export interface Brain {
 
   /** 1–2 line in-character reply from a family bot. Return '' to stay silent. */
   botReply(ctx: BotContext): Promise<AIResult<string>>;
+
+  /**
+   * Agentic loop (plan → tools → verify). Live provider when available; otherwise (or when `allowOffline` and the live run
+   * failed) the offline planner. `value.ok === false` means: fall back to the state machine. Optional (additive).
+   */
+  runAgent?(input: AgentRunInput): Promise<AIResult<AgentOutcome>>;
 }
