@@ -11,6 +11,12 @@ export interface CalendarEventInput {
   endsAt: ISODate;
   organizerId: ID;
   attendeeIds: ID[];
+  visibility?: CalendarEvent['visibility'];
+  note?: string;
+  source?: CalendarEvent['source'];
+  createdBy?: ID;
+  /** fixed id (demo seed); generated when omitted */
+  id?: ID;
 }
 
 export interface CalendarProvider {
@@ -21,6 +27,6 @@ export interface CalendarProvider {
   update(id: ID, patch: Partial<CalendarEventInput> & { status?: CalendarEvent['status'] }): Promise<CalendarEvent | undefined>;
   get(id: ID): Promise<CalendarEvent | undefined>;
   /** events overlapping [from, to) (both optional), optionally only one attendee's / one artifact's */
-  list(opts?: { from?: ISODate; to?: ISODate; attendeeId?: ID; artifactId?: ID }): Promise<CalendarEvent[]>;
+  list(opts?: { from?: ISODate; to?: ISODate; attendeeId?: ID; attendeeIds?: ID[]; artifactId?: ID; includeCancelled?: boolean }): Promise<CalendarEvent[]>;
   cancel(id: ID): Promise<CalendarEvent | undefined>;
 }

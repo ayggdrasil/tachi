@@ -3,6 +3,7 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Artifact, CalendarEvent, Contact, Memory, Message, Poll, Room, SessionLog, Trip, User } from '../../shared/types';
+import type { Reminder } from '../tools/types';
 
 type Stmt = Database.Statement;
 
@@ -66,7 +67,7 @@ class KV {
   del(key: string): void { this.db.prepare('DELETE FROM kv WHERE key = ?').run(key); }
 }
 
-const DOC_TABLES = ['users', 'contacts', 'rooms', 'memories', 'trips', 'artifacts', 'polls', 'sessions', 'calendar_events'] as const;
+const DOC_TABLES = ['users', 'contacts', 'rooms', 'memories', 'trips', 'artifacts', 'polls', 'sessions', 'calendar_events', 'reminders'] as const;
 
 export interface Db {
   raw: Database.Database;
@@ -79,8 +80,9 @@ export interface Db {
   artifacts: Doc<Artifact>;
   polls: Doc<Poll>;
   sessions: Doc<SessionLog>;
-  /** local calendar store (server/calendar/local.ts) */
+  /** single calendar store shared by todo execution and the calendar tools (server/calendar/local.ts) */
   calendarEvents: Doc<CalendarEvent>;
+  reminders: Doc<Reminder>;
   kv: KV;
   wipe(): void;
   close(): void;
@@ -107,6 +109,7 @@ export function openDb(dataDir: string): Db {
     polls: new Doc<Poll>(raw, 'polls'),
     sessions: new Doc<SessionLog>(raw, 'sessions'),
     calendarEvents: new Doc<CalendarEvent>(raw, 'calendar_events'),
+    reminders: new Doc<Reminder>(raw, 'reminders'),
     kv: new KV(raw),
     wipe() {
       raw.transaction(() => {

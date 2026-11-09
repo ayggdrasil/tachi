@@ -4,6 +4,7 @@ import type { Memory, PrivacyCategory, ProactiveKind, ReportPayload } from '../.
 import { ctx } from './ctx';
 import { getDemo, markFiredUpTo, getHealth, getPrivacy, memoryVisibleToFamily, now, patchDemo, reportHighlight, runWithGen, senior, tachiSay } from './core';
 import { reactBots } from './bots';
+import { deliverDueReminders } from './agentic';
 import { endSession, sessionHiddenFromFamily, startSession, todaysSessions } from './sessions';
 import { pick, warn, ymd } from '../util/misc';
 import { openTasksForReport, runFollowUps } from './tasks';
@@ -141,6 +142,8 @@ function inWindow(t: Date, hhmm: string): boolean {
 }
 
 export async function tick(): Promise<void> {
+  // reminders are promises made to the senior: delivered even while the Director drives the demo
+  await deliverDueReminders().catch(e => warn('reminder delivery failed:', e));
   if (ctx.io?.sockets.adapter.rooms.get('user:director')?.size) return; // the Director drives the demo by hand
   const t = now();
   const today = ymd(t);

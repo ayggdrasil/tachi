@@ -159,7 +159,8 @@ async function flowTests(): Promise<void> {
   const inv = await waitFor('invite card', () => cards(FAMILY_ROOM_ID, t0).find(m => (m.payload as TaskCardPayload).stage === 'invite'));
   const ip = inv?.payload as TaskCardPayload | undefined;
   check(art().dateStatus === 'confirmed' && !!ip?.event && ip.event.attendeeIds.length === poll.participantIds.length, `invite card in the family room for ${ip?.event?.attendeeIds.length} members`);
-  const evs = ctx.db.calendarEvents.all();
+  const gatheringEvents = () => ctx.db.calendarEvents.all().filter(e => e.artifactId); // the store also holds the demo-week seed
+  const evs = gatheringEvents();
   check(evs.length === 1 && evs[0].artifactId === a0.id && evs[0].startsAt === poll.slots[2].startsAt, 'one local calendar event at the confirmed slot');
   check(cards(SENIOR_ROOM_ID, t0).some(m => (m.payload as TaskCardPayload).stage === 'invite' && /달력/.test(m.text)), "mom's own room gets the invite");
   const jSide = poll.sideRoomIds.jieun;
@@ -172,7 +173,7 @@ async function flowTests(): Promise<void> {
   await sendInvites(art(), 'tachi');
   check(cards(FAMILY_ROOM_ID, t0).length === nInv, 'automatic invite is idempotent (no duplicate card)');
   const rRe = await sendInvites(art(), 'jieun', { manual: true });
-  check(rRe.ok && cards(FAMILY_ROOM_ID, t0).length === nInv + 1 && ctx.db.calendarEvents.all().length === 1, 'manual re-send posts again but reuses the event');
+  check(rRe.ok && cards(FAMILY_ROOM_ID, t0).length === nInv + 1 && gatheringEvents().length === 1, 'manual re-send posts again but reuses the event');
 
   console.log('assignee reminder + quick replies');
   const cake = task(/케이크/);

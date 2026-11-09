@@ -85,6 +85,14 @@ The server listens on your LAN. The Director rail and the landing page show a **
 
 Replace `demo/photos/*.jpg` with your own family's old photos for the most moving demo (keep the file names, or pick any photo from the senior app).
 
+## Tool-calling loop (도구 호출 루프)
+
+With a live key, tool-shaped requests run an agent loop (`server/brain/agent.ts`): the model plans, calls tools, sees the results, then a final self-check turn verifies the answer against the goal before Tachi replies. Max 6 model turns, per-call and total deadlines (`TACHI_AGENT_STEP_TIMEOUT_MS`, default 12000; `TACHI_AGENT_DEADLINE_MS`, default 25000). `TACHI_LOG_AGENT=1` prints every step.
+
+- **Tools** (`server/tools/`): `graph_search` (memory graph; family calls see shared memories only), `calendar_list` / `calendar_invite` (local SQLite calendar with a seeded demo week, behind a `CalendarProvider` interface so Google Calendar can be plugged in), `transit_route` / `map_search` (gazetteer + haversine, senior-paced estimates, no network), `reminder_create` / `reminder_list` (delivered in mom's chat by the proactive ticker on the demo clock). Inputs are schema-validated; privacy is enforced inside each tool.
+- **Routing** (`server/orchestrator/agentic.ts`): senior reminders / calendar / routes / places and family calendar / route / reminder / memory questions. Health and mood questions keep the existing privacy-checked answer.
+- **Safety net**: any failure, timeout, refusal, invalid output, or an answer naming private data falls back to the existing state machine unchanged. The offline demo brain only handles a few deterministic shapes (e.g. "내일 아침 8시에 혈압약 먹으라고 알려줘", "내일 일정 뭐야?", "불국사 가는 길 알려줘"); the 90-second script is unaffected. Answers show a small "타치가 확인한 것" line.
+
 ## Architecture
 
 ```

@@ -9,12 +9,16 @@ import { composeReport as hReport, planItinerary as hPlan, proactiveMessage as h
 import { extractFromState, planNext, startTurn, SLOT_QUESTION } from './heuristics/interview';
 import { availability, familyIntent, seniorIntent } from './heuristics/intents';
 import { EMOTION_LABELS, decadeEra } from './heuristics/ko';
-import { circuitOpen, complete, completeJson, loadImage, openCircuit, resetCircuit, str, strArr } from './llm';
+import { circuitOpen, complete, completeJson, completeToolTurn, loadImage, openCircuit, resetCircuit, str, strArr } from './llm';
+import { emptyOutcome, runAgentLoop, summarize, type AgentOutcome, type AgentStep } from './agent';
+import { composeFromSteps, planOffline } from './planner';
+import { executeTool } from '../tools';
 import { mergeObservation, validateObservation } from './heuristics/observe';
 import { ModelRegistry } from './models';
 import * as P from './prompts';
 
 const DEMO_LABEL = '데모 브레인';
+const llmStepTimeout = (): number => Number(process.env.TACHI_AGENT_STEP_TIMEOUT_MS || 12000);
 const RULE_LABEL = '규칙 기반';
 /** Thrown inside an llm callback when the requested provider operation could not run (heuristic substituted). */
 class Substitute extends Error {}
@@ -318,6 +322,46 @@ export function createBrain(): Brain {
         if (healthy && BANNED_HEALTH_WORDS.test(r)) { c.sub(); return heur; }
         return r;
       });
+    },
+
+    // ── agent ────────────────────────────────────────────────────────────
+    runAgent: async input => {
+      const opt = registry.active();
+      const live = !input.offlineOnly && opt.provider !== 'mock' && opt.available && !circuitOpen(opt.provider);
+      const logSteps = process.env.TACHI_LOG_AGENT === '1';
+      const log = (s: AgentStep) => { if (logSteps) console.log(`[agent] #${s.i} ${s.kind}${s.name ? ` ${s.name}` : ''}${s.ok === false ? ' ✕' : ''} ${s.summary} (${s.ms}ms)`); };
+      let liveSteps: AgentStep[] = [];
+      if (live) {
+        const out = await runAgentLoop({
+          turn: (req, o) => completeToolTurn(opt, req, { timeoutMs: o.timeoutMs, signal: o.signal }),
+          tools: input.tools, toolCtx: input.toolCtx, system: input.system, goal: input.goal,
+          maxSteps: input.maxSteps ?? 6, deadlineMs: input.deadlineMs ?? Number(process.env.TACHI_AGENT_DEADLINE_MS || 25000),
+          stepTimeoutMs: Math.max(llmStepTimeout(), 4000), log,
+        });
+        if (out.ok) return { value: out, model: opt.label, fallback: false, source: 'llm' };
+        warnOnce('agent', new Error(`${out.reason}${out.detail ? `: ${out.detail}` : ''}`));
+        // a state-changing tool already ran: never hide that behind the fallback — tell the user what was done
+        if (out.mutated) {
+          const answer = composeFromSteps(out.steps, input.audience);
+          if (answer) return { value: { ...out, ok: true, answer }, model: DEMO_LABEL, fallback: true, source: 'heuristic' };
+        }
+        liveSteps = out.steps;
+        if (!input.allowOffline) return { value: out, model: opt.label, fallback: true, source: 'llm' };
+      }
+      if (!input.allowOffline) return { value: emptyOutcome('offline'), model: DEMO_LABEL, fallback: opt.provider !== 'mock', source: 'heuristic' };
+      const plan = planOffline(input.goal, input.audience, input.toolCtx.now());
+      if (!plan) return { value: { ...emptyOutcome('no_plan'), steps: liveSteps }, model: DEMO_LABEL, fallback: true, source: 'heuristic' };
+      const steps: AgentStep[] = [];
+      for (const call of plan) {
+        const run = await executeTool(call.name, call.input, input.toolCtx, { allowed: input.tools });
+        const st: AgentStep = { i: steps.length, kind: 'tool', name: run.name, input: run.input, ok: run.ok, ms: run.ms, run, summary: run.ok ? run.output!.summary : `${run.error!.code}: ${run.error!.message}` };
+        steps.push(st); log(st);
+      }
+      const answer = composeFromSteps(steps, input.audience);
+      const value: AgentOutcome = answer
+        ? { ok: true, answer, steps, ...summarize(steps, input.tools) }
+        : { ...emptyOutcome('no_plan', 'planner produced no answer'), steps };
+      return { value, model: DEMO_LABEL, fallback: opt.provider !== 'mock', source: 'heuristic' };
     },
   };
   return brain;

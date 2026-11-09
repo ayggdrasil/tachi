@@ -87,6 +87,8 @@ export interface MessageMeta {
   /** resources the answer actually mentioned */
   memoryIdsUsed?: ID[];
   tripIdsUsed?: ID[];
+  /** Korean labels of the tools Tachi checked for this answer (agent loop / offline planner), e.g. ['캘린더', '길찾기'] */
+  toolsUsed?: string[];
 }
 
 export interface Message {
@@ -411,6 +413,13 @@ export interface CalendarEvent {
   provider: 'local' | string;
   createdAt: ISODate;
   updatedAt: ISODate;
+  /** 'private' events are shown to other people as busy time only (no title / place / note); absent = family-visible */
+  visibility?: 'family' | 'private';
+  /** owner-only note (never shown to other viewers) */
+  note?: string;
+  /** where the event came from: demo seed, a Tachi tool call, todo execution, the user, or an external calendar */
+  source?: 'seed' | 'tachi' | 'task' | 'user' | 'external';
+  createdBy?: ID;
 }
 
 export interface Artifact {

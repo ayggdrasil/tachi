@@ -15,6 +15,7 @@ import { createBrain } from '../brain/index';
 import { createGraphStore } from '../graph/index';
 import { openDb } from '../db';
 import { seed } from '../db/seed';
+import { seedCalendar } from '../tools/calendar';
 import { ctx, type IO } from './ctx';
 import { installGuards, memoryVisibleToFamily, syncClock } from './core';
 import { attachSocketHandlers, preflightModel } from './socket';
@@ -65,6 +66,7 @@ export async function createApp(opts: AppOptions = {}) {
       if (st.nodes === 0) for (const m of ctx.db.memories.all().filter(x => x.status === 'saved')) await ctx.graph.upsertMemory(m);
     } catch (e) { warn('graph rebuild failed:', e); }
   }
+  if (!ctx.db.calendarEvents.all().length) seedCalendar(ctx.db); // databases created before the calendar existed
   const demo = ctx.db.kv.get<import('../../shared/types').DemoState>('demo');
   syncClock(0); // the virtual clock never survives a restart
   if (demo) ctx.db.kv.set('demo', { ...demo, clockOffsetMinutes: 0, lanUrls: ctx.lanUrls });

@@ -16,11 +16,13 @@ export function createLocalCalendar(store: () => CalendarDoc, clock: () => Date 
     id: 'local',
     async create(input: CalendarEventInput) {
       const t = iso();
-      const id = `cal-${nanoid(16)}`; // unguessable: the .ics URL uses it as a capability
+      const id = input.id ?? `cal-${nanoid(16)}`; // unguessable: the .ics URL uses it as a capability
       const e: CalendarEvent = {
         id, uid: `${id}@tachi.local`, artifactId: input.artifactId, title: input.title, description: input.description ?? '',
         location: input.location, startsAt: input.startsAt, endsAt: input.endsAt, organizerId: input.organizerId,
         attendeeIds: [...new Set(input.attendeeIds)], sequence: 0, status: 'confirmed', provider: 'local', createdAt: t, updatedAt: t,
+        ...(input.visibility ? { visibility: input.visibility } : {}), ...(input.note ? { note: input.note } : {}),
+        ...(input.source ? { source: input.source } : {}), ...(input.createdBy ? { createdBy: input.createdBy } : {}),
       };
       return store().put(e);
     },
@@ -48,7 +50,9 @@ export function createLocalCalendar(store: () => CalendarDoc, clock: () => Date 
     async list(opts = {}) {
       return store().all()
         .filter(e => (!opts.from || e.endsAt > opts.from) && (!opts.to || e.startsAt < opts.to))
+        .filter(e => opts.includeCancelled !== false || e.status !== 'cancelled')
         .filter(e => !opts.attendeeId || e.attendeeIds.includes(opts.attendeeId) || e.organizerId === opts.attendeeId)
+        .filter(e => !opts.attendeeIds?.length || [e.organizerId, ...e.attendeeIds].some(id => opts.attendeeIds!.includes(id)))
         .filter(e => !opts.artifactId || e.artifactId === opts.artifactId)
         .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
     },
