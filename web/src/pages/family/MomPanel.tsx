@@ -3,6 +3,7 @@ import { Lock } from 'lucide-react';
 import type { Memory, ReportPayload } from '../../../../shared/types';
 import { FAMILY_ROOM_ID } from '../../../../shared/constants';
 import { useTachi } from '../../lib/store';
+import { useT } from '../../lib/i18n';
 import { MemoryTile } from '../../components/memory/MemoryTile';
 import { MemoryGraph } from '../../components/graph/MemoryGraph';
 import { HealthSummaryView } from '../../components/health/HealthSummaryView';
@@ -10,11 +11,12 @@ import { Dialog } from './Dialog';
 import './MomPanel.css';
 
 type Tab = 'memory' | 'health' | 'report';
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'memory', label: '추억' }, { id: 'health', label: '건강' }, { id: 'report', label: '리포트' },
+const TABS: { id: Tab; key: string }[] = [
+  { id: 'memory', key: 'mp.memory' }, { id: 'health', key: 'mp.health' }, { id: 'report', key: 'mp.report' },
 ];
 
 export function MomPanel() {
+  const t = useT();
   const [tab, setTab] = useState<Tab>('memory');
   const tabsRef = useRef<HTMLDivElement>(null);
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -31,10 +33,10 @@ export function MomPanel() {
   };
   return (
     <div className="mp">
-      <div className="mp-tabs" role="tablist" aria-label="어머니 소식" ref={tabsRef} onKeyDown={onKey}>
-        {TABS.map(t => (
-          <button key={t.id} role="tab" id={`mp-tab-${t.id}`} aria-selected={tab === t.id} tabIndex={tab === t.id ? 0 : -1} aria-controls={`mp-pane-${t.id}`}
-            className={`mp-tab ${tab === t.id ? 'is-on' : ''}`} onClick={() => setTab(t.id)}>{t.label}</button>
+      <div className="mp-tabs" role="tablist" aria-label={t('fam.momNews')} ref={tabsRef} onKeyDown={onKey}>
+        {TABS.map(tb => (
+          <button key={tb.id} role="tab" id={`mp-tab-${tb.id}`} aria-selected={tab === tb.id} tabIndex={tab === tb.id ? 0 : -1} aria-controls={`mp-pane-${tb.id}`}
+            className={`mp-tab ${tab === tb.id ? 'is-on' : ''}`} onClick={() => setTab(tb.id)}>{t(tb.key)}</button>
         ))}
       </div>
       <div className="mp-pane" role="tabpanel" id={`mp-pane-${tab}`} aria-labelledby={`mp-tab-${tab}`}>
@@ -47,6 +49,7 @@ export function MomPanel() {
 }
 
 function MemoryTab() {
+  const t = useT();
   const memories = useTachi(s => s.memories);
   const graph = useTachi(s => s.graph);
   const fresh = useTachi(s => s.freshGraphIds);
@@ -61,15 +64,15 @@ function MemoryTab() {
   return (
     <>
       {shared.length === 0 ? (
-        <p className="caption muted mp-empty">아직 공유된 추억이 없어요. 어머니가 가족에게 보내 주시면 여기에 모여요.</p>
+        <p className="caption muted mp-empty">{t('mp.noMemories')}</p>
       ) : (
         <ul className="mp-list">
           {shared.map(m => <li key={m.id}><MemoryTile memory={m} onClick={() => setOpen(m)} /></li>)}
         </ul>
       )}
       {nodes.length > 0 && (
-        <section className="mp-graph" aria-label="기억 그래프">
-          <h3 className="mp-h">기억 그래프 <span className="faint">· 연결 {edges.length}개</span></h3>
+        <section className="mp-graph" aria-label={t('mp.graph')}>
+          <h3 className="mp-h">{t('mp.graph')} <span className="faint">· {t('mp.links', { n: edges.length })}</span></h3>
           <div className="mp-graph-box"><MemoryGraph nodes={nodes} edges={edges} highlightIds={fresh} height={220} compact /></div>
         </section>
       )}
@@ -79,14 +82,15 @@ function MemoryTab() {
 }
 
 function MemoryDetail({ memory: m, onClose }: { memory: Memory; onClose: () => void }) {
-  const meta = [m.era ?? (m.year ? `${m.year}년` : undefined), m.season, m.place].filter(Boolean).join(' · ');
+  const t = useT();
+  const meta = [m.era ?? (m.year ? t('mp.year', { y: m.year }) : undefined), m.season, m.place].filter(Boolean).join(' · ');
   return (
     <Dialog title={m.title} onClose={onClose} width={520}>
       {m.photoUrl && <img className="mp-photo" src={m.photoUrl} alt={m.title} />}
       {meta && <p className="caption muted mp-meta">{meta}</p>}
       <p className="mp-story">{m.story}</p>
       {m.people.length > 0 && (
-        <p className="caption mp-people"><span className="muted">함께한 사람</span> {m.people.map(p => (p.relation ? `${p.name}(${p.relation})` : p.name)).join(', ')}</p>
+        <p className="caption mp-people"><span className="muted">{t('mp.with')}</span> {m.people.map(p => (p.relation ? `${p.name}(${p.relation})` : p.name)).join(', ')}</p>
       )}
       {m.emotions.length > 0 && <p className="caption muted">{m.emotions.join(' · ')}</p>}
     </Dialog>
@@ -94,13 +98,14 @@ function MemoryDetail({ memory: m, onClose }: { memory: Memory; onClose: () => v
 }
 
 function HealthTab() {
+  const t = useT();
   const health = useTachi(s => s.health);
   if (!health) {
     return (
       <div className="mp-locked">
         <Lock size={20} strokeWidth={1.5} aria-hidden />
-        <p>어머니께서 건강 정보를 비공개로 설정하셨어요</p>
-        <p className="caption faint">어머니께서 공개하시면 이곳에서 함께 볼 수 있어요.</p>
+        <p>{t('mp.healthPrivate')}</p>
+        <p className="caption faint">{t('mp.healthPrivateHint')}</p>
       </div>
     );
   }
@@ -108,19 +113,20 @@ function HealthTab() {
 }
 
 function ReportTab() {
+  const t = useT();
   const msgs = useTachi(s => s.messages[FAMILY_ROOM_ID]);
   const reports = useMemo(
     () => (msgs ?? []).filter(m => m.kind === 'report' && m.payload?.type === 'report').slice(-5).reverse(),
     [msgs],
   );
-  if (reports.length === 0) return <p className="caption muted mp-empty">아직 받은 리포트가 없어요. 하루가 끝나면 타치가 전해 드려요.</p>;
+  if (reports.length === 0) return <p className="caption muted mp-empty">{t('mp.noReports')}</p>;
   return (
     <ul className="mp-reports">
       {reports.map(m => {
         const p = m.payload as ReportPayload;
         return (
           <li key={m.id} className="mp-report">
-            <h3 className="mp-report-date">{p.dateLabel}{p.moodLabel && <span className="badge">기분 {p.moodLabel}</span>}</h3>
+            <h3 className="mp-report-date">{p.dateLabel}{p.moodLabel && <span className="badge">{t('mp.mood', { mood: p.moodLabel })}</span>}</h3>
             {p.highlight && <p className="caption">{p.highlight}</p>}
             <ul className="mp-sessions">
               {p.sessions.map((s, i) => (
@@ -128,7 +134,7 @@ function ReportTab() {
                   <span className="mono muted">{s.time}</span>
                   <span className="mp-session-main">
                     <span className="mp-session-title">{s.title}</span>
-                    <span className={`caption ${s.isPrivate ? 'faint' : 'muted'}`}>{s.isPrivate ? '비공개 대화예요' : s.summary}</span>
+                    <span className={`caption ${s.isPrivate ? 'faint' : 'muted'}`}>{s.isPrivate ? t('mp.privateChat') : s.summary}</span>
                   </span>
                 </li>
               ))}

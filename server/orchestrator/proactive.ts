@@ -1,22 +1,20 @@
 // 4.8 Proactive greetings + family report.
-import { DAILY_REPORT_TIME, FAMILY_ROOM_ID, SENIOR_ROOM_ID, dayHeaderLabel } from '../../shared/constants';
+import { DAILY_REPORT_TIME, FAMILY_ROOM_ID, SENIOR_ROOM_ID } from '../../shared/constants';
+import { st } from '../i18n';
+import { dayL } from './locale';
 import type { Memory, PrivacyCategory, ProactiveKind, ReportPayload } from '../../shared/types';
 import { ctx } from './ctx';
-import { getDemo, markFiredUpTo, getHealth, getPrivacy, memoryVisibleToFamily, now, patchDemo, reportHighlight, runWithGen, senior, tachiSay } from './core';
+import { getDemo, markFiredUpTo, getHealth, getPrivacy, maskedSummary, maskedTitle, memoryVisibleToFamily, now, patchDemo, reportHighlight, runWithGen, senior, tachiSay } from './core';
 import { reactBots } from './bots';
 import { endSession, sessionHiddenFromFamily, startSession, todaysSessions } from './sessions';
 import { pick, warn, ymd } from '../util/misc';
 
 const KEY_ACTIVE = 'active-proactive';
-const TITLES: Record<ProactiveKind, string> = { morning: '아침 안부', memory: '추억 이야기', evening: '저녁 인사', ask_photo: '사진 이야기' };
+const KINDS: ProactiveKind[] = ['morning', 'memory', 'evening', 'ask_photo'];
+const title = (k: ProactiveKind, l?: 'en' | 'ko'): string => st(`pro.title.${k}`, undefined, l);
 const CATEGORY: Record<ProactiveKind, PrivacyCategory> = { morning: 'daily', evening: 'daily', memory: 'memory', ask_photo: 'memory' };
-const INITIAL: Record<ProactiveKind, string> = {
-  morning: '아침 인사를 건넸어요.', evening: '저녁 인사를 건넸어요.', memory: '옛 추억 이야기를 건넸어요.', ask_photo: '옛 사진을 보여달라고 부탁드렸어요.',
-};
-const DONE: Record<ProactiveKind, string> = {
-  morning: '아침 인사를 나누며 하루 컨디션을 이야기하셨어요.', evening: '저녁 인사를 나누며 하루를 돌아보셨어요.',
-  memory: '옛 추억 이야기를 나누셨어요.', ask_photo: '옛 사진 이야기를 나누기로 하셨어요.',
-};
+const initial = (k: ProactiveKind, l?: 'en' | 'ko'): string => st(`pro.initial.${k}`, undefined, l);
+const done = (k: ProactiveKind): string => st(`pro.done.${k}`);
 
 export function defaultKind(d = now()): ProactiveKind {
   const h = d.getHours();
@@ -35,7 +33,7 @@ export async function fireProactive(requested?: ProactiveKind): Promise<void> {
   const { kind, memory } = memoryFor(want);
   const prev = ctx.db.kv.get<string>(KEY_ACTIVE);
   if (prev) endSession(prev);
-  const sess = startSession('proactive', TITLES[kind], CATEGORY[kind], INITIAL[kind]);
+  const sess = startSession('proactive', title(kind), CATEGORY[kind], initial(kind));
   ctx.db.kv.set(KEY_ACTIVE, sess.id);
   const entry = getDemo().proactiveSchedule.find(e => e.kind === want || e.kind === kind);
   if (entry) markFired(entry.kind);
@@ -72,15 +70,12 @@ export function noteSeniorReply(roomId: string): void {
   if (!id) return;
   ctx.db.kv.del(KEY_ACTIVE);
   const s = ctx.db.sessions.get(id);
-  if (s) endSession(id, s.summary === INITIAL[kindOfTitle(s.title)] || !s.endedAt ? DONE[kindOfTitle(s.title)] : s.summary);
+  if (s) { const k = kindOfTitle(s.title); endSession(id, s.summary === initial(k) || !s.endedAt ? done(k) : s.summary); }
 }
 
-function kindOfTitle(title: string): ProactiveKind {
-  return (Object.entries(TITLES).find(([, t]) => t === title)?.[0] as ProactiveKind | undefined) ?? 'morning';
+function kindOfTitle(t: string): ProactiveKind {
+  return KINDS.find(k => title(k, 'en') === t || title(k, 'ko') === t) ?? 'morning';
 }
-
-const MASKED_TITLE = '대화';
-const MASKED_SUMMARY = '비공개 대화예요';
 
 export async function postReport(auto = false): Promise<void> {
   ctx.db.kv.set('report-fired-on', ymd(now())); // manual or automatic: today's report is out, the ticker must not add another
@@ -90,30 +85,30 @@ export async function postReport(auto = false): Promise<void> {
   const moodToday = privacy.mood === 'family' ? getHealth()?.mood.at(-1)?.label : undefined;
   // sessions about a memory the family cannot see are masked before the brain ever sees them
   const hidden = new Set(sessions.filter(sessionHiddenFromFamily).map(s => s.id));
-  const forBrain = sessions.map(s => (hidden.has(s.id) ? { ...s, title: MASKED_TITLE, summary: MASKED_SUMMARY, memoryId: undefined } : s));
+  const forBrain = sessions.map(s => (hidden.has(s.id) ? { ...s, title: maskedTitle(), summary: maskedSummary(), memoryId: undefined } : s));
   const ai = await ctx.brain.composeReport({ sessions: forBrain, privacy, moodToday, senior: senior(), now: now() });
   const v = ai.value;
   const rows = (v.sessions ?? []).map(s => (
-    privacy[s.category] === 'private' || (s.title === MASKED_TITLE && s.summary === MASKED_SUMMARY)
-      ? { ...s, title: MASKED_TITLE, summary: MASKED_SUMMARY, isPrivate: true } : s));
+    privacy[s.category] === 'private' || (s.title === maskedTitle() && s.summary === maskedSummary())
+      ? { ...s, title: maskedTitle(), summary: maskedSummary(), isPrivate: true } : s));
   // the highlight must never carry a private memory's title (or a masked session's original wording)
   const secrets = [
     ...ctx.db.memories.all().filter(m => !memoryVisibleToFamily(m)).map(m => m.title),
     ...sessions.filter(s => hidden.has(s.id)).flatMap(s => [s.title, s.summary]),
-  ].filter(t => t && t.length >= 2 && t !== MASKED_TITLE);
+  ].filter(t => t && t.length >= 2 && t !== maskedTitle());
   let highlight = v.highlight;
   if (highlight && secrets.some(t => highlight!.includes(t))) highlight = undefined;
   if (!highlight || hidden.size || rows.some(r => r.isPrivate)) highlight = rows.length ? reportHighlight(rows) : v.highlight ?? reportHighlight(rows);
   const payload: ReportPayload = {
     ...v, type: 'report',
-    dateLabel: v.dateLabel || dayHeaderLabel(now()),
+    dateLabel: v.dateLabel || dayL(now()),
     moodLabel: privacy.mood === 'family' ? v.moodLabel ?? moodToday : undefined,
     sessions: rows,
     highlight,
   };
   sessions.forEach(s => ctx.db.sessions.put({ ...s, reported: true }));
   const m = await tachiSay(FAMILY_ROOM_ID, {
-    kind: 'report', text: payload.highlight || `${payload.dateLabel} 어머님과 나눈 이야기를 정리했어요.`, payload,
+    kind: 'report', text: payload.highlight || st('report.fallbackText', { date: payload.dateLabel }), payload,
   }, ai);
   reactBots(FAMILY_ROOM_ID, m);
 }

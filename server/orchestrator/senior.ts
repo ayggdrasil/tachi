@@ -1,7 +1,8 @@
 // Senior (Tachi room) flows: 4.1 interview, 4.2 share, 4.3 recall, 4.4 trip, health log, small talk.
 import fs from 'node:fs';
 import path from 'node:path';
-import { FAMILY_ROOM_ID, SENIOR_ID, SENIOR_ROOM_ID, TACHI_ID, USERS } from '../../shared/constants';
+import { FAMILY_ROOM_ID, SENIOR_ID, SENIOR_ROOM_ID, TACHI_ID } from '../../shared/constants';
+import { st } from '../i18n';
 import type {
   CardAction, HealthSummary, ID, Memory, MemoryCardPayload, Message, PrivacyCategory, Room, Trip,
 } from '../../shared/types';
@@ -18,9 +19,11 @@ import { reactBots } from './bots';
 import { clearProactiveMemory, getProactiveMemory, noteSeniorReply } from './proactive';
 import { logSeniorSession } from './sessions';
 import { tryMomAvailability } from './scheduling';
-import { nowIso, uid, ymd } from '../util/misc';
+import { agentTurn } from './seniorAgent';
+import { isKo } from './locale';
+import { nowIso, uid, warn, ymd } from '../util/misc';
 
-type Pending =
+export type Pending =
   | { type: 'share_confirm'; memoryId: ID; messageId?: ID }
   | { type: 'trip_confirm'; tripId: ID; messageId?: ID }
   | { type: 'itinerary'; tripId: ID; messageId?: ID };
@@ -41,13 +44,13 @@ export class ActionRefused extends Error { override name = 'ActionRefused'; }
 const tripMeta = (tripId?: ID, memoryId?: ID) => ({ category: 'trip' as const, ...(tripId ? { tripId } : {}), ...(memoryId ? { memoryId } : {}) });
 const memMeta = (memoryId: ID) => ({ category: 'memory' as const, memoryId });
 
-const kInterview = (roomId: ID) => `interview:${roomId}`;
+export const kInterview = (roomId: ID) => `interview:${roomId}`;
 const kPending = (roomId: ID) => `pending:${roomId}`;
-const getPending = (roomId: ID) => ctx.db.kv.get<Pending>(kPending(roomId));
-const setPending = (roomId: ID, p: Pending | null) => { if (p) ctx.db.kv.set(kPending(roomId), p); else ctx.db.kv.del(kPending(roomId)); };
-const setLastMemory = (id: ID) => ctx.db.kv.set('last-memory', id);
+export const getPending = (roomId: ID) => ctx.db.kv.get<Pending>(kPending(roomId));
+export const setPending = (roomId: ID, p: Pending | null) => { if (p) ctx.db.kv.set(kPending(roomId), p); else ctx.db.kv.del(kPending(roomId)); };
+export const setLastMemory = (id: ID) => ctx.db.kv.set('last-memory', id);
 
-function resolvePhotoPath(url: string): string | undefined {
+export function resolvePhotoPath(url: string): string | undefined {
   try {
     const name = path.basename(decodeURIComponent(url.split('?')[0]));
     const p = url.startsWith('/uploads/') ? path.join(ctx.dataDir, 'uploads', name)
@@ -57,13 +60,29 @@ function resolvePhotoPath(url: string): string | undefined {
 }
 
 // ── entry point ─────────────────────────────────────────────────────────────
-export async function handleSeniorInput(room: Room, userId: ID, text?: string, photoUrl?: string): Promise<void> {
+export async function handleSeniorInput(room: Room, userId: ID, text?: string, photoUrl?: string, msgId?: ID): Promise<void> {
   try {
+    // live model → the LLM agent runs the whole 1:1 conversation; a fallback/failed turn drops through to the offline pipeline below
+    if (ctx.brain.isLive() && (await tryAgent(room, text, photoUrl, msgId))) return;
     if (photoUrl) await startInterview(room, photoUrl);
     else if (text) await handleSeniorText(room, text);
   } finally {
     if (userId === SENIOR_ID) noteSeniorReply(room.id);
   }
+}
+
+/** Shortcuts that stay deterministic in agent mode: an open poll she answers by typing, and the buttons-as-text on an itinerary. */
+async function tryAgent(room: Room, text: string | undefined, photoUrl: string | undefined, msgId?: ID): Promise<boolean> {
+  if (!photoUrl && !text) return false;
+  if (!photoUrl && text) {
+    if (await tryMomAvailability(text)) return true;
+    const pending = getPending(room.id);
+    if (pending?.type === 'itinerary') {
+      if (ITINERARY_SHARE_RE.test(text)) { await shareTripFromText(room.id, pending.tripId); return true; }
+      if (ITINERARY_TOGETHER_RE.test(text)) { await makeGatheringFromText(room.id, pending.tripId); return true; }
+    }
+  }
+  try { return await agentTurn(room, text, photoUrl, msgId); } catch (e) { warn('senior agent failed, using the offline pipeline:', e); return false; }
 }
 
 // ── 4.1 interview ───────────────────────────────────────────────────────────
@@ -73,7 +92,7 @@ async function startInterview(room: Room, photoUrl: string): Promise<void> {
   if (old) { const d = ctx.db.memories.get(old.memoryId); if (d?.status === 'draft') ctx.db.memories.delete(d.id); }
   const memoryId = uid('mem');
   const draft: Memory = {
-    id: memoryId, ownerId: SENIOR_ID, photoUrl, title: '새 추억', story: '', summary: '', people: [], emotions: [], tags: [],
+    id: memoryId, ownerId: SENIOR_ID, photoUrl, title: st('senior.newMemoryTitle'), story: '', summary: '', people: [], emotions: [], tags: [],
     visibility: 'private', status: 'draft', createdAt: nowIso(),
   };
   ctx.db.memories.put(draft);
@@ -106,35 +125,49 @@ async function finalizeMemory(room: Room, state: InterviewState, ex: Awaited<Ret
     ...ex.value, people: ex.value.people ?? [], emotions: ex.value.emotions ?? [], tags: ex.value.tags ?? [],
     visibility: 'private', status: 'saved', createdAt: draft?.createdAt ?? nowIso(),
   };
-  ctx.db.memories.put(mem);
   ctx.db.kv.del(kInterview(room.id));
+  await commitMemory(room, mem, ex);
+}
+
+/**
+ * Persist a finished memory (SQLite + graph), then ask for consent to share: a private memory_card with share / keep-private buttons.
+ * Used by the offline interview and by the LLM agent's `save_memory`.
+ */
+export async function commitMemory(room: Room, mem: Memory, ai: { model: string; fallback: boolean; source?: 'llm' | 'heuristic' | 'rule' }): Promise<Memory> {
+  ctx.db.memories.put(mem);
   setLastMemory(mem.id);
   const delta = await ctx.graph.upsertMemory(mem);
   for (const p of mem.people) {
-    if (p.relation) await ctx.graph.linkFamily(p.name, p.relation, USERS[0].name).catch(() => undefined);
+    if (p.relation) await ctx.graph.linkFamily(p.name, p.relation, senior().name).catch(() => undefined);
   }
   emitMemory(mem);
   emitGraphDelta(delta, mem);
-  logSeniorSession('memory', '옛 사진 이야기', `${mem.title} 이야기를 나누셨어요.`, mem.id);
+  logSeniorSession('memory', st('senior.sess.photoStory'), st('senior.sess.photoStorySummary', { title: mem.title }), mem.id);
 
   const payload: MemoryCardPayload = { type: 'memory_card', memoryId: mem.id, memory: mem, graphDelta: delta };
   await tachiSay(room.id, {
-    text: '소중한 추억을 잘 간직했어요. 지금은 어머님만 볼 수 있어요. 가족에게 공유할까요?',
-    quickReplies: ['네, 보내주세요', '나만 간직할게요'],
+    text: st('senior.saved'),
+    quickReplies: [st('senior.saved.yes'), st('senior.saved.no')],
     meta: memMeta(mem.id),
-  }, ex);
+  }, ai);
   const actions: CardAction[] = [
-    { id: 'share_memory', label: '가족에게 공유하기', style: 'primary', data: { memoryId: mem.id } },
-    { id: 'skip_share', label: '나만 간직할게요', data: { memoryId: mem.id } },
+    { id: 'share_memory', label: st('senior.btn.share'), style: 'primary', data: { memoryId: mem.id } },
+    { id: 'skip_share', label: st('senior.btn.keep'), data: { memoryId: mem.id } },
   ];
-  const card = post(room.id, { senderId: TACHI_ID, kind: 'memory_card', text: `${mem.title} · ${mem.summary}`, payload, actions, meta: { model: ex.model, fallback: ex.fallback, ...memMeta(mem.id) } });
+  const card = post(room.id, { senderId: TACHI_ID, kind: 'memory_card', text: `${mem.title} · ${mem.summary}`, payload, actions, meta: { model: ai.model, fallback: ai.fallback, ...memMeta(mem.id) } });
   setPending(room.id, { type: 'share_confirm', memoryId: mem.id, messageId: card.id });
+  return mem;
 }
 
 // ── text routing ────────────────────────────────────────────────────────────
 /** Replies that continue the memory Tachi just brought up in a proactive greeting. */
-const CONTINUE_RE = /(그\s*(사진|이야기|얘기)|얘기해?\s*(줄게|할게|해\s*줄까)|이야기해?\s*(줄게|할게)|들려\s*(줄게|드릴게)|기억(이\s*)?나|보여\s*(줘|줄게|드릴게)|^\s*(응|네|예|어|그래|그럼|그렇지)[\s,.!~요]*$|^\s*(그래|그럼|응|네)[\s,.!~]+(얘기|이야기|기억|보여))/;
-const DECLINE_RE = /(다음에|나중에|싫|아니|안\s*할|됐어|괜찮아$)/;
+const CONTINUE_RE = new RegExp([
+  /(그\s*(사진|이야기|얘기)|얘기해?\s*(줄게|할게|해\s*줄까)|이야기해?\s*(줄게|할게)|들려\s*(줄게|드릴게)|기억(이\s*)?나|보여\s*(줘|줄게|드릴게)|^\s*(응|네|예|어|그래|그럼|그렇지)[\s,.!~요]*$|^\s*(그래|그럼|응|네)[\s,.!~]+(얘기|이야기|기억|보여))/.source,
+  /\b(that|the) (photo|picture|story|one)\b|\b(let me|i'?ll|i will|shall i) (tell|share)\b|\bi remember\b|\bshow me\b|^\s*(yes|yeah|yep|sure|okay|ok|of course|go ahead|please|alright)[\s,.!~]*$|^\s*(yes|yeah|sure|okay|ok|alright)[\s,.!~]+(tell|let|that|i|go|show)/.source,
+].join('|'), 'i');
+const DECLINE_RE = new RegExp(/(다음에|나중에|싫|아니|안\s*할|됐어|괜찮아$)/.source + '|' + /\b(not now|maybe later|another time|next time|no thanks?|i don'?t (want|feel)|never ?mind|not really)\b|^\s*no\b/.source, 'i');
+const ITINERARY_SHARE_RE = new RegExp(/가족(에게|한테)\s*보내/.source + '|' + /\b(send|share|forward|show)\b[^.?!]*\b(family|kids|children|everyone)\b/.source, 'i');
+const ITINERARY_TOGETHER_RE = new RegExp(/가족(과|이랑)\s*(함께|같이)\s*가/.source + '|' + /\b(go|come|travel|join|visit)\b[^.?!]*\b(with|together)\b[^.?!]*\b(family|kids|children)\b|\bwith (the |my )?(family|kids|children)\b/.source, 'i');
 
 /** An acceptance arrived while a trip offer for the active memory is reserved but not posted: remember it. */
 function queueAcceptIfReserved(): boolean {
@@ -153,8 +186,8 @@ async function handleSeniorText(room: Room, text: string): Promise<void> {
 
   const pending = getPending(room.id);
   if (pending?.type === 'itinerary') {
-    if (/가족(에게|한테)\s*보내/.test(text)) return shareTripFromText(room.id, pending.tripId);
-    if (/가족(과|이랑)\s*(함께|같이)\s*가/.test(text)) return makeGatheringFromText(room.id, pending.tripId);
+    if (ITINERARY_SHARE_RE.test(text)) return shareTripFromText(room.id, pending.tripId);
+    if (ITINERARY_TOGETHER_RE.test(text)) return makeGatheringFromText(room.id, pending.tripId);
   }
   const pm = getProactiveMemory();
   const proactiveMem = pm ? ctx.db.memories.get(pm.memoryId) : undefined;
@@ -196,29 +229,33 @@ async function continueMemory(room: Room, mem: Memory, text: string): Promise<vo
   clearProactiveMemory();
   setLastMemory(mem.id);
   const ai = await withTyping(room.id, () => ctx.brain.recallReply(mem, text, senior()));
-  const hit = (await ctx.graph.search([mem.title, ...mem.tags.slice(0, 2)].filter(Boolean), { limit: 5 }).catch(() => [])).find(h => h.memoryId === mem.id);
+  await postRecallCard(room.id, mem, ai.value, ai);
   await tachiSay(room.id, {
-    kind: 'recall_card', text: ai.value,
+    text: mem.place ? st('senior.continue.qPlace', { place: mem.place }) : st('senior.continue.q'),
+    quickReplies: [st('senior.continue.c1'), st('senior.continue.c2'), st('senior.continue.c3')],
+    meta: memMeta(mem.id),
+  });
+  logSeniorSession('memory', st('senior.sess.recall'), st('senior.sess.recallSummary', { title: mem.title }), mem.id);
+}
+
+/** A recall_card for an existing memory (graph path found by its own title / tags). */
+export async function postRecallCard(roomId: ID, mem: Memory, text: string, ai?: { model: string; fallback: boolean; source?: 'llm' | 'heuristic' | 'rule' }, extra: { alternatives?: { memoryId: ID; title: string }[]; hit?: Awaited<ReturnType<typeof ctx.graph.search>>[number] } = {}): Promise<Message> {
+  const hit = extra.hit ?? (await ctx.graph.search([mem.title, ...mem.tags.slice(0, 2)].filter(Boolean), { limit: 5 }).catch(() => [])).find(h => h.memoryId === mem.id);
+  return tachiSay(roomId, {
+    kind: 'recall_card', text,
     payload: {
       type: 'recall_card', memoryId: mem.id, memory: mem, matched: hit?.matched ?? [], path: hit?.path ?? { nodes: [], edges: [] },
-      cypher: hit?.cypher, alternatives: [],
+      cypher: hit?.cypher, alternatives: extra.alternatives ?? [],
     },
     meta: memMeta(mem.id),
   }, ai);
-  const where = mem.place ? `${mem.place}에서 ` : '';
-  await tachiSay(room.id, {
-    text: `${where}그날 가장 기억에 남는 장면은 어떤 거였어요?`,
-    quickReplies: ['바다에서 놀던 거', '수박 먹던 거', '잘 기억이 안 나'],
-    meta: memMeta(mem.id),
-  });
-  logSeniorSession('memory', '추억 떠올리기', `${mem.title} 이야기를 다시 떠올리셨어요.`, mem.id);
 }
 
 // ── observations (medication / mood) ────────────────────────────────────────
 const slotNow = (): '아침' | '점심' | '저녁' => { const h = now().getHours(); return h < 11 ? '아침' : h < 16 ? '점심' : '저녁'; };
 
 /** Persist a structured observation into HealthSummary. Returns what was actually stored. */
-function applyObservation(obs: SeniorObservation | undefined): { medication: boolean; mood: boolean; ask: boolean } {
+export function applyObservation(obs: SeniorObservation | undefined): { medication: boolean; mood: boolean; ask: boolean } {
   const done = { medication: false, mood: false, ask: false };
   if (!obs) return done;
   const h: HealthSummary = getHealth() ?? { updatedAt: nowIso(), bloodPressure: [], medications: [], sleepHours: [], steps: [], mood: [], notes: [] };
@@ -227,7 +264,8 @@ function applyObservation(obs: SeniorObservation | undefined): { medication: boo
   if (med && typeof med.taken === 'boolean') {
     const todays = h.medications.filter(m => m.date === today);
     const explicit = !!(med.name || med.time);
-    const byName = med.name ? todays.filter(m => m.name.includes(med.name!) || med.name!.includes(m.name)) : todays;
+    const lc = (x: string) => x.toLowerCase();
+    const byName = med.name ? todays.filter(m => lc(m.name).includes(lc(med.name!)) || lc(med.name!).includes(lc(m.name))) : todays;
     const bySlot = med.time ? byName.filter(m => m.time === med.time) : byName;
     // write only for an explicitly identified dose, or when exactly one dose is due right now; otherwise ask
     const candidates = explicit ? bySlot : todays.filter(m => m.time === slotNow());
@@ -238,7 +276,7 @@ function applyObservation(obs: SeniorObservation | undefined): { medication: boo
       if (target) {
         h.medications = h.medications.map(m => (m === target ? { ...m, taken: med.taken } : m));
       } else {
-        const name = med.name ?? '복용약';
+        const name = med.name ?? st('senior.defaultMed');
         h.medications = [...h.medications, { date: today, name, time: med.time ?? slotNow(), taken: med.taken }];
       }
       h.medications = h.medications.slice(-28);
@@ -258,10 +296,11 @@ function applyObservation(obs: SeniorObservation | undefined): { medication: boo
 }
 
 /** Never claim a recording that did not happen: drop the sentences that say so. */
-function stripRecordClaims(reply: string): string {
-  const parts = reply.split(/(?<=[.!?요다])\s+/).filter(p => !/기록|적어\s*(둘|두|놓|놨)|메모/.test(p));
+export const RECORD_CLAIM_RE = /기록|적어\s*(둘|두|놓|놨)|메모|\b(record(ed|ing)?|noted?|jot(ted)?|logged?|write (it |that )?down|wrote)\b/i;
+export function stripRecordClaims(reply: string): string {
+  const parts = reply.split(/(?<=[.!?요다])\s+/).filter(p => !RECORD_CLAIM_RE.test(p));
   const out = parts.join(' ').trim();
-  return out || '말씀해 주셔서 고마워요.';
+  return out || st('senior.thanksTelling');
 }
 
 async function smallTalk(room: Room, text: string): Promise<void> {
@@ -272,15 +311,15 @@ async function smallTalk(room: Room, text: string): Promise<void> {
   const { quickReplies, category, observation } = ai.value;
   let reply = ai.value.reply;
   const stored = applyObservation(observation);
-  if (/기록|적어\s*(둘|두|놓|놨)|메모/.test(reply)) reply = stripRecordClaims(reply);
+  if (RECORD_CLAIM_RE.test(reply)) reply = stripRecordClaims(reply);
   let chips = quickReplies;
-  if (stored.ask) { reply = '어떤 약을 말씀하시는 거예요? 아침 혈압약인가요, 저녁 관절약인가요?'; chips = ['아침 혈압약', '저녁 관절약']; }
-  else if (stored.medication) reply = `${reply} 복약 상태를 기록해 둘게요.`;
-  else if (stored.mood) reply = `${reply} 오늘 기분을 기록해 둘게요.`;
+  if (stored.ask) { reply = st('senior.askWhichMed'); chips = [st('senior.askWhichMed.c1'), st('senior.askWhichMed.c2')]; }
+  else if (stored.medication) reply = `${reply} ${st('senior.noteMed')}`;
+  else if (stored.mood) reply = `${reply} ${st('senior.noteMood')}`;
   await tachiSay(room.id, { text: reply, quickReplies: chips, meta: { category } }, ai);
   if (!ctx.db.kv.get<string>('active-proactive')) {
-    const title = ({ health: '건강 이야기', mood: '기분 이야기', memory: '추억 이야기', trip: '나들이 이야기', daily: '일상 대화' } as Record<PrivacyCategory, string>)[category] ?? '일상 대화';
-    logSeniorSession(category, title, `${title}를 나누셨어요.`);
+    const title = st(`senior.sess.cat.${category}`);
+    logSeniorSession(category, title, st('senior.sess.catSummary', { title }));
   }
 }
 
@@ -301,18 +340,18 @@ function syncTripVisibility(memoryId: ID, visibility: 'family' | 'private'): voi
 
 export async function doShare(roomId: ID, memoryId: ID, opts: { refuse?: boolean } = {}): Promise<void> {
   const mem = ctx.db.memories.get(memoryId);
-  if (!mem || mem.status !== 'saved' || mem.ownerId !== SENIOR_ID) { await tachiSay(roomId, { text: '공유할 추억을 찾지 못했어요. 사진을 한 장 보여주실래요?' }); return; }
+  if (!mem || mem.status !== 'saved' || mem.ownerId !== SENIOR_ID) { await tachiSay(roomId, { text: st('senior.share.notFound') }); return; }
   const card = await cardMessage(roomId, 'memory_card', 'memoryId', memoryId);
   if (mem.sharedAt && memoryVisibleToFamily(mem)) {
     setPending(roomId, null);
     if (card) markActionDone(card, undefined, 'share_memory');
-    await tachiSay(roomId, { text: '이 추억은 이미 가족방에 전해 드렸어요.', meta: memMeta(mem.id) });
+    await tachiSay(roomId, { text: st('senior.share.already'), meta: memMeta(mem.id) });
     return;
   }
   if (!canShareToFamily(mem)) {
     // keep the card actions and the pending confirmation usable
     await tachiSay(roomId, {
-      text: '추억 이야기가 지금 ‘나만 보기’로 되어 있어서 가족에게 보낼 수 없어요. 설정에서 ‘가족 공개’로 바꾸시면 보내 드릴게요.',
+      text: st('senior.share.categoryPrivate'),
       meta: { ...memMeta(mem.id), source: 'rule' },
     });
     if (opts.refuse) throw new ActionRefused('memory category private');
@@ -321,7 +360,7 @@ export async function doShare(roomId: ID, memoryId: ID, opts: { refuse?: boolean
 
   const ai = await withTyping(roomId, () => ctx.brain.shareSummary(mem, senior()));
   if (!canShareToFamily(mem)) { // privacy may have changed while the summary was generated
-    await tachiSay(roomId, { text: '추억 이야기가 지금 ‘나만 보기’로 되어 있어서 가족에게 보낼 수 없어요. 설정에서 ‘가족 공개’로 바꾸시면 보내 드릴게요.', meta: { ...memMeta(mem.id), source: 'rule' } });
+    await tachiSay(roomId, { text: st('senior.share.categoryPrivate'), meta: { ...memMeta(mem.id), source: 'rule' } });
     if (opts.refuse) throw new ActionRefused('memory category private');
     return;
   }
@@ -349,11 +388,11 @@ export async function doShare(roomId: ID, memoryId: ID, opts: { refuse?: boolean
   setLastMemory(mem.id);
   if (card) markActionDone(card, undefined, 'share_memory'); // committed
   reactBots(FAMILY_ROOM_ID, shared);
-  await tachiSay(roomId, { text: '가족방에 전해 드렸어요.', meta: memMeta(mem.id) });
+  await tachiSay(roomId, { text: st('senior.share.sent'), meta: memMeta(mem.id) });
   scheduleOffer(roomId, mem, 1500);
 }
 
-async function skipShare(roomId: ID, memoryId: ID): Promise<void> {
+export async function skipShare(roomId: ID, memoryId: ID, opts: { quiet?: boolean } = {}): Promise<void> {
   const mem = ctx.db.memories.get(memoryId);
   if (mem && mem.status === 'saved') {
     delete mem.sharedAt;
@@ -364,7 +403,7 @@ async function skipShare(roomId: ID, memoryId: ID): Promise<void> {
   setPending(roomId, null);
   const card = await cardMessage(roomId, 'memory_card', 'memoryId', memoryId);
   if (card) markActionDone(card, undefined, 'skip_share');
-  await tachiSay(roomId, { text: '알겠어요. 이 추억은 어머님만 보실 수 있게 비공개로 간직할게요.', meta: { ...memMeta(memoryId), source: 'rule' } });
+  if (!opts.quiet) await tachiSay(roomId, { text: st('senior.share.skipped'), meta: { ...memMeta(memoryId), source: 'rule' } });
 }
 
 // ── 4.3 recall ──────────────────────────────────────────────────────────────
@@ -375,7 +414,7 @@ async function doRecall(room: Room, text: string, keywords: string[]): Promise<v
   const best = hits[0];
   const mem = best && ctx.db.memories.get(best.memoryId);
   if (!best || !mem) {
-    await tachiSay(room.id, { text: '아직 그 이야기는 못 들었어요. 사진 한 장 보여주실래요?', quickReplies: ['사진 보여줄게'] });
+    await tachiSay(room.id, { text: st('senior.recall.none'), quickReplies: [st('senior.recall.none.c1')] });
     return;
   }
   setLastMemory(mem.id);
@@ -387,7 +426,7 @@ async function doRecall(room: Room, text: string, keywords: string[]): Promise<v
     payload: { type: 'recall_card', memoryId: mem.id, memory: mem, matched: best.matched, path: best.path, cypher: best.cypher, alternatives },
     meta: memMeta(mem.id),
   }, ai);
-  logSeniorSession('memory', '추억 떠올리기', `${mem.title} 이야기를 다시 떠올리셨어요.`, mem.id);
+  logSeniorSession('memory', st('senior.sess.recall'), st('senior.sess.recallSummary', { title: mem.title }), mem.id);
   const pending = getPending(room.id);
   if (!pending) scheduleOffer(room.id, mem, 1500);
   else if (pending.type === 'trip_confirm') await resurfaceTripOffer(room.id, pending.tripId);
@@ -408,10 +447,10 @@ async function resurfaceTripOffer(roomId: ID, tripId: ID): Promise<void> {
   if (last && open.some(m => m.id === last.id)) return; // already the latest thing on screen
   for (const m of open) if (m.kind !== 'trip_suggestion') markActionDone(m); // retire older reminders
   const m = await tachiSay(roomId, {
-    text: '아까 말씀드린 경주 여행, 어떠세요?',
+    text: st('senior.trip.resurface', { destination: trip.suggestion.destination }),
     actions: [
-      { id: 'accept_trip', label: '좋아요, 가볼래요', style: 'primary', data: { tripId } },
-      { id: 'decline_trip', label: '다음에요', data: { tripId } },
+      { id: 'accept_trip', label: st('senior.btn.accept'), style: 'primary', data: { tripId } },
+      { id: 'decline_trip', label: st('senior.btn.decline'), data: { tripId } },
     ],
     meta: tripMeta(tripId, trip.memoryId),
   });
@@ -428,13 +467,13 @@ async function offerTripFromIntent(room: Room, destination?: string): Promise<vo
   const last = ctx.db.kv.get<string>('last-memory');
   const mem = (destination ? mems.find(m => m.place?.includes(destination)) : undefined)
     ?? mems.find(m => m.id === last) ?? mems.at(-1);
-  if (!mem) { await tachiSay(room.id, { text: '어디로 가고 싶으세요? 옛 사진을 한 장 보여주시면 함께 계획해 볼게요.' }); return; }
+  if (!mem) { await tachiSay(room.id, { text: st('senior.trip.where') }); return; }
   if (offerReserved.has(mem.id)) { queuedAccept.set(mem.id, ctx.gen); return; } // she wants to go: accept as soon as the offer posts
   offerReserved.add(mem.id);
   try { await offerTrip(room.id, mem); } finally { offerReserved.delete(mem.id); queuedAccept.delete(mem.id); }
 }
 
-const hasLiveTrip = (memoryId: ID) => ctx.db.trips.all().some(t => t.memoryId === memoryId && t.status !== 'declined');
+export const hasLiveTrip = (memoryId: ID) => ctx.db.trips.all().some(t => t.memoryId === memoryId && t.status !== 'declined');
 const interviewActive = (roomId: ID) => { const i = ctx.db.kv.get<InterviewState>(kInterview(roomId)); return !!i && !i.done; };
 const confirmationActive = (roomId: ID) => { const p = getPending(roomId); return p?.type === 'share_confirm' || p?.type === 'trip_confirm'; };
 
@@ -476,8 +515,8 @@ export async function offerTrip(roomId: ID, mem: Memory): Promise<void> {
   const m = await tachiSay(roomId, {
     kind: 'trip_suggestion', text: `${suggestion.title}. ${suggestion.reason}`, payload: suggestion,
     actions: [
-      { id: 'accept_trip', label: '좋아요, 가볼래요', style: 'primary', data: { tripId } },
-      { id: 'decline_trip', label: '다음에요', data: { tripId } },
+      { id: 'accept_trip', label: st('senior.btn.accept'), style: 'primary', data: { tripId } },
+      { id: 'decline_trip', label: st('senior.btn.decline'), data: { tripId } },
     ],
     meta: tripMeta(tripId, mem.id),
   }, ai);
@@ -505,10 +544,10 @@ export async function acceptTrip(roomId: ID, tripId: ID): Promise<void> {
   emitTrip(trip);
   plans.delete(tripId);
   const posted = await tachiSay(roomId, {
-    kind: 'itinerary', text: `${itinerary.title} 일정을 짜 봤어요. 천천히 둘러보세요.`, payload: itinerary,
+    kind: 'itinerary', text: st('senior.itinerary.made', { title: itinerary.title }), payload: itinerary,
     actions: [
-      { id: 'share_trip', label: '가족에게 보내기', data: { tripId } },
-      { id: 'make_gathering', label: '가족과 함께 가기', style: 'primary', data: { tripId } },
+      { id: 'share_trip', label: st('senior.btn.shareTrip'), data: { tripId } },
+      { id: 'make_gathering', label: st('senior.btn.gather'), style: 'primary', data: { tripId } },
     ],
     meta: tripMeta(tripId, trip.memoryId),
   }, ai);
@@ -516,13 +555,13 @@ export async function acceptTrip(roomId: ID, tripId: ID): Promise<void> {
   setPending(roomId, { type: 'itinerary', tripId, messageId: posted.id });
 }
 
-async function declineTrip(roomId: ID, tripId: ID): Promise<void> {
+export async function declineTrip(roomId: ID, tripId: ID, opts: { quiet?: boolean } = {}): Promise<void> {
   const trip = ctx.db.trips.get(tripId);
   if (trip) { trip.status = 'declined'; ctx.db.trips.put(trip); emitTrip(trip); }
   plans.delete(tripId);
   setPending(roomId, null);
   settleTripCards(roomId, tripId, 'decline_trip');
-  await tachiSay(roomId, { text: '네, 다음에 또 좋은 곳 알려드릴게요.', meta: tripMeta(tripId, trip?.memoryId) });
+  if (!opts.quiet) await tachiSay(roomId, { text: st('senior.trip.declined'), meta: tripMeta(tripId, trip?.memoryId) });
 }
 
 async function shareTrip(roomId: ID, tripId: ID, card: Message): Promise<void> {
@@ -537,7 +576,7 @@ async function shareTrip(roomId: ID, tripId: ID, card: Message): Promise<void> {
   let m: Message;
   try {
     m = await tachiSay(FAMILY_ROOM_ID, {
-      kind: 'itinerary', text: `어머님이 ${trip.itinerary.destination} 여행 계획을 함께 보고 싶어 하세요.`, payload: trip.itinerary,
+      kind: 'itinerary', text: st('senior.trip.familyText', { destination: trip.itinerary.destination }), payload: trip.itinerary,
       meta: tripMeta(tripId, trip.memoryId),
     });
   } catch (e) {
@@ -550,7 +589,7 @@ async function shareTrip(roomId: ID, tripId: ID, card: Message): Promise<void> {
   markActionDone(card, 'share_trip'); // committed
   if (getPending(roomId)?.type === 'itinerary') setPending(roomId, null);
   reactBots(FAMILY_ROOM_ID, m);
-  await tachiSay(roomId, { text: '가족방에 보내 드렸어요.', meta: tripMeta(tripId, trip.memoryId) });
+  await tachiSay(roomId, { text: st('senior.trip.sent'), meta: tripMeta(tripId, trip.memoryId) });
 }
 
 function latestItineraryTrip(): Trip | undefined {
@@ -560,16 +599,16 @@ function latestItineraryTrip(): Trip | undefined {
 async function shareTripFromText(roomId: ID, tripId?: ID): Promise<void> {
   const trip = tripId ? ctx.db.trips.get(tripId) : undefined;
   const card = trip?.itinerary ? await cardMessage(roomId, 'itinerary', 'tripId', trip.id) : undefined;
-  if (!trip?.itinerary || !card) { await tachiSay(roomId, { text: '보내 드릴 여행 계획이 아직 없어요. 가고 싶은 곳을 말씀해 주시면 계획해 드릴게요.' }); return; }
-  if (card.actions?.find(a => a.id === 'share_trip')?.done) { await tachiSay(roomId, { text: '이 여행 계획은 이미 가족방에 보내 드렸어요.', meta: tripMeta(trip.id, trip.memoryId) }); return; }
+  if (!trip?.itinerary || !card) { await tachiSay(roomId, { text: st('senior.trip.noneToSend') }); return; }
+  if (card.actions?.find(a => a.id === 'share_trip')?.done) { await tachiSay(roomId, { text: st('senior.trip.alreadySent'), meta: tripMeta(trip.id, trip.memoryId) }); return; }
   await shareTrip(roomId, trip.id, card);
 }
 
 async function makeGatheringFromText(roomId: ID, tripId?: ID): Promise<void> {
   const trip = tripId ? ctx.db.trips.get(tripId) : undefined;
   const card = trip?.itinerary ? await cardMessage(roomId, 'itinerary', 'tripId', trip.id) : undefined;
-  if (!trip?.itinerary || !card) { await tachiSay(roomId, { text: '함께 갈 여행 계획이 아직 없어요. 가고 싶은 곳을 말씀해 주세요.' }); return; }
-  if (card.actions?.find(a => a.id === 'make_gathering')?.done) { await tachiSay(roomId, { text: '가족 모임은 이미 만들어 두었어요.', meta: tripMeta(trip.id, trip.memoryId) }); return; }
+  if (!trip?.itinerary || !card) { await tachiSay(roomId, { text: st('senior.trip.noneToGather') }); return; }
+  if (card.actions?.find(a => a.id === 'make_gathering')?.done) { await tachiSay(roomId, { text: st('senior.trip.alreadyGathering'), meta: tripMeta(trip.id, trip.memoryId) }); return; }
   await makeGathering(roomId, trip.id, card);
 }
 
@@ -585,11 +624,11 @@ async function makeGathering(roomId: ID, tripId: ID, card: Message): Promise<voi
   const mom = senior();
   // a gathering shows the trip to the family: it is shared with them from here on
   if (trip.visibility !== 'family') { trip.visibility = 'family'; (trip as { sharedSeparately?: boolean }).sharedSeparately = true; ctx.db.trips.put(trip); emitTrip(trip); }
-  await tachiSay(FAMILY_ROOM_ID, { text: `어머님이 ${trip.suggestion.destination}에 가족과 함께 가고 싶어 하세요. 모임 기획서를 만들어 볼게요.`, meta: tripMeta(tripId, trip.memoryId) });
-  await createGathering(FAMILY_ROOM_ID, mom, `${trip.suggestion.title} 가족과 함께 가요`, { memory: mem && memoryVisibleToFamily(mem) ? mem : undefined, trip });
+  await tachiSay(FAMILY_ROOM_ID, { text: st('senior.trip.gatherFamilyText', { destination: trip.suggestion.destination }), meta: tripMeta(tripId, trip.memoryId) });
+  await createGathering(FAMILY_ROOM_ID, mom, st('senior.trip.gatherProposal', { title: trip.suggestion.title }), { memory: mem && memoryVisibleToFamily(mem) ? mem : undefined, trip });
   markActionDone(card, 'make_gathering'); // committed
   if (getPending(roomId)?.type === 'itinerary') setPending(roomId, null);
-  await tachiSay(roomId, { text: '가족방에 모임 기획서를 만들어 두었어요. 다 같이 날짜를 정해 볼게요.', meta: tripMeta(tripId, trip.memoryId) });
+  await tachiSay(roomId, { text: st('senior.trip.gatherDone'), meta: tripMeta(tripId, trip.memoryId) });
 }
 
 // ── actions on senior-side cards ────────────────────────────────────────────
@@ -623,12 +662,12 @@ export async function handleSeniorAction(roomId: ID, msg: Message, actionId: str
 }
 
 // ── health log ──────────────────────────────────────────────────────────────
-async function logHealth(room: Room, text: string, sys?: number, dia?: number): Promise<void> {
+export async function logHealth(room: Room, text: string, sys?: number, dia?: number): Promise<void> {
   if (!sys || !dia) return smallTalk(room, text);
   const a = assessBloodPressure({ systolic: sys, diastolic: dia });
   if (a.level === 'invalid') {
     await tachiSay(room.id, {
-      text: `혈압 ${sys}에 ${dia}은 제가 잘못 들었을 수도 있어요. 편히 앉아서 잠시 쉬신 뒤에 다시 한 번 재어서 알려 주실래요?`,
+      text: st('senior.bp.invalid', { sys, dia }),
       meta: { category: 'health', source: 'rule' },
     });
     return;
@@ -639,24 +678,24 @@ async function logHealth(room: Room, text: string, sys?: number, dia?: number): 
   h.updatedAt = nowIso();
   ctx.db.kv.set('health', h);
   emitHealth();
-  const reading = `혈압 ${sys}에 ${dia}으로 기록해 두었어요.`;
+  const reading = st('senior.bp.reading', { sys, dia });
   let advice: string;
   const urgent = a.level === 'crisis';
   if (urgent) {
-    advice = '많이 높은 수치예요. 지금 바로 119나 병원에 연락해 주세요. 두통, 어지러움, 가슴 답답함이 있으면 더 서둘러 주세요.';
+    advice = st('senior.bp.crisis');
   } else if (a.level === 'low') {
-    advice = '조금 낮은 편이에요. 일단 편히 앉아서 물을 드시고, 잠시 후 다시 재어 보세요. 어지럽거나 힘이 없으면 병원에 연락해 주세요.';
+    advice = st('senior.bp.low');
   } else if (a.level === 'elevated' || a.level === 'high') {
-    advice = '조금 높아요. 잠시 쉬었다가 다시 재어 보시고, 계속 높으면 병원에 꼭 말씀해 주세요.';
+    advice = st('senior.bp.high');
   } else {
-    advice = '잘 기록해 둘게요.';
+    advice = st('senior.bp.ok');
   }
   await tachiSay(room.id, { text: `${reading} ${advice}`, meta: { category: 'health', source: 'rule' } });
   if (urgent && healthForFamily()) {
     await tachiSay(FAMILY_ROOM_ID, {
-      text: `어머님이 방금 혈압 ${sys}/${dia}을 기록하셨어요. 많이 높은 수치라 바로 연락해 보시고, 필요하면 병원이나 119에 도움을 요청해 주세요.`,
+      text: st('senior.bp.familyAlert', { sys, dia }),
       meta: { category: 'health', source: 'rule' },
     });
   }
-  logSeniorSession('health', '건강 기록', '혈압을 기록하셨어요.');
+  logSeniorSession('health', st('senior.sess.health'), st('senior.sess.healthSummary'));
 }

@@ -1,9 +1,10 @@
 // Family room flows: 4.5 Q&A (public data only), 4.6 gathering, 4.7 scheduling trigger.
-import { KIN_RELATIONS, TACHI_ID } from '../../shared/constants';
+import { TACHI_ID, isKinRelation } from '../../shared/constants';
+import { st } from '../i18n';
 import type { Message, PrivacyCategory, Room, User } from '../../shared/types';
 import type { FamilyContext } from '../brain/contract';
 import { ctx } from './ctx';
-import { getHealth, getPrivacy, getUser, healthForFamily, markActionDone, memoryVisibleToFamily, now, senior, tachiSay, tripVisibleToFamily, withTyping, PRIVATE_NOTICE } from './core';
+import { getHealth, getPrivacy, getUser, healthForFamily, markActionDone, memoryVisibleToFamily, now, senior, tachiSay, tripVisibleToFamily, withTyping, privateNotice } from './core';
 import { sessionHiddenFromFamily } from './sessions';
 import { createGathering, handleGatheringChoice } from './artifacts';
 import { reactBots } from './bots';
@@ -46,17 +47,22 @@ export async function handleFamilyInput(room: Room, userId: string, text: string
 
 /** Which privacy category does a family question touch? (so a later retraction can hide the answer) */
 export function questionCategory(question: string, showHealthCard?: boolean): PrivacyCategory | undefined {
-  if (/기분|마음|우울|컨디션|감정|외로/.test(question)) return 'mood';
-  if (showHealthCard || /혈압|건강|약|수면|잠|걸음|병원|아프|맥박/.test(question)) return 'health';
-  if (/추억|사진|옛날|기억|젊을|어릴/.test(question)) return 'memory';
+  if (MOOD_Q_RE.test(question)) return 'mood';
+  if (showHealthCard || HEALTH_Q_RE.test(question)) return 'health';
+  if (MEMORY_Q_RE.test(question)) return 'memory';
   return undefined;
 }
 
-export const KIN_ONLY_NOTICE = '가족에게만 공유된 정보예요. 어머님께 직접 여쭤봐 주세요.';
+const MOOD_Q_RE = /기분|마음|우울|컨디션|감정|외로|\b(mood|feel(s|ing)?|depress\w*|lonely|sad|spirits)\b/i;
+const HEALTH_Q_RE = /혈압|건강|약|수면|잠|걸음|병원|아프|맥박|\b(blood pressure|bp|health\w*|medic\w*|pills?|sleep\w*|steps|walk\w*|hospital|doctor|pain\w*|aches?|pulse)\b/i;
+const MEMORY_Q_RE = /추억|사진|옛날|기억|젊을|어릴|\b(memor\w*|photos?|pictures?|old days|remember\w*|young|childhood)\b/i;
+const ABOUT_SENIOR_RE = /엄마|어머|할머니|요즘|어때|괜찮|지내|여행|생신|일정|하루|\b(mom|mother|grandma|grandmother|lately|these days|how (is|has|was|are)|doing|okay|trip|travel|birthday|schedule|today)\b/i;
+
+export const kinOnlyNotice = (): string => st('family.kinOnly');
 
 /** Only kin (and rooms made up entirely of kin) may query the senior's health / mood / memories / trips. */
 export function kinMayAsk(room: Room, asker: User): boolean {
-  const isKin = (u: User) => KIN_RELATIONS.includes(u.relation) || u.role === 'senior' || u.id === TACHI_ID;
+  const isKin = (u: User) => isKinRelation(u.relation) || u.role === 'senior' || u.id === TACHI_ID;
   if (!isKin(asker)) return false;
   return room.memberIds.every(id => { const u = getUser(id); return !u || id === TACHI_ID || isKin(u); });
 }
@@ -69,16 +75,16 @@ export function answerProvenance(fctx: FamilyContext, text: string, asked: Priva
 } {
   const used = new Set<PrivacyCategory>();
   if (asked) used.add(asked);
-  if (fctx.health && (showHealthCard || /혈압|맥박|수면|걸음|복약|약|건강|병원|컨디션/.test(text))) used.add('health');
-  if (fctx.moodToday && (text.includes(fctx.moodToday) || /기분|마음|컨디션|감정|외로|우울/.test(text))) used.add('mood');
+  if (fctx.health && (showHealthCard || /혈압|맥박|수면|걸음|복약|약|건강|병원|컨디션|\b(blood pressure|pulse|sleep\w*|steps|medic\w*|pills?|health\w*|hospital|doctor|condition)\b/i.test(text))) used.add('health');
+  if (fctx.moodToday && (text.includes(fctx.moodToday) || /기분|마음|컨디션|감정|외로|우울|\b(mood|feel(s|ing)?|spirits|lonely|sad|cheerful|happy|cheery)\b/i.test(text))) used.add('mood');
   // Conservative: an answer about memories / trips is tied to EVERY memory / trip in its context (no substring inference alone).
   const exactMem = fctx.memories.some(m => (m.title && text.includes(m.title)) || (m.place && m.place.length >= 2 && text.includes(m.place)));
-  const aboutMemory = asked === 'memory' || exactMem || /추억|사진|기억|옛날|어릴|젊을|그때|예전|옛적/.test(text);
+  const aboutMemory = asked === 'memory' || exactMem || /추억|사진|기억|옛날|어릴|젊을|그때|예전|옛적|\b(memor\w*|photos?|pictures?|remember\w*|back then|long ago|childhood|years ago|old days)\b/i.test(text);
   const memoryIds = aboutMemory ? fctx.memories.map(m => m.id) : [];
   if (memoryIds.length) used.add('memory');
   const ctxTrips = ctx.db.trips.all().filter(t => t.status !== 'declined' && tripVisibleToFamily(t));
   const exactTrip = ctxTrips.some(t => text.includes(t.suggestion.title) || (t.suggestion.destination.length >= 2 && text.includes(t.suggestion.destination)));
-  const aboutTrip = exactTrip || /여행|나들이|일정|코스|다녀/.test(text) || /여행|나들이|일정|코스/.test(question);
+  const aboutTrip = exactTrip || /여행|나들이|일정|코스|다녀|\b(trips?|outings?|itinerary|route|travel\w*|visited)\b/i.test(text) || /여행|나들이|일정|코스|\b(trips?|outings?|itinerary|route|travel\w*)\b/i.test(question);
   const tripIds = aboutTrip ? ctxTrips.map(t => t.id) : [];
   if (tripIds.length) used.add('trip');
   for (const s of fctx.recentSessions) if (s.title && text.includes(s.title)) used.add(s.category);
@@ -94,8 +100,8 @@ function stillPublic(prov: { categories: PrivacyCategory[]; memoryIds: string[];
 }
 
 async function answer(room: Room, asker: User, question: string): Promise<void> {
-  if (!kinMayAsk(room, asker) && (questionCategory(question) !== undefined || /엄마|어머|할머니|요즘|어때|괜찮|지내|여행|생신|일정|하루/.test(question))) {
-    await tachiSay(room.id, { text: KIN_ONLY_NOTICE, meta: { source: 'rule' } });
+  if (!kinMayAsk(room, asker) && (questionCategory(question) !== undefined || ABOUT_SENIOR_RE.test(question))) {
+    await tachiSay(room.id, { text: kinOnlyNotice(), meta: { source: 'rule' } });
     return;
   }
   let fctx = buildFamilyContext(asker);
@@ -109,7 +115,7 @@ async function answer(room: Room, asker: User, question: string): Promise<void> 
     asked = questionCategory(question, ai.value.showHealthCard);
     prov = answerProvenance(fctx, ai.value.text, asked && fctx.privacy[asked] === 'family' ? asked : undefined, ai.value.showHealthCard, question);
     if (!stillPublic(prov)) {
-      await tachiSay(room.id, { text: PRIVATE_NOTICE, meta: { ...(prov.categories[0] ? { category: prov.categories[0] } : {}), source: 'rule' } });
+      await tachiSay(room.id, { text: privateNotice(), meta: { ...(prov.categories[0] ? { category: prov.categories[0] } : {}), source: 'rule' } });
       return;
     }
   }
@@ -120,7 +126,7 @@ async function answer(room: Room, asker: User, question: string): Promise<void> 
   let last: Message = t;
   const fh = healthForFamily();
   if (ai.value.showHealthCard && fh) {
-    last = await tachiSay(room.id, { kind: 'health_card', text: '최근 7일 건강 요약이에요.', payload: { type: 'health_card', summary: fh }, meta: { category: 'health' } });
+    last = await tachiSay(room.id, { kind: 'health_card', text: st('family.healthCardText'), payload: { type: 'health_card', summary: fh }, meta: { category: 'health' } });
   }
   reactBots(room.id, last);
 }

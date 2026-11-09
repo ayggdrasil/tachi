@@ -2,16 +2,18 @@ import { useState } from 'react';
 import { Check, ChevronRight, Circle, Loader2 } from 'lucide-react';
 import type { ArtifactRefPayload, ScheduleProgressPayload, ScheduleRequestPayload, ScheduleResultPayload } from '../../../../shared/types';
 import { tachi, useTachi } from '../../lib/store';
+import { useT } from '../../lib/i18n';
 import { Avatar } from '../common/Avatar';
 import type { CardProps } from './types';
 import './cards.css';
 
 export function ArtifactCard({ message, onOpenArtifact }: CardProps) {
+  const tr = useT();
   const p = message.payload as ArtifactRefPayload;
   const a = useTachi(s => s.artifacts[p.artifactId]);
-  if (!a) return <article className="cd"><p className="faint">{message.text || '기획서를 불러오는 중…'}</p></article>;
+  if (!a) return <article className="cd"><p className="faint">{message.text || tr('gc.loadingPlan')}</p></article>;
   const done = a.tasks.filter(t => t.done).length;
-  const status = a.dateStatus === 'confirmed' ? `확정 ${a.dateLabel ?? ''}` : a.dateStatus === 'polling' ? '조율 중' : '미정';
+  const status = a.dateStatus === 'confirmed' ? tr('gc.confirmedDate', { date: a.dateLabel ?? '' }) : a.dateStatus === 'polling' ? tr('gc.coordinating') : tr('gc.undecided');
   const Head = onOpenArtifact ? 'button' : 'div';
   return (
     <article className="cd cd-artifact" aria-label={a.title}>
@@ -20,21 +22,22 @@ export function ArtifactCard({ message, onOpenArtifact }: CardProps) {
         {onOpenArtifact && <ChevronRight size={18} />}
       </Head>
       <div className="cd-row">
-        <span className={`badge ${a.dateStatus === 'confirmed' ? 'cd-badge-ink' : ''}`}>날짜 {status}</span>
-        <span className="badge">할 일 {done}/{a.tasks.length}</span>
+        <span className={`badge ${a.dateStatus === 'confirmed' ? 'cd-badge-ink' : ''}`}>{tr('gc.dateStatus', { status })}</span>
+        <span className="badge">{tr('gc.tasksCount', { done, total: a.tasks.length })}</span>
         {a.place && <span className="badge">{a.place}</span>}
       </div>
       <ul className="cd-tasks">
         {a.tasks.slice(0, 3).map(t => (
           <li key={t.id} className={t.done ? 'is-done' : ''}>{t.done ? <Check size={14} /> : <Circle size={14} />}{t.text}</li>
         ))}
-        {a.tasks.length > 3 && <li className="faint">외 {a.tasks.length - 3}개</li>}
+        {a.tasks.length > 3 && <li className="faint">{tr('gc.moreTasks', { n: a.tasks.length - 3 })}</li>}
       </ul>
     </article>
   );
 }
 
 export function ScheduleRequestCard({ message, variant }: CardProps) {
+  const tr = useT();
   const p = message.payload as ScheduleRequestPayload;
   const [sel, setSel] = useState<string[]>(p.selectedSlotIds ?? []);
   // idle → pending (spinner) → sent (disabled until the server marks it answered) | failed (retry allowed)
@@ -56,9 +59,9 @@ export function ScheduleRequestCard({ message, variant }: CardProps) {
   const submit = () => send(sel);
   const none = () => { setSel([]); send([]); };
   return (
-    <article className="cd" aria-label="가능한 시간 선택">
+    <article className="cd" aria-label={tr('gc.pickTimes')}>
       <h3 className="cd-title">{p.artifactTitle}</h3>
-      {!answered && <p className="cd-meta">가능한 시간을 모두 골라 주세요</p>}
+      {!answered && <p className="cd-meta">{tr('gc.pickAll')}</p>}
       {!answered && (
         <div className={`cd-slots ${senior ? 'cd-slots-s' : ''}`}>
           {shown.map(s => (
@@ -69,20 +72,20 @@ export function ScheduleRequestCard({ message, variant }: CardProps) {
           ))}
         </div>
       )}
-      {limited && <button type="button" className="cd-link cd-more" aria-expanded={more} onClick={() => setMore(true)}>다른 시간 더 보기 (+{p.slots.length - shown.length})</button>}
+      {limited && <button type="button" className="cd-link cd-more" aria-expanded={more} onClick={() => setMore(true)}>{tr('gc.moreTimes', { n: p.slots.length - shown.length })}</button>}
       {answered ? (
         <>
-          {chosen.length > 0 && <ul className="cd-chosen" aria-label="보낸 시간">{p.slots.filter(s => chosen.includes(s.id)).map(s => <li key={s.id}><Check size={14} aria-hidden />{s.label}</li>)}</ul>}
-          <p className="cd-cap" role="status"><Check size={13} aria-hidden /> {chosen.length === 0 ? '이번엔 모두 어렵다고 전했어요' : `가족 일정 조율에 보냈어요 · ${chosen.length}개`}</p>
+          {chosen.length > 0 && <ul className="cd-chosen" aria-label={tr('gc.sentTimes')}>{p.slots.filter(s => chosen.includes(s.id)).map(s => <li key={s.id}><Check size={14} aria-hidden />{s.label}</li>)}</ul>}
+          <p className="cd-cap" role="status"><Check size={13} aria-hidden /> {chosen.length === 0 ? tr('gc.noneWork') : tr('gc.sentCount', { n: chosen.length })}</p>
         </>
       ) : (
         <>
           <div className="cd-btns">
             <button type="button" className="btn btn-primary" data-primary-action="pick_slots" disabled={sel.length === 0 || busy} aria-busy={busy || undefined} onClick={submit}>
-              {busy && <Loader2 size={16} className="cd-spin" aria-hidden />}보내기</button>
-            <button type="button" className="btn" disabled={busy} onClick={none}>모두 어려워요</button>
+              {busy && <Loader2 size={16} className="cd-spin" aria-hidden />}{tr('gc.send')}</button>
+            <button type="button" className="btn" disabled={busy} onClick={none}>{tr('gc.noneBtn')}</button>
           </div>
-          {phase === 'failed' && <p className="cd-err" role="alert">다시 시도해 주세요</p>}
+          {phase === 'failed' && <p className="cd-err" role="alert">{tr('gc.tryAgain')}</p>}
         </>
       )}
     </article>
@@ -90,6 +93,7 @@ export function ScheduleRequestCard({ message, variant }: CardProps) {
 }
 
 export function ScheduleProgressCard({ message, variant, onOpenRoom }: CardProps) {
+  const tr = useT();
   const p = message.payload as ScheduleProgressPayload;
   const poll = useTachi(s => s.polls[p.pollId]);
   const users = useTachi(s => s.users);
@@ -107,24 +111,25 @@ export function ScheduleProgressCard({ message, variant, onOpenRoom }: CardProps
   });
   const closed = poll?.status === 'closed';
   const confirmed = !!latestResult?.confirmed;
-  const heading = confirmed ? '확정' : closed ? '응답 마감' : `응답 ${responded.length}/${all.length}`;
+  const heading = confirmed ? tr('gc.confirmed') : closed ? tr('gc.closed') : tr('gc.responses', { done: responded.length, total: all.length });
   return (
-    <article className="cd" aria-label="응답 현황">
+    <article className="cd" aria-label={tr('gc.status')}>
       <div className="cd-row cd-between"><h3 className="cd-title">{heading}</h3>
-        {closed && !confirmed && <span className="badge">응답 {responded.length}/{all.length}</span>}</div>
+        {closed && !confirmed && <span className="badge">{tr('gc.responses', { done: responded.length, total: all.length })}</span>}</div>
       <div className="cd-avs">
         {responded.map(id => <Avatar key={id} user={users[id]} size={36} />)}
         {waiting.map(id => <Avatar key={id} user={users[id]} size={36} hollow />)}
       </div>
-      {waiting.length > 0 && !closed && <p className="cd-cap">기다리는 중: {waiting.map(id => users[id]?.shortName ?? id).join(', ')}</p>}
+      {waiting.length > 0 && !closed && <p className="cd-cap">{tr('gc.waiting', { names: waiting.map(id => users[id]?.shortName ?? id).join(', ') })}</p>}
       {variant !== 'senior' && onOpenRoom && meId && poll && poll.status !== 'closed' && waiting.includes(meId) && poll.sideRoomIds?.[meId] && (
-        <button type="button" className="btn btn-primary" onClick={() => onOpenRoom(poll.sideRoomIds[meId])}>내 일정 답하기</button>
+        <button type="button" className="btn btn-primary" onClick={() => onOpenRoom(poll.sideRoomIds[meId])}>{tr('gc.answerMine')}</button>
       )}
     </article>
   );
 }
 
 export function ScheduleResultCard({ message }: CardProps) {
+  const tr = useT();
   const p = message.payload as ScheduleResultPayload;
   const users = useTachi(s => s.users);
   const poll = useTachi(s => s.polls[p.pollId]);
@@ -137,20 +142,20 @@ export function ScheduleResultCard({ message }: CardProps) {
   const total = poll?.participantIds.length || available.length + unavailable.length + unanswered.length;
   const unanimous = p.unanimous ?? (unavailable.length === 0 && unanswered.length === 0);
   const confirmed = p.confirmed ?? unanimous;
-  const title = confirmed ? (unanimous ? '확정 · 모두 가능한 시간' : '확정된 시간')
-    : unanimous ? '모두 가능한 시간' : `가장 많이 가능한 후보 · ${available.length}/${total}명`;
+  const title = confirmed ? (unanimous ? tr('gc.confirmedAll') : tr('gc.confirmedTime'))
+    : unanimous ? tr('gc.allFree') : tr('gc.bestCandidate', { n: available.length, total });
   return (
-    <article className="cd" aria-label="일정 결과">
+    <article className="cd" aria-label={tr('gc.result')}>
       <p className="cd-cap cd-cap-top">{title}</p>
       <p className="cd-bigdate">{p.slot.label}</p>
-      <div className="cd-row"><span className="cd-label">가능</span><span className="cd-avs">{available.map(id => <Avatar key={id} user={users[id]} size={30} />)}</span></div>
+      <div className="cd-row"><span className="cd-label">{tr('gc.available')}</span><span className="cd-avs">{available.map(id => <Avatar key={id} user={users[id]} size={30} />)}</span></div>
       {unavailable.length > 0 && (
-        <div className="cd-row"><span className="cd-label">어려움</span><span className="cd-avs">{unavailable.map(id => <Avatar key={id} user={users[id]} size={30} hollow />)}</span></div>
+        <div className="cd-row"><span className="cd-label">{tr('gc.unavailable')}</span><span className="cd-avs">{unavailable.map(id => <Avatar key={id} user={users[id]} size={30} hollow />)}</span></div>
       )}
       {unanswered.length > 0 && (
-        <div className="cd-row"><span className="cd-label">미응답</span><span className="cd-avs">{unanswered.map(id => <Avatar key={id} user={users[id]} size={30} hollow />)}</span></div>
+        <div className="cd-row"><span className="cd-label">{tr('gc.unanswered')}</span><span className="cd-avs">{unanswered.map(id => <Avatar key={id} user={users[id]} size={30} hollow />)}</span></div>
       )}
-      {confirmed && <p className="cd-cap"><Check size={13} /> 기획서에 반영했어요</p>}
+      {confirmed && <p className="cd-cap"><Check size={13} /> {tr('gc.planUpdated')}</p>}
     </article>
   );
 }

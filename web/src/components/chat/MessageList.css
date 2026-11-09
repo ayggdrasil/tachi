@@ -51,3 +51,8 @@
 @media (prefers-reduced-motion: reduce) { .ml-spin { animation: none; } }
 .ml-result { display: inline-flex; align-items: center; gap: var(--space-6); margin: 0; font-size: var(--text-caption); font-weight: var(--weight-medium); }
 .ml-senior .ml-result { font-size: var(--senior-body); }
+.ml-av-btn { display: block; min-width: 44px; min-height: 44px; margin: -4px 0 -4px -4px; padding: 4px; border-radius: var(--radius-lg); }
+.ml-av-btn:focus-visible, .ml-name-btn:focus-visible { box-shadow: var(--focus-ring); }
+.ml-name-btn { display: inline-flex; flex-wrap: wrap; gap: 0 var(--space-8); align-items: baseline; min-height: 44px; margin: -12px 0; padding: 12px 0; font: inherit; font-weight: var(--weight-semibold); text-align: left; }
+.ml-name-hint { font-weight: var(--weight-regular); color: var(--text-2); text-decoration: underline; text-underline-offset: 3px; }
+@media (hover: hover) { .ml-av-btn:hover, .ml-name-btn:hover { background: var(--hover); } }

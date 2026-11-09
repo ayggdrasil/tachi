@@ -30,3 +30,7 @@
   .ld-lan { flex-direction: column-reverse; align-items: flex-start; }
 }
 .ld-row:disabled { opacity: .55; cursor: not-allowed; background: transparent; }
+.ld-lang { display: flex; justify-content: center; gap: var(--space-4); margin-bottom: var(--space-16); }
+.ld-lang-i { display: inline-flex; align-items: center; min-height: 44px; padding: 0 var(--space-12); border-radius: var(--radius-lg); font-size: var(--text-caption); color: var(--text-2); text-decoration: none; }
+@media (hover: hover) { .ld-lang-i:hover { background: var(--hover); } }
+.ld-lang-i.is-on { color: var(--text); font-weight: var(--weight-semibold); background: var(--press); }

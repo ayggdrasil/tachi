@@ -2,27 +2,25 @@ import { useEffect, useRef, useState } from 'react';
 import { Check, Loader2 } from 'lucide-react';
 import type { CardAction, Message } from '../../../../shared/types';
 import { tachi, useTachi } from '../../lib/store';
+import { useT } from '../../lib/i18n';
 
 type Phase = 'pending' | 'sent' | 'failed' | 'refused';
 
 /** One clear result line once a mutually exclusive choice has been made. */
-const RESULT: Record<string, string> = {
-  share_memory: '가족에게 공유했어요', skip_share: '나만 간직해요',
-  accept_trip: '좋아요, 가보기로 했어요', decline_trip: '다음에 하기로 했어요',
-  share_trip: '가족에게 보냈어요', make_gathering: '가족과 함께 가기로 했어요',
-};
+const RESULT_IDS = new Set(['share_memory', 'skip_share', 'accept_trip', 'decline_trip', 'share_trip', 'make_gathering']);
 
 /** Card actions: idle → pending (spinner) → sent (stays disabled until the server marks it done) → or failed (retry). */
 export function ActionBar({ message, onOpenArtifact, inline }: {
   message: Message; onOpenArtifact?: (id: string) => void; inline?: boolean;
 }) {
+  const t = useT();
   const [phase, setPhase] = useState<Record<string, Phase>>({});
   const [chosen, setChosen] = useState<string | null>(null);
   const memVis = useTachi(s => (message.payload?.type === 'memory_card' ? s.memories.find(m => m.id === (message.payload as { memoryId: string }).memoryId)?.visibility : undefined));
   const alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const art = useTachi(s => (message.payload?.type === 'artifact' ? s.artifacts[message.payload.artifactId] : undefined));
-  // Once the date is decided, "일정 조율 시작" is stale and could start a duplicate poll.
+  // Once the date is decided, "start scheduling" is stale and could start a duplicate poll.
   const actions = (message.actions ?? []).filter(a => !(a.id === 'start_scheduling' && art && art.dateStatus !== 'undecided'));
   if (actions.length === 0) return null;
   // Decided pair: the server marks every action done, so show only the outcome (no checkmark on the unchosen alternative).
@@ -32,7 +30,7 @@ export function ActionBar({ message, onOpenArtifact, inline }: {
       ?? (message.payload?.type === 'memory_card' && memVis ? (memVis === 'family' ? 'share_memory' : 'skip_share') : null);
     return (
       <div className={`ml-actions-wrap ${inline ? 'ml-actions-inline' : ''}`}>
-        <p className="ml-result" role="status"><Check size={16} aria-hidden />{id && RESULT[id] ? RESULT[id] : '선택을 마쳤어요'}</p>
+        <p className="ml-result" role="status"><Check size={16} aria-hidden />{id && RESULT_IDS.has(id) ? t(`action.result.${id}`) : t('action.decided')}</p>
       </div>
     );
   }
@@ -59,7 +57,7 @@ export function ActionBar({ message, onOpenArtifact, inline }: {
   };
   return (
     <div className={`ml-actions-wrap ${inline ? 'ml-actions-inline' : ''}`}>
-      {doneActs.map(a => <p key={a.id} className="ml-result" role="status"><Check size={16} aria-hidden />{RESULT[a.id] ?? `${a.label} 완료`}</p>)}
+      {doneActs.map(a => <p key={a.id} className="ml-result" role="status"><Check size={16} aria-hidden />{RESULT_IDS.has(a.id) ? t(`action.result.${a.id}`) : t('action.doneLabel', { label: a.label })}</p>)}
       {pending.length > 0 && <div className={`ml-actions ${inline ? 'ml-actions-row' : ''}`}>
         {pending.map(a => {
           const ph = phase[a.id];
@@ -73,7 +71,7 @@ export function ActionBar({ message, onOpenArtifact, inline }: {
           );
         })}
       </div>}
-      {failedAct && <p className="ml-retry" role="alert">‘{failedAct.label}’을 보내지 못했어요. 다시 눌러 주세요.</p>}
+      {failedAct && <p className="ml-retry" role="alert">{t('action.failed', { label: failedAct.label })}</p>}
     </div>
   );
 }

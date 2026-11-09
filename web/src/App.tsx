@@ -1,6 +1,7 @@
 import { Suspense, lazy } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { Toasts } from './components/common/Toasts';
+import { useT } from './lib/i18n';
 import './App.css';
 
 const Landing = lazy(() => import('./pages/Landing'));
@@ -10,9 +11,10 @@ const DirectorConsole = lazy(() => import('./pages/demo/DirectorConsole'));
 
 export default function App() {
   const { pathname } = useLocation();
+  const t = useT();
   return (
     <>
-      <Suspense fallback={<div className="route-loading" role="status">불러오는 중…</div>}>
+      <Suspense fallback={<div className="route-loading" role="status">{t('common.loading')}</div>}>
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/join" element={<Landing />} />

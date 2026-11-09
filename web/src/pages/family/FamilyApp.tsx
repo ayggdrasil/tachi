@@ -1,8 +1,11 @@
 import { useCallback, useRef, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, CalendarClock, Home, HeartHandshake, MoreHorizontal, UserPlus, X } from 'lucide-react';
+import { ArrowLeft, CalendarClock, ChevronDown, Home, HeartHandshake, MessageCircle, MoreHorizontal, UserPlus, X } from 'lucide-react';
 import { FAMILY_ROOM_ID } from '../../../../shared/constants';
-import { initTachi, isEmbedded, rememberPersona, resolvePersona, useTachi } from '../../lib/store';
+import type { Room } from '../../../../shared/types';
+import { initTachi, isEmbedded, rememberPersona, resolvePersona, tachi, useTachi } from '../../lib/store';
+import { useT } from '../../lib/i18n';
+import { dmPeerId, roomDisplayName } from '../../components/common/roomName';
 import { MessageList } from '../../components/chat/MessageList';
 import { Composer } from '../../components/chat/Composer';
 import { Avatar } from '../../components/common/Avatar';
@@ -13,6 +16,9 @@ import { ArtifactPanel } from './ArtifactPanel';
 import { MomPanel } from './MomPanel';
 import { InviteDialog } from './InviteDialog';
 import { NewRoomDialog } from './NewRoomDialog';
+import { NewDmDialog } from './NewDmDialog';
+import { RoomSwitcher } from './RoomSwitcher';
+import { relLabel, splitSideTitle } from './rooms';
 import './FamilyApp.css';
 
 type Panel = { kind: 'mom' } | { kind: 'artifact'; id: string } | null;
@@ -20,6 +26,7 @@ type Panel = { kind: 'mom' } | { kind: 'artifact'; id: string } | null;
 export default function FamilyApp() {
   const nav = useNavigate();
   const [sp] = useSearchParams();
+  const t = useT();
   const embedded = isEmbedded();
   const narrow = useIsNarrow();
   const personaId = resolvePersona('jieun') ?? 'jieun';
@@ -37,6 +44,9 @@ export default function FamilyApp() {
   const [panel, setPanel] = useState<Panel>(null);
   const [invite, setInvite] = useState(false);
   const [newRoom, setNewRoom] = useState(false);
+  const [newDm, setNewDm] = useState(false);
+  const [switcher, setSwitcher] = useState(false);
+  const [pendingRoom, setPendingRoom] = useState<Room | null>(null);
   const [more, setMore] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
   const panelOpener = useRef<HTMLElement | null>(null);
@@ -45,6 +55,7 @@ export default function FamilyApp() {
   const [seen, setSeen] = useState<Record<string, number>>({});
 
   const visibleRooms = useMemo(() => rooms.filter(r => r.type !== 'tachi'), [rooms]);
+  const pendingId = useRef<string | null>(null);
   const wantRoom = useRef(sp.get('room'));
 
   // pick a default room once rooms are known
@@ -56,7 +67,7 @@ export default function FamilyApp() {
       setView('chat');
       return;
     }
-    if (activeId && visibleRooms.some(r => r.id === activeId)) return;
+    if (activeId && (visibleRooms.some(r => r.id === activeId) || activeId === pendingId.current)) return;
     const first = visibleRooms.find(r => r.id === FAMILY_ROOM_ID) ?? visibleRooms.find(r => r.type === 'family') ?? visibleRooms[0];
     setActiveId(first?.id ?? null);
   }, [visibleRooms, activeId]);
@@ -86,9 +97,11 @@ export default function FamilyApp() {
     return out;
   }, [messages, seen, visibleRooms, me]);
 
-  const room = visibleRooms.find(r => r.id === activeId) ?? null;
+  const room = visibleRooms.find(r => r.id === activeId) ?? (pendingRoom && pendingRoom.id === activeId ? pendingRoom : null);
   const family = useMemo(() => Object.values(users).filter(u => u.role === 'family'), [users]);
   const members = useMemo(() => (room?.memberIds ?? []).map(id => users[id]).filter(u => u && u.id !== 'tachi'), [room, users]);
+  const isDm = room?.type === 'dm';
+  const peer = isDm ? users[dmPeerId(room, me?.id ?? null) ?? ''] : undefined;
 
   // embedded: a pending schedule request addressed to me in another room → slim banner
   const pendingReq = useMemo(() => {
@@ -138,6 +151,13 @@ export default function FamilyApp() {
 
   const openRoom = (id: string) => { setActiveId(id); setView('chat'); setPanel(null); };
   const selectRoom = (id: string) => { setActiveId(id); setView('chat'); setPanel(null); };
+  const showRoom = (r: Room) => { pendingId.current = r.id; setPendingRoom(r); selectRoom(r.id); };
+  /** Tap a person: get-or-create my 1:1 room with them and open it. */
+  const startDm = async (userId: string) => {
+    setMore(false);
+    try { showRoom(await tachi.openDm(userId)); } catch { /* the room list stays as is */ }
+  };
+  const otherUnread = useMemo(() => Object.entries(unread).reduce((n, [id, c]) => (id === activeId ? n : n + c), 0), [unread, activeId]);
   const openPanel = (p: Panel) => { panelOpener.current = document.activeElement as HTMLElement | null; setPanel(p); };
   const closePanel = () => {
     const inside = !!document.activeElement?.closest('.fam-panel, .fam-sheet');
@@ -176,12 +196,12 @@ export default function FamilyApp() {
   if (status === 'error') {
     return (
       <div className="fam-boot" role="alert">
-        <span className="fam-mark">타치</span>
-        <p className="fam-boot-title">연결이 잠시 끊겼어요.</p>
-        <p className="caption muted fam-boot-msg">잠시 후 다시 연결해 주세요.</p>
+        <span className="fam-mark">{t('app.name')}</span>
+        <p className="fam-boot-title">{t('fam.errTitle')}</p>
+        <p className="caption muted fam-boot-msg">{t('fam.errMsg')}</p>
         <div className="fam-boot-actions">
-          <button className="btn btn-primary" onClick={() => initTachi(personaId, true)}>다시 연결</button>
-          <Link to="/" className="btn">다른 가족으로 들어가기</Link>
+          <button className="btn btn-primary" onClick={() => initTachi(personaId, true)}>{t('fam.retry')}</button>
+          <Link to="/" className="btn">{t('fam.otherFamily')}</Link>
         </div>
       </div>
     );
@@ -189,8 +209,8 @@ export default function FamilyApp() {
   if (status !== 'ready' || !me) {
     return (
       <div className="fam-boot" role="status">
-        <span className="fam-mark">타치</span>
-        <p className="caption muted">가족방에 연결하는 중…</p>
+        <span className="fam-mark">{t('app.name')}</span>
+        <p className="caption muted">{t('fam.booting')}</p>
       </div>
     );
   }
@@ -198,8 +218,8 @@ export default function FamilyApp() {
   const panelNode = panel && (
     <div className="fam-panel-body">
       <header className="fam-panel-head">
-        <h2 className="fam-panel-title" id="fam-panel-title">{panel.kind === 'mom' ? '어머니 소식' : '모임 계획'}</h2>
-        <button className="btn btn-icon" data-autofocus onClick={closePanel} aria-label="패널 닫기"><X size={18} strokeWidth={1.5} /></button>
+        <h2 className="fam-panel-title" id="fam-panel-title">{panel.kind === 'mom' ? t('fam.momNews') : t('fam.gatherPlan')}</h2>
+        <button className="btn btn-icon" data-autofocus onClick={closePanel} aria-label={t('fam.closePanel')}><X size={18} strokeWidth={1.5} /></button>
       </header>
       <div className="fam-panel-scroll">
         {panel.kind === 'mom' ? <MomPanel /> : <ArtifactPanel artifactId={panel.id} />}
@@ -209,61 +229,92 @@ export default function FamilyApp() {
 
   const showSidebar = !narrow || view === 'list';
 
-  const SIDE_PREFIX = '일정 조율 · ';
-  const fullTitle = room?.title ?? '대화방';
-  const kicker = room?.type === 'side' && fullTitle.startsWith(SIDE_PREFIX) ? '일정 조율' : null;
-  const name = kicker ? fullTitle.slice(SIDE_PREFIX.length) : fullTitle;
+  const meId = me.id;
+  const fullTitle = room ? roomDisplayName(room, meId, users, t) : t('fam.roomFallback');
+  const side = room?.type === 'side' ? splitSideTitle(room.title) : null;
+  const kicker = side?.prefixed ? t('fam.scheduling') : isDm ? t('fam.dmKicker') : null;
+  const name = side ? side.name : fullTitle;
+  const titleInner = (
+    <>
+      {kicker && <span className="fam-head-kicker">{kicker}</span>}
+      <span className="fam-head-name">{name}</span>
+    </>
+  );
 
   return (
     <div className={`fam ${narrow ? 'is-narrow' : ''} ${panel && !narrow ? 'has-panel' : ''}`}>
       {showSidebar && (
-        <Sidebar me={me} family={family} rooms={visibleRooms} activeId={activeId} unread={unread}
-          onSelect={selectRoom} onNew={() => setNewRoom(true)} onSwitchPersona={switchPersona} full={narrow} />
+        <Sidebar me={me} users={users} family={family} rooms={visibleRooms} activeId={activeId} unread={unread}
+          onSelect={selectRoom} onNew={() => setNewRoom(true)} onNewDm={() => setNewDm(true)} onSwitchPersona={switchPersona} full={narrow} />
       )}
 
       {chatShown && (
         <main className="fam-main">
           <header className="fam-head">
-            {narrow && (
-              <button className="btn btn-icon" onClick={() => setView('list')} aria-label="대화방 목록으로">
+            {narrow && !embedded && (
+              <button className="btn btn-icon" onClick={() => setView('list')} aria-label={t('fam.backToList')}>
                 <ArrowLeft size={18} strokeWidth={1.5} />
               </button>
             )}
-            <h1 className="fam-head-title" title={fullTitle}>{kicker && <span className="fam-head-kicker">{kicker}</span>}<span className="fam-head-name">{name}</span></h1>
-            <div className="fam-stack" role="group" aria-label={`참여자 ${members.length}명`}>
-              {members.slice(0, 5).map(u => <span key={u.id} className="fam-stack-i"><Avatar user={u} size={24} /></span>)}
-              {members.length > 5 && <span className="fam-stack-more">+{members.length - 5}</span>}
-            </div>
+            {peer && <span className="fam-head-av"><Avatar user={peer} size={30} decorative /></span>}
+            <h1 className="fam-head-title" title={fullTitle}>
+              {narrow ? (
+                <button className="fam-title-btn" onClick={() => setSwitcher(true)} aria-haspopup="dialog" aria-label={t('fam.switchRoom', { name: fullTitle })}>
+                  <span className="fam-title-text">{titleInner}</span>
+                  <ChevronDown size={16} strokeWidth={1.5} aria-hidden className="fam-title-chev" />
+                  {otherUnread > 0 && <span className="fam-title-dot" aria-hidden>{otherUnread}</span>}
+                </button>
+              ) : titleInner}
+            </h1>
+            {!isDm && (
+              <div className="fam-stack" role="group" aria-label={t('fam.participantsN', { n: members.length })}>
+                {members.slice(0, 5).map(u => (
+                  u.id === me.id
+                    ? <span key={u.id} className="fam-stack-i"><Avatar user={u} size={24} /></span>
+                    : <button key={u.id} className="fam-stack-i fam-stack-btn" onClick={() => void startDm(u.id)} aria-label={t('fam.messageUser', { name: u.shortName })} title={t('fam.messageUser', { name: u.shortName })}><Avatar user={u} size={24} decorative /></button>
+                ))}
+                {members.length > 5 && <span className="fam-stack-more">+{members.length - 5}</span>}
+              </div>
+            )}
             <span className="fam-spacer" />
             {room?.type === 'side' && (
-              <button className={`btn ${answeredHere ? 'btn-primary' : ''} fam-head-btn`} onClick={goFamily} aria-label="가족방으로">
-                <Home size={16} strokeWidth={1.5} /><span className="fam-head-label">가족방으로</span>
+              <button className={`btn ${answeredHere ? 'btn-primary' : ''} fam-head-btn`} onClick={goFamily} aria-label={t('fam.toFamily')}>
+                <Home size={16} strokeWidth={1.5} /><span className="fam-head-label">{t('fam.toFamily')}</span>
               </button>
             )}
             {room?.type === 'family' && (
-              <button className="btn btn-ghost fam-head-btn" onClick={() => setInvite(true)} aria-label="초대">
-                <UserPlus size={16} strokeWidth={1.5} /><span className="fam-head-label">초대</span>
+              <button className="btn btn-ghost fam-head-btn" onClick={() => setInvite(true)} aria-label={t('fam.invite')}>
+                <UserPlus size={16} strokeWidth={1.5} /><span className="fam-head-label">{t('fam.invite')}</span>
               </button>
             )}
             <button className={`btn btn-ghost fam-head-btn ${panel?.kind === 'mom' ? 'is-on' : ''}`} onClick={() => togglePanel({ kind: 'mom' })}
-              aria-pressed={panel?.kind === 'mom'} aria-label="어머니 소식">
-              <HeartHandshake size={16} strokeWidth={1.5} /><span className="fam-head-label">어머니 소식</span>
+              aria-pressed={panel?.kind === 'mom'} aria-label={t('fam.momNews')}>
+              <HeartHandshake size={16} strokeWidth={1.5} /><span className="fam-head-label">{t('fam.momNews')}</span>
             </button>
             <div className="fam-more" ref={moreBox}>
-              <button ref={moreBtn} className="btn btn-icon" onClick={() => setMore(v => !v)} aria-label="더 보기" aria-expanded={more} aria-controls="fam-more-menu"><MoreHorizontal size={18} strokeWidth={1.5} /></button>
+              <button ref={moreBtn} className="btn btn-icon" onClick={() => setMore(v => !v)} aria-label={t('fam.more')} aria-expanded={more} aria-controls="fam-more-menu"><MoreHorizontal size={18} strokeWidth={1.5} /></button>
               {more && (
                 <div className="fam-menu fam-more-menu" id="fam-more-menu" style={menuPos ?? undefined}>
-                  <p className="caption muted fam-menu-h">참여자 {members.length}명</p>
-                  {members.map(u => (
-                    <div key={u.id} className="fam-menu-item"><Avatar user={u} size={22} /><span>{u.name} · {u.relation === '본인' ? '어머니' : u.relation}</span></div>
-                  ))}
-                  <div className="fam-menu-tips">
-                    <p className="caption muted fam-menu-h">타치에게 이렇게 물어보세요</p>
-                    <p className="fam-menu-tip">‘타치, 엄마 요즘 혈압 괜찮으셔?’</p>
-                    <p className="fam-menu-tip">‘타치, 모임 시간 잡아줘’</p>
-                    <p className="fam-menu-tip">‘엄마 생신에 다 같이 모이자’라고 하면 모임 기획서를 만들어요</p>
-                  </div>
-                  <button className="fam-menu-item fam-menu-close" onClick={() => { setMore(false); moreBtn.current?.focus(); }}>닫기</button>
+                  <p className="caption muted fam-menu-h">{t('fam.participantsN', { n: members.length })}</p>
+                  {members.map(u => {
+                    const label = `${u.name} · ${relLabel(u.relation, t)}`;
+                    return u.id === me.id || isDm ? (
+                      <div key={u.id} className="fam-menu-item"><Avatar user={u} size={22} decorative /><span>{label}{u.id === me.id ? ` (${t('fam.you')})` : ''}</span></div>
+                    ) : (
+                      <button key={u.id} className="fam-menu-item" onClick={() => void startDm(u.id)} aria-label={t('fam.messageUser', { name: u.shortName })}>
+                        <Avatar user={u} size={22} decorative /><span>{label}</span><MessageCircle size={14} strokeWidth={1.5} aria-hidden />
+                      </button>
+                    );
+                  })}
+                  {!isDm && (
+                    <div className="fam-menu-tips">
+                      <p className="caption muted fam-menu-h">{t('fam.askTachi')}</p>
+                      <p className="fam-menu-tip">{t('fam.tip1')}</p>
+                      <p className="fam-menu-tip">{t('fam.tip2')}</p>
+                      <p className="fam-menu-tip">{t('fam.tip3')}</p>
+                    </div>
+                  )}
+                  <button className="fam-menu-item fam-menu-close" onClick={() => { setMore(false); moreBtn.current?.focus(); }}>{t('fam.close')}</button>
                 </div>
               )}
             </div>
@@ -271,7 +322,7 @@ export default function FamilyApp() {
 
           {pendingReq && pendingReq.roomId !== activeId && (
             <button className="fam-banner" onClick={() => openRoom(pendingReq.roomId)}>
-              <CalendarClock size={14} strokeWidth={1.5} /> 타치가 일정을 여쭤봐요 · <b>답하기</b>
+              <CalendarClock size={14} strokeWidth={1.5} /> {t('fam.askingSchedule')} · <b>{t('fam.answer')}</b>
             </button>
           )}
           {room ? (
@@ -285,18 +336,18 @@ export default function FamilyApp() {
               </div>
               <div className="fam-composer">
                 <div className="fam-composer-inner">
-                  <Composer roomId={room.id} variant="family" placeholder="메시지 보내기" />
-                  <p className="fam-hint caption faint">‘타치’라고 부르면 타치가 답해요</p>
+                  <Composer roomId={room.id} variant="family" placeholder={peer ? t('fam.msgTo', { name: peer.shortName }) : t('fam.msgPlaceholder')} />
+                  {!isDm && <p className="fam-hint caption faint">{t('fam.hint')}</p>}
                 </div>
               </div>
             </>
           ) : (
-            <div className="fam-none caption muted">대화방을 선택해 주세요.</div>
+            <div className="fam-none caption muted">{t('fam.pickRoom')}</div>
           )}
         </main>
       )}
 
-      {panel && !narrow && <aside className="fam-panel" aria-label={panel.kind === 'mom' ? '어머니 소식' : '모임 계획'}>{panelNode}</aside>}
+      {panel && !narrow && <aside className="fam-panel" aria-label={panel.kind === 'mom' ? t('fam.momNews') : t('fam.gatherPlan')}>{panelNode}</aside>}
       {panel && narrow && (
         <>
           <div className="scrim" aria-hidden="true" onClick={closePanel} />
@@ -305,7 +356,12 @@ export default function FamilyApp() {
       )}
 
       {invite && room && <InviteDialog roomId={room.id} onClose={() => setInvite(false)} />}
-      {newRoom && <NewRoomDialog onClose={() => setNewRoom(false)} onCreated={selectRoom} />}
+      {newRoom && <NewRoomDialog onClose={() => setNewRoom(false)} onCreated={showRoom} />}
+      {newDm && <NewDmDialog onClose={() => setNewDm(false)} onOpened={showRoom} />}
+      {switcher && (
+        <RoomSwitcher rooms={visibleRooms} meId={me.id} users={users} activeId={activeId} unread={unread}
+          onSelect={selectRoom} onNew={() => setNewRoom(true)} onNewDm={() => setNewDm(true)} onClose={() => setSwitcher(false)} />
+      )}
     </div>
   );
 }

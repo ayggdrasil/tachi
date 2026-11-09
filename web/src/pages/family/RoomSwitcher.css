@@ -1,0 +1,9 @@
+.rs {
+  position: fixed; left: 0; right: 0; bottom: 0; max-height: 82dvh; z-index: 55; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
+  display: flex; flex-direction: column; animation: fam-slide var(--dur-med) var(--ease-out);
+}
+.rs:focus { outline: none; }
+.rs-head { flex: none; display: flex; align-items: center; justify-content: space-between; padding: var(--space-8) var(--space-12) var(--space-4) var(--space-20); }
+.rs-title { font-size: var(--text-title); line-height: 1.3; }
+.rs-scroll { overflow-y: auto; min-height: 0; padding: 0 var(--space-12) max(var(--space-16), env(safe-area-inset-bottom)); }

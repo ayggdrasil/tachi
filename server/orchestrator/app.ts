@@ -16,11 +16,14 @@ import { createGraphStore } from '../graph/index';
 import { openDb } from '../db';
 import { seed } from '../db/seed';
 import { ctx, type IO } from './ctx';
+import type { Brain } from '../brain/contract';
+import { st } from '../i18n';
+import { applyLocale, resolveBootLocale } from './locale';
 import { installGuards, memoryVisibleToFamily, syncClock } from './core';
 import { attachSocketHandlers, preflightModel } from './socket';
 import { startTicker, stopTicker } from './proactive';
 import { log, warn } from '../util/misc';
-import type { ModelKey } from '../../shared/types';
+import type { Locale, ModelKey } from '../../shared/types';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -32,7 +35,13 @@ export function lanUrls(port: number): string[] {
   return out;
 }
 
-export interface AppOptions { port?: number; dataDir?: string; paceMs?: number; quiet?: boolean }
+export interface AppOptions {
+  port?: number; dataDir?: string; paceMs?: number; quiet?: boolean;
+  /** product language for this run (default: stored → TACHI_LOCALE → 'en'); a different stored language is re-seeded */
+  locale?: Locale;
+  /** inject a brain (tests); defaults to the real one */
+  brain?: Brain;
+}
 
 export async function createApp(opts: AppOptions = {}) {
   const port = opts.port ?? Number(process.env.PORT || 4100);
@@ -48,7 +57,7 @@ export async function createApp(opts: AppOptions = {}) {
 
   Object.assign(ctx, {
     io, db: openDb(dataDir), dataDir, rootDir: ROOT, paceMs: opts.paceMs ?? Number(process.env.TACHI_PACE_MS || 800),
-    brain: createBrain(), graph: createGraphStore({ dataDir }),
+    brain: opts.brain ?? createBrain(), graph: createGraphStore({ dataDir }),
   });
   ctx.lanUrls = lanUrls(port);
   ctx.resetting = false;
@@ -57,8 +66,15 @@ export async function createApp(opts: AppOptions = {}) {
   installGuards();
 
   // first boot → seed; existing db with an empty graph → rebuild graph from memories
-  if (!ctx.db.users.all().length) await seed();
-  else {
+  const boot = resolveBootLocale(opts.locale);
+  applyLocale(boot.locale);
+  if (!ctx.db.users.all().length) await seed(boot.locale);
+  else if (boot.reseed) { // the stored data is in another language: switch it
+    ctx.db.wipe();
+    try { await ctx.graph.clear(); } catch (e) { warn('graph clear failed:', e); }
+    applyLocale(boot.locale);
+    await seed(boot.locale);
+  } else {
     try {
       const st = await ctx.graph.stats();
       if (st.nodes === 0) for (const m of ctx.db.memories.all().filter(x => x.status === 'saved')) await ctx.graph.upsertMemory(m);
@@ -66,7 +82,8 @@ export async function createApp(opts: AppOptions = {}) {
   }
   const demo = ctx.db.kv.get<import('../../shared/types').DemoState>('demo');
   syncClock(0); // the virtual clock never survives a restart
-  if (demo) ctx.db.kv.set('demo', { ...demo, clockOffsetMinutes: 0, lanUrls: ctx.lanUrls });
+  if (demo) ctx.db.kv.set('demo', { ...demo, clockOffsetMinutes: 0, lanUrls: ctx.lanUrls, locale: boot.locale });
+  ctx.db.kv.set('locale', boot.locale);
   const savedModel = ctx.db.kv.get<ModelKey>('model');
   if (savedModel) { try { ctx.brain.setActiveModel(savedModel); } catch { /* unavailable now */ } }
 
@@ -89,12 +106,12 @@ export async function createApp(opts: AppOptions = {}) {
     limits: { fileSize: 15 * 1024 * 1024 },
     fileFilter: (_req, file, cb) => {
       if (file.mimetype.startsWith('image/')) cb(null, true);
-      else cb(new Error('이미지 파일만 올릴 수 있어요.'));
+      else cb(new Error(st('http.imageOnly')));
     },
   });
   app.post('/api/upload', upload.any(), (req, res) => {
     const f = (req.files as Express.Multer.File[] | undefined)?.[0];
-    if (!f) { res.status(400).json({ error: '파일이 없어요.' }); return; }
+    if (!f) { res.status(400).json({ error: st('http.noFile') }); return; }
     res.json({ url: `/uploads/${f.filename}` });
   });
 
@@ -147,7 +164,7 @@ export async function createApp(opts: AppOptions = {}) {
 
   app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     warn('http error:', err);
-    res.status(400).json({ error: err instanceof Error ? err.message : '요청을 처리하지 못했어요.' });
+    res.status(400).json({ error: err instanceof Error ? err.message : st('err.generic') });
   });
 
   attachSocketHandlers(io);

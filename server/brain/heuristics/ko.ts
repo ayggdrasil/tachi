@@ -2,6 +2,8 @@
 import { FAMILY_ALIASES } from '../../../shared/constants';
 import type { MemoryPerson } from '../../../shared/types';
 import { resolvePlace } from '../../data/places';
+import { getLocale } from '../locale';
+import { EMOTION_LABELS_EN, analyzeEn, decadeEraEn, tokensEn, yesNoEn, type AnalysisEn } from './en';
 
 // ── tiny helpers ───────────────────────────────────────────────────────────
 export function hash(s: string): number {
@@ -41,7 +43,7 @@ export function parseKoreanNumber(s: string): number | undefined {
   return total + cur;
 }
 
-export const decadeEra = (year: number) => `${Math.floor(year / 10) * 10}년대`;
+export const decadeEra = (year: number) => (getLocale() === 'en' ? decadeEraEn(year) : `${Math.floor(year / 10) * 10}년대`);
 
 export interface WhenInfo { year?: number; era?: string }
 export function parseWhen(text: string): WhenInfo {
@@ -154,7 +156,10 @@ const EMOTIONS: [RegExp, string][] = [
   [/고마|감사|덕분/, '감사'],
   [/평온|편안|한가|고요|평화|예뻤|예쁘|아름|푸근|포근/, '평온'],
 ];
-export const EMOTION_LABELS = ['행복', '그리움', '즐거움', '설렘', '뿌듯함', '아쉬움', '감사', '평온'];
+export const EMOTION_LABELS_KO = ['행복', '그리움', '즐거움', '설렘', '뿌듯함', '아쉬움', '감사', '평온'];
+/** Valid emotion labels for the active locale. */
+export const emotionLabels = (): string[] => (getLocale() === 'en' ? EMOTION_LABELS_EN : EMOTION_LABELS_KO);
+export const EMOTION_LABELS = EMOTION_LABELS_KO;
 export function parseEmotions(text: string, year?: number, nowYear = 2026): string[] {
   const out: string[] = [];
   for (const [re, name] of EMOTIONS) if (re.test(text) && !out.includes(name)) out.push(name);
@@ -185,6 +190,8 @@ const NO_RE = /^(?:아니|아냐|싫어|싫다|싫은|나중에|됐어|됐다|�
 const NOT_CONSENT_RE = /[?？]|기억|어디|언제|누가|뭐|왜|아프|아팠|무릎|혈압|두통|어지|\d/;
 const MAX_CONSENT_LEN = 16;
 export function yesNo(text: string): 'yes' | 'no' | undefined {
+  // script-based: Latin-only answers use the English rules in either locale
+  if (!/[가-힣]/.test(text) && /[A-Za-z]/.test(text)) return yesNoEn(text);
   const t = text.trim().replace(/^[\s.,!~…]+/, '');
   if (!t) return undefined;
   if (NO_RE.test(t) && t.length <= 30) return 'no';
@@ -201,18 +208,24 @@ export function stemToken(t: string): string {
   return s;
 }
 export function tokens(text: string): string[] {
+  if (getLocale() === 'en') return tokensEn(text);
   return text.split(/[\s,.!?~…]+/).map(stemToken).filter(t => t.length >= 2);
 }
 
 export { resolvePlace };
 
 // ── whole-answer analysis ──────────────────────────────────────────────────
-export interface Analysis {
+export type Analysis = AnalysisEn;
+export interface AnalysisKo {
   year?: number; era?: string; season?: string;
   place?: string; placeId?: string;
   people: MemoryPerson[]; event?: string; emotions: string[]; topics: string[];
 }
 export function analyze(text: string): Analysis {
+  if (getLocale() === 'en') return analyzeEn(text);
+  return analyzeKo(text);
+}
+function analyzeKo(text: string): AnalysisKo {
   const w = parseWhen(text);
   const pl = resolvePlace(text);
   // don't treat '아이들'-generic as person when explicit kids present

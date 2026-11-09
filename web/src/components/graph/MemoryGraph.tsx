@@ -1,18 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY, type Simulation } from 'd3-force';
 import type { GraphEdge, GraphNode, GraphNodeLabel } from '../../../../shared/types';
+import { useT } from '../../lib/i18n';
+import { getState } from '../../lib/store';
 import './MemoryGraph.css';
 
 interface SimNode { id: string; label: GraphNodeLabel; name: string; x: number; y: number; fx?: number | null; fy?: number | null; vx?: number; vy?: number }
 interface SimLink { id: string; type: string; source: string | SimNode; target: string | SimNode }
 
-const LABELS: { label: GraphNodeLabel; ko: string }[] = [
-  { label: 'Memory', ko: '추억' }, { label: 'Person', ko: '사람' }, { label: 'Place', ko: '장소' },
-  { label: 'Era', ko: '시기' }, { label: 'Event', ko: '사건' }, { label: 'Emotion', ko: '감정' }, { label: 'Topic', ko: '키워드' },
-];
-const REL_KO: Record<string, string> = {
-  APPEARS_IN: '등장', TAKEN_AT: '장소', IN_ERA: '시기', ABOUT: '관련', EVOKES: '떠올림', MENTIONS: '언급', FAMILY_OF: '가족',
-};
+const LABELS: GraphNodeLabel[] = ['Memory', 'Person', 'Place', 'Era', 'Event', 'Emotion', 'Topic'];
+const REL_IDS = new Set(['APPEARS_IN', 'TAKEN_AT', 'IN_ERA', 'ABOUT', 'EVOKES', 'MENTIONS', 'FAMILY_OF']);
 
 function hash(s: string): number {
   let h = 2166136261;
@@ -48,7 +45,7 @@ function radialLayout(nodes: GraphNode[], edges: GraphEdge[], W: number, H: numb
   const mems = nodes.filter(n => n.label === 'Memory').sort((a, b) => (deg.get(b.id) ?? 0) - (deg.get(a.id) ?? 0));
   const center = mems[0];
   const rest = nodes.filter(n => n !== center)
-    .sort((a, b) => LABEL_ORDER.indexOf(a.label) - LABEL_ORDER.indexOf(b.label) || a.name.localeCompare(b.name, 'ko') || a.id.localeCompare(b.id));
+    .sort((a, b) => LABEL_ORDER.indexOf(a.label) - LABEL_ORDER.indexOf(b.label) || a.name.localeCompare(b.name, getState().locale) || a.id.localeCompare(b.id));
   const cx = W / 2, cy = H / 2;
   const maxW = Math.max(40, ...rest.map(n => textW(trunc(n.name, maxChars), fs)));
   const rx = Math.max(46, Math.min(W / 2 - 22 - maxW, 130));
@@ -110,6 +107,8 @@ function relaxRects(sn: { id: string; name: string; label: GraphNodeLabel; x: nu
 export function MemoryGraph({ nodes, edges, highlightIds, height, interactive, compact, large, labelMode = 'all' }: {
   nodes: GraphNode[]; edges: GraphEdge[]; highlightIds?: string[]; height?: number; interactive?: boolean; compact?: boolean; large?: boolean; labelMode?: 'all' | 'focus';
 }) {
+  const t = useT();
+  const rel = (type: string) => (REL_IDS.has(type) ? t(`rel.graph.${type}`) : type);
   const H = height ?? (compact ? 220 : 280);
   const fs = large ? (compact ? 14 : 15) : (compact ? 12 : 13);
   const maxChars = large && compact ? 6 : 8;
@@ -230,7 +229,7 @@ export function MemoryGraph({ nodes, edges, highlightIds, height, interactive, c
   return (
     <div className={`mg ${compact ? 'mg-compact' : ''} ${large ? 'mg-large' : ''} ${interactive ? 'mg-interactive' : ''}`} ref={wrapRef}>
       <svg className="mg-svg" width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="img"
-        aria-label={`기억 그래프: 노드 ${nodes.length}개, 연결 ${edges.length}개`}
+        aria-label={t('graph.aria', { nodes: nodes.length, edges: edges.length })}
         onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
         <g>
           {links.map(l => {
@@ -242,7 +241,7 @@ export function MemoryGraph({ nodes, edges, highlightIds, height, interactive, c
               <g key={l.id} className={hi ? 'mg-fade' : undefined}>
                 <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={`mg-edge ${active ? 'mg-edge-on' : ''} ${hi && pulse ? 'mg-edge-hi' : ''}`} />
                 {interactive && active && (
-                  <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 3} className="mg-rel" textAnchor="middle">{REL_KO[l.type] ?? l.type}</text>
+                  <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 3} className="mg-rel" textAnchor="middle">{rel(l.type)}</text>
                 )}
               </g>
             );
@@ -287,16 +286,16 @@ export function MemoryGraph({ nodes, edges, highlightIds, height, interactive, c
           );
         })()}
       </svg>
-      <ul className="sr-only mg-text" aria-label="기억 그래프 목록">
-        {edges.map(e => <li key={e.id}>{byId.get(e.source)?.name ?? e.source} → {byId.get(e.target)?.name ?? e.target} ({REL_KO[e.type] ?? e.type})</li>)}
+      <ul className="sr-only mg-text" aria-label={t('graph.list')}>
+        {edges.map(e => <li key={e.id}>{byId.get(e.source)?.name ?? e.source} → {byId.get(e.target)?.name ?? e.target} ({rel(e.type)})</li>)}
       </ul>
-      {nodes.length === 0 && <div className="mg-empty">아직 연결된 기억이 없어요</div>}
+      {nodes.length === 0 && <div className="mg-empty">{t('graph.empty')}</div>}
       {!compact && (
-        <ul className="mg-legend" aria-label="범례">
-          {LABELS.filter(l => usedLabels.has(l.label) || nodes.length === 0).map(l => (
-            <li key={l.label}>
-              <svg width="20" height="16" viewBox="-10 -8 20 16" aria-hidden><Shape label={l.label} r={0.8} /></svg>
-              <span>{l.ko}</span>
+        <ul className="mg-legend" aria-label={t('graph.legend')}>
+          {LABELS.filter(l => usedLabels.has(l) || nodes.length === 0).map(l => (
+            <li key={l}>
+              <svg width="20" height="16" viewBox="-10 -8 20 16" aria-hidden><Shape label={l} r={0.8} /></svg>
+              <span>{t(`node.${l}`)}</span>
             </li>
           ))}
         </ul>

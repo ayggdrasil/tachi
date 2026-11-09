@@ -4,9 +4,12 @@ import type { FamilyIntent, SeniorIntent, SeniorIntentContext } from '../contrac
 import { findPlaces } from '../../data/places';
 import { parseBloodPressure } from './health';
 import { stemToken, tokens, yesNo } from './ko';
+import { getLocale } from '../locale';
+import { availabilityEn, familyIntentEn, matchKeywordsEn, seniorIntentEn } from './intents.en';
 
 
 export function seniorIntent(text: string, ctx: SeniorIntentContext): SeniorIntent {
+  if (getLocale() === 'en') return seniorIntentEn(text, ctx);
   const t = text.trim();
   if (ctx.pending === 'share_confirm' || ctx.pending === 'trip_confirm') {
     const yn = yesNo(t);
@@ -40,6 +43,7 @@ export function seniorIntent(text: string, ctx: SeniorIntentContext): SeniorInte
 
 /** Node names (also partial words of multi-word names, and text tokens contained in names) found in the text. */
 export function matchKeywords(text: string, names: string[]): string[] {
+  if (getLocale() === 'en') return matchKeywordsEn(text, names);
   const out: string[] = [];
   const add = (k: string) => { if (!out.includes(k)) out.push(k); };
   const toks = tokens(text);
@@ -58,6 +62,7 @@ export function matchKeywords(text: string, names: string[]): string[] {
 }
 
 export function familyIntent(text: string, _asker: User): FamilyIntent {
+  if (getLocale() === 'en') return familyIntentEn(text, _asker);
   const t = text.trim();
   if (/시간\s*(?:좀\s*)?(?:잡|정|맞)|일정\s*(?:좀\s*)?(?:맞|조율|잡|정)|날짜\s*(?:좀\s*)?(?:정|잡)|언제\s*모일|언제\s*(?:만날|볼까)|스케줄/.test(t)) return { type: 'schedule' };
   // A tachi-addressed question is a question for tachi, never a proposal.
@@ -95,6 +100,7 @@ function clauseConstraint(c: string): Constraint | undefined {
 }
 
 export function availability(text: string, slots: Slot[]): string[] {
+  if (getLocale() === 'en') return availabilityEn(text, slots);
   const t = text.trim();
   if (!t) return [];
   const firstWeekEnd = slots.length ? new Date(slots[0].startsAt).getTime() + 3 * 86400000 : 0;

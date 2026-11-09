@@ -2,13 +2,14 @@
 import { DIRECTOR_ID } from '../../shared/constants';
 import type { Bootstrap, GraphDelta, ID } from '../../shared/types';
 import { ctx } from './ctx';
-import { DIRECTOR_USER, artifactFor, scrubHiddenTitles, getDemo, getPrivacy, healthFor, memoryVisibleToFamily, messageFor, presence, seesAll, tripVisibleToFamily, viewerIsKin } from './core';
+import { getLocale } from './locale';
+import { directorUser, artifactFor, scrubHiddenTitles, getDemo, getPrivacy, healthFor, memoryVisibleToFamily, messageFor, presence, seesAll, tripVisibleToFamily, viewerIsKin } from './core';
 import { warn } from '../util/misc';
 
 export async function buildBootstrap(viewerId: ID): Promise<Bootstrap> {
   const { db } = ctx;
   const director = viewerId === DIRECTOR_ID;
-  const me = director ? DIRECTOR_USER : db.users.get(viewerId)!;
+  const me = director ? directorUser() : db.users.get(viewerId)!;
   const all = seesAll(viewerId);
   const kin = viewerIsKin(viewerId);
   const privacy = getPrivacy();
@@ -31,6 +32,6 @@ export async function buildBootstrap(viewerId: ID): Promise<Bootstrap> {
 
   return {
     me, users: db.users.all(), contacts: db.contacts.all(), rooms, messages, memories, artifacts, polls, trips,
-    privacy, health: healthFor(viewerId), models: ctx.brain.getModelState(), demo: getDemo(), presence: presence(), graph,
+    privacy, health: healthFor(viewerId), models: ctx.brain.getModelState(), demo: getDemo(), presence: presence(), graph, locale: getLocale(),
   };
 }

@@ -87,3 +87,13 @@
 }
 .fam-menu-tip { padding: var(--space-4) var(--space-8); font-size: var(--text-caption); color: var(--text-2); line-height: var(--leading-caption); }
 .fam-menu-tips { border-top: 1px solid var(--border); margin-top: var(--space-4); padding-top: var(--space-4); }
+
+/* Room title as switcher button (narrow / embedded), DM header, tappable avatars */
+.fam-title-btn { display: flex; align-items: center; gap: var(--space-4); min-width: 0; max-width: 100%; min-height: 44px; padding: 0 var(--space-8); margin-left: calc(var(--space-8) * -1); border-radius: var(--radius-lg); text-align: left; color: inherit; font: inherit; }
+@media (hover: hover) { .fam-title-btn:hover { background: var(--hover); } }
+.fam-title-text { display: flex; flex-direction: column; min-width: 0; }
+.fam-title-chev { flex: none; color: var(--text-3); }
+.fam-title-dot { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--ink); color: var(--bg); font-size: var(--text-micro); line-height: 18px; text-align: center; font-weight: var(--weight-medium); font-variant-numeric: tabular-nums; }
+.fam-head-av { display: inline-flex; flex: none; }
+.fam-stack-btn { padding: 0; border: 0; background: none; cursor: pointer; }
+.fam-stack-btn:focus-visible { outline-offset: 2px; }

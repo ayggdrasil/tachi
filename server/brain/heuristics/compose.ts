@@ -8,10 +8,13 @@ import { PLACES, findPlaces, placeById, templateFor, type Place } from '../../da
 import type { SeniorObservation } from '../contract';
 import { medicationObservation, observe } from './observe';
 import { callName, hash, hasBatchim, pick } from './ko';
+import { getLocale } from '../locale';
+import { composeReportEn, memoryRefEn, peopleCallsEn, planItineraryEn, proactiveMessageEn, recallReplyEn, seniorChatEn, shareSummaryEn, suggestTripEn } from './compose.en';
 
 export const PRIVATE_SESSION_TEXT = '비공개 대화예요';
 
 export function peopleCalls(people: MemoryPerson[], audience: 'senior' | 'children' = 'senior'): string[] {
+  if (getLocale() === 'en') return peopleCallsEn(people, audience);
   return people.map(p => {
     if (p.relation === '남편') return audience === 'children' ? '아버님' : '남편분';
     if (['딸', '아들', '손녀', '손자', '며느리'].includes(p.relation ?? '') && /^[가-힣]{3}$/.test(p.name)) return callName(p.name);
@@ -41,6 +44,7 @@ function vividSentence(m: Pick<Memory, 'story'>): string {
   return ss.sort((a, b) => b.length - a.length)[0] ?? '';
 }
 export function memoryRef(m: Pick<Memory, 'year' | 'place' | 'title'>): string {
+  if (getLocale() === 'en') return memoryRefEn(m);
   return m.year && m.place ? `${m.year}년 ${m.place}` : m.title;
 }
 
@@ -52,6 +56,7 @@ export function seniorCall(asker?: User): string {
 
 // ── recall / share ─────────────────────────────────────────────────────────
 export function recallReply(memory: Memory, query: string): string {
+  if (getLocale() === 'en') return recallReplyEn(memory, query);
   const parts: string[] = [];
   parts.push(`네, 기억나요. ${memoryRef(memory)}${memory.event && !memory.title.includes(memory.event) ? ` ${memory.event}` : ''} 이야기지요.`);
   if (memory.people.length) parts.push(`${withCompanions(peopleCalls(memory.people))} 함께하셨고요.`);
@@ -61,6 +66,7 @@ export function recallReply(memory: Memory, query: string): string {
 }
 
 export function shareSummary(memory: Memory): { title: string; summary: string } {
+  if (getLocale() === 'en') return shareSummaryEn(memory);
   const s: string[] = [];
   s.push(`어머님께서 오늘 ${memory.title} 이야기를 들려주셨어요.`);
   if (memory.people.length) { const ev = memory.event ?? '하루'; s.push(`${withCompanions(peopleCalls(memory.people, 'children'))} 함께한 ${ev}${hasBatchim(ev) ? '이었' : '였'}대요.`); }
@@ -85,6 +91,7 @@ function shortTravel(p?: Place): string {
 }
 
 export function suggestTrip(memory: Memory): Omit<TripSuggestionPayload, 'type' | 'tripId'> {
+  if (getLocale() === 'en') return suggestTripEn(memory);
   const place = placeById(memory.placeId) ?? findPlaces(memory.place ?? '')[0] ?? PLACES.find(p => p.id === 'gyeongju');
   const region = place?.region ?? memory.place ?? '경주';
   const nearbyNames = (place?.nearby ?? []).map(placeById).filter((p): p is Place => !!p).map(p => p.name);
@@ -104,6 +111,7 @@ export function suggestTrip(memory: Memory): Omit<TripSuggestionPayload, 'type' 
 }
 
 export function planItinerary(suggestion: Omit<TripSuggestionPayload, 'type'>): Omit<ItineraryPayload, 'type' | 'tripId'> {
+  if (getLocale() === 'en') return planItineraryEn(suggestion);
   const t = templateFor(suggestion.destination);
   return {
     title: `${suggestion.destination} 1박 2일 일정`,
@@ -118,7 +126,8 @@ export function planItinerary(suggestion: Omit<TripSuggestionPayload, 'type'>): 
 }
 
 // ── proactive ──────────────────────────────────────────────────────────────
-export function proactiveMessage(kind: ProactiveKind, memory?: Memory, now = new Date()): { text: string; quickReplies: string[] } {
+export function proactiveMessage(kind: ProactiveKind, memory?: Memory, now = new Date(), senior?: User): { text: string; quickReplies: string[] } {
+  if (getLocale() === 'en') return proactiveMessageEn(kind, memory, senior);
   const ref = memory ? memoryRef(memory) : '';
   switch (kind) {
     case 'morning':
@@ -139,6 +148,7 @@ export function proactiveMessage(kind: ProactiveKind, memory?: Memory, now = new
 
 // ── report ─────────────────────────────────────────────────────────────────
 export function composeReport(sessions: SessionLog[], privacy: PrivacySettings, moodToday: string | undefined, now: Date): Omit<ReportPayload, 'type'> {
+  if (getLocale() === 'en') return composeReportEn(sessions, privacy, moodToday, now);
   const rows: ReportSession[] = sessions
     .slice()
     .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
@@ -166,6 +176,7 @@ export function composeReport(sessions: SessionLog[], privacy: PrivacySettings, 
 
 // ── senior small talk ──────────────────────────────────────────────────────
 export function seniorChat(text: string): { reply: string; quickReplies: string[]; category: PrivacyCategory; observation?: SeniorObservation } {
+  if (getLocale() === 'en') return seniorChatEn(text);
   const r = seniorChatCore(text);
   const observation = observe(text.trim());
   return observation ? { ...r, observation } : r;

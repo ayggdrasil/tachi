@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { Accessibility, MapPin } from 'lucide-react';
 import { SpeakButton } from '../common/SpeakButton';
+import { useT } from '../../lib/i18n';
 import type { ItineraryPayload, TripSuggestionPayload } from '../../../../shared/types';
 import type { CardProps } from './types';
 import './cards.css';
@@ -26,15 +27,17 @@ export function TripSuggestionCard({ message, variant, actionSlot }: CardProps) 
 /** '서울역 출발' + '신경주역 도착, 점심' → one-line route; null when the day does not open with a departure and an arrival. */
 function routeSummary(stops: ItineraryPayload['days'][number]['stops']) {
   const [a, b] = stops;
-  if (!a || !b || !/출발/.test(a.title) || !/도착/.test(b.title)) return null;
-  const from = a.title.replace(/\s*출발.*$/, '').trim();
-  const to = b.title.replace(/\s*도착.*$/, '').trim();
+  const DEP = /(출발|\bdepart\w*|\bleave\w*)/i, ARR = /(도착|\barriv\w*)/i;
+  if (!a || !b || !DEP.test(a.title) || !ARR.test(b.title)) return null;
+  const from = a.title.replace(/\s*(출발|depart\w*|leave\w*).*$/i, '').trim();
+  const to = b.title.replace(/\s*(도착|arriv\w*).*$/i, '').trim();
   if (!from || !to) return null;
-  const mode = (a.travel ?? '').match(/KTX|SRT|버스|기차|택시|자가용/)?.[0];
+  const mode = (a.travel ?? '').match(/KTX|SRT|버스|기차|택시|자가용|\b(?:train|bus|taxi|car|drive|flight)\b/i)?.[0];
   return { from, to, depart: a.time, arrive: b.time, mode };
 }
 
 export function ItineraryCard({ message, variant, actionSlot }: CardProps) {
+  const t = useT();
   const p = message.payload as ItineraryPayload;
   const [day, setDay] = useState(0);
   const [all, setAll] = useState(false);
@@ -52,9 +55,9 @@ export function ItineraryCard({ message, variant, actionSlot }: CardProps) {
   return (
     <article className="cd cd-trip cd-compact" aria-label={p.title}>
       <div className="cd-row cd-between"><h3 className="cd-title">{p.title}</h3>{senior && <SpeakButton text={readText} />}</div>
-      <p className="cd-meta">{[p.destination, p.days.length > 1 ? `${p.days.length}일 일정` : '당일 일정', p.dateLabel].filter(Boolean).join(' · ')}</p>
+      <p className="cd-meta">{[p.destination, p.days.length > 1 ? t('trip.nDays', { n: p.days.length }) : t('trip.dayTrip'), p.dateLabel].filter(Boolean).join(' · ')}</p>
       {p.days.length > 1 && (
-        <div className="cd-tabs" role="tablist" aria-label="일차">
+        <div className="cd-tabs" role="tablist" aria-label={t('trip.dayTabs')}>
           {p.days.map((x, i) => (
             <button key={i} ref={el => { tabRefs.current[i] = el; }} type="button" role="tab" id={`it-${message.id}-${i}`} aria-controls={`itp-${message.id}`}
               aria-selected={i === di} tabIndex={i === di ? 0 : -1} className="cd-tab"
@@ -69,7 +72,7 @@ export function ItineraryCard({ message, variant, actionSlot }: CardProps) {
         </div>
       )}
       {p.days.length === 1 && <p className="cd-label">{p.days[0].label}</p>}
-      {d && route && !all && <p className="cd-route"><b>{route.from}</b> {route.depart}<span aria-hidden> → </span><span className="sr-only"> 에서 </span><b>{route.to}</b> {route.arrive}{route.mode ? ` · ${route.mode}` : ''}</p>}
+      {d && route && !all && <p className="cd-route"><b>{route.from}</b> {route.depart}<span aria-hidden> → </span><span className="sr-only"> {t('trip.to')} </span><b>{route.to}</b> {route.arrive}{route.mode ? ` · ${route.mode}` : ''}</p>}
       {d && (
         <div role={p.days.length > 1 ? 'tabpanel' : undefined} id={p.days.length > 1 ? `itp-${message.id}` : undefined} aria-labelledby={p.days.length > 1 ? `it-${message.id}-${di}` : undefined}>
         <ol className="cd-tl">
@@ -88,11 +91,11 @@ export function ItineraryCard({ message, variant, actionSlot }: CardProps) {
         </div>
       )}
       {actionSlot}
-      {hidden > 0 && <button type="button" className="cd-link cd-more" aria-expanded={all} onClick={() => setAll(a => !a)}>{all ? '일정 접기' : `전체 일정 보기 (+${hidden})`}</button>}
+      {hidden > 0 && <button type="button" className="cd-link cd-more" aria-expanded={all} onClick={() => setAll(a => !a)}>{all ? t('trip.collapse') : t('trip.showAll', { n: hidden })}</button>}
       {p.tips.length > 0 && (
         <>
-          <button type="button" className="cd-link cd-more" aria-expanded={tips} onClick={() => setTips(t => !t)}>{tips ? '팁 접기' : '여행 팁 보기'}</button>
-          {tips && <ul className="cd-tips">{p.tips.map((t, i) => <li key={i}>{t}</li>)}</ul>}
+          <button type="button" className="cd-link cd-more" aria-expanded={tips} onClick={() => setTips(v => !v)}>{tips ? t('trip.hideTips') : t('trip.showTips')}</button>
+          {tips && <ul className="cd-tips">{p.tips.map((tip, i) => <li key={i}>{tip}</li>)}</ul>}
         </>
       )}
     </article>

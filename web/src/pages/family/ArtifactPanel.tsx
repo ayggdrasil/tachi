@@ -2,10 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Plus, Sparkles, CalendarClock, X } from 'lucide-react';
 import type { Artifact } from '../../../../shared/types';
 import { useTachi, tachi } from '../../lib/store';
+import { useT, type Vars } from '../../lib/i18n';
 import { Avatar } from '../../components/common/Avatar';
 import './ArtifactPanel.css';
 
-const STATUS_LABEL: Record<Artifact['dateStatus'], string> = { undecided: '미정', polling: '조율 중', confirmed: '확정' };
+type T = (key: string, vars?: Vars) => string;
 
 function useFlash(value: unknown, byOther: boolean) {
   const prev = useRef(value);
@@ -67,6 +68,7 @@ function Field({ value, onCommit, byOther, multiline, className = '', placeholde
 }
 
 function AgendaEditor({ artifact, byOther }: { artifact: Artifact; byOther: boolean }) {
+  const t = useT();
   const [items, setItems] = useState<string[]>(artifact.agenda);
   const dirty = useRef(false);
   const timer = useRef<number | undefined>(undefined);
@@ -93,28 +95,29 @@ function AgendaEditor({ artifact, byOther }: { artifact: Artifact; byOther: bool
       {items.map((it, i) => (
         <li key={i} className="ap-agenda-row">
           <span className="ap-num">{i + 1}</span>
-          <input className="ap-field" value={it} aria-label={`일정 ${i + 1}`}
+          <input className="ap-field" value={it} aria-label={t('ap.agendaItem', { n: i + 1 })}
             onChange={e => update(items.map((x, j) => (j === i ? e.target.value : x)))} onBlur={flush} />
-          <button className="btn btn-icon ap-rm" aria-label={`일정 ${i + 1} 삭제`} onClick={() => update(items.filter((_, j) => j !== i), true)}>
+          <button className="btn btn-icon ap-rm" aria-label={t('ap.agendaRemove', { n: i + 1 })} onClick={() => update(items.filter((_, j) => j !== i), true)}>
             <X size={14} strokeWidth={1.5} />
           </button>
         </li>
       ))}
       <li>
-        <button className="btn btn-ghost ap-add" onClick={() => update([...items, ''])}><Plus size={14} strokeWidth={1.5} /> 일정 추가</button>
+        <button className="btn btn-ghost ap-add" onClick={() => update([...items, ''])}><Plus size={14} strokeWidth={1.5} /> {t('ap.addAgenda')}</button>
       </li>
     </ol>
   );
 }
 
-function ago(iso: string, now: number) {
+function ago(iso: string, now: number, t: T) {
   const s = Math.max(0, (now - new Date(iso).getTime()) / 1000);
-  if (s < 60) return '방금';
-  if (s < 3600) return `${Math.floor(s / 60)}분 전`;
-  return `${Math.floor(s / 3600)}시간 전`;
+  if (s < 60) return t('ap.justNow');
+  if (s < 3600) return t('ap.minAgo', { n: Math.floor(s / 60) });
+  return t('ap.hrAgo', { n: Math.floor(s / 3600) });
 }
 
 export function ArtifactPanel({ artifactId }: { artifactId: string }) {
+  const t = useT();
   const artifact = useTachi(s => s.artifacts[artifactId]);
   const meId = useTachi(s => s.meId);
   const users = useTachi(s => s.users);
@@ -145,7 +148,7 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
   }, [messages, artifact?.pollId]);
   const pollOpen = poll?.status === 'open';
 
-  if (!artifact) return <div className="ap-empty muted caption">모임 정보를 불러오지 못했어요.</div>;
+  if (!artifact) return <div className="ap-empty muted caption">{t('ap.loadFail')}</div>;
 
   const byOther = artifact.updatedBy !== meId;
   const updater = users[artifact.updatedBy];
@@ -161,31 +164,31 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
 
   return (
     <div className="ap">
-      <Field className="ap-title" value={artifact.title} label="모임 제목" byOther={byOther} onCommit={v => patch({ title: v })} />
+      <Field className="ap-title" value={artifact.title} label={t('ap.titleLabel')} byOther={byOther} onCommit={v => patch({ title: v })} />
       <div className="ap-meta">
-        <span className={`badge ap-status ap-status-${artifact.dateStatus}`}>{STATUS_LABEL[artifact.dateStatus]}</span>
-        <span className="caption">{artifact.dateStatus !== 'confirmed' && candidate ? `후보: ${candidate.label}` : (artifact.dateLabel ?? '날짜 미정')}</span>
+        <span className={`badge ap-status ap-status-${artifact.dateStatus}`}>{t(`ap.status.${artifact.dateStatus}`)}</span>
+        <span className="caption">{artifact.dateStatus !== 'confirmed' && candidate ? t('ap.candidate', { label: candidate.label }) : (artifact.dateLabel ?? t('ap.dateTbd'))}</span>
         {artifact.place && <span className="caption muted">· {artifact.place}</span>}
       </div>
       <p className="ap-live caption faint" aria-live="polite">
-        {updater ? `${updater.shortName}${updater.id === 'tachi' ? '가' : '님이'} ${ago(artifact.updatedAt, now)} 수정` : `${ago(artifact.updatedAt, now)} 수정`}
+        {updater ? t(updater.id === 'tachi' ? 'ap.editedByTachi' : 'ap.editedBy', { name: updater.shortName, when: ago(artifact.updatedAt, now, t) }) : t('ap.edited', { when: ago(artifact.updatedAt, now, t) })}
       </p>
 
       <div className="ap-actions">
         <button className="btn" onClick={() => { tachi.assistArtifact(artifact.id); setAssisting(true); }} disabled={assisting}>
-          <Sparkles size={14} strokeWidth={1.5} /> {assisting ? '아이디어 찾는 중…' : '타치에게 아이디어 받기'}
+          <Sparkles size={14} strokeWidth={1.5} /> {assisting ? t('ap.ideasBusy') : t('ap.ideas')}
         </button>
         {artifact.dateStatus === 'undecided' && (
           <button className="btn btn-primary" disabled={!artifactMsg || pollOpen}
             onClick={() => artifactMsg && tachi.action(artifact.roomId, artifactMsg.id, 'start_scheduling', { artifactId: artifact.id })}>
-            <CalendarClock size={14} strokeWidth={1.5} /> 일정 조율 시작
+            <CalendarClock size={14} strokeWidth={1.5} /> {t('ap.startScheduling')}
           </button>
         )}
       </div>
 
       {poll && artifact.dateStatus !== 'confirmed' && (
-        <section className="ap-poll" aria-label="일정 조율 현황">
-          <h3 className="ap-h">일정 조율 · 응답 {Object.keys(poll.responses).length}/{poll.participantIds.length}</h3>
+        <section className="ap-poll" aria-label={t('ap.pollStatus')}>
+          <h3 className="ap-h">{t('ap.pollHead', { n: Object.keys(poll.responses).length, m: poll.participantIds.length })}</h3>
           <div className="ap-poll-people">
             {poll.participantIds.map(id => {
               const u = users[id];
@@ -194,7 +197,7 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
                 <span key={id} className={`ap-poll-p ${ok ? 'is-in' : ''}`} title={u?.name}>
                   <Avatar user={u} size={28} hollow={!ok} />
                   <span className="caption">{u?.shortName ?? id}</span>
-                  <span className="ap-poll-st muted">{ok ? <><Check size={12} strokeWidth={2} aria-hidden /><span className="sr-only">응답함</span></> : '대기'}</span>
+                  <span className="ap-poll-st muted">{ok ? <><Check size={12} strokeWidth={2} aria-hidden /><span className="sr-only">{t('ap.responded')}</span></> : t('ap.waiting')}</span>
                 </span>
               );
             })}
@@ -202,31 +205,31 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
         </section>
       )}
 
-      <Section title="배경"><Field multiline value={artifact.background} label="모임 배경" byOther={byOther} onCommit={v => patch({ background: v })} placeholder="왜 모이는지 적어 주세요" /></Section>
-      <Section title="목적"><Field multiline value={artifact.purpose} label="모임 목적" byOther={byOther} onCommit={v => patch({ purpose: v })} placeholder="이번 모임의 목적" /></Section>
-      <Section title="장소"><Field value={artifact.place} label="장소" byOther={byOther} onCommit={v => patch({ place: v })} placeholder="어디서 만날까요?" /></Section>
-      <Section title="일정"><AgendaEditor artifact={artifact} byOther={byOther} /></Section>
+      <Section title={t('ap.background')}><Field multiline value={artifact.background} label={t('ap.backgroundLabel')} byOther={byOther} onCommit={v => patch({ background: v })} placeholder={t('ap.backgroundPh')} /></Section>
+      <Section title={t('ap.purpose')}><Field multiline value={artifact.purpose} label={t('ap.purposeLabel')} byOther={byOther} onCommit={v => patch({ purpose: v })} placeholder={t('ap.purposePh')} /></Section>
+      <Section title={t('ap.place')}><Field value={artifact.place} label={t('ap.place')} byOther={byOther} onCommit={v => patch({ place: v })} placeholder={t('ap.placePh')} /></Section>
+      <Section title={t('ap.agenda')}><AgendaEditor artifact={artifact} byOther={byOther} /></Section>
 
-      <Section title={`할 일 ${artifact.tasks.length ? `${doneCount}/${artifact.tasks.length}` : ''}`}>
+      <Section title={`${t('ap.tasks')} ${artifact.tasks.length ? `${doneCount}/${artifact.tasks.length}` : ''}`}>
         <ul className="ap-tasks">
-          {artifact.tasks.map(t => {
-            const as = t.assigneeId ? users[t.assigneeId] : undefined;
+          {artifact.tasks.map(task => {
+            const as = task.assigneeId ? users[task.assigneeId] : undefined;
             return (
-              <li key={t.id} className="ap-task">
+              <li key={task.id} className="ap-task">
                 <label className="ap-check-hit">
-                  <input type="checkbox" className="ap-check" checked={t.done} aria-label={`${t.text} 완료`}
-                    onChange={() => tachi.artifactTask(artifact.id, 'toggle', { taskId: t.id })} />
+                  <input type="checkbox" className="ap-check" checked={task.done} aria-label={t('ap.taskDone', { text: task.text })}
+                    onChange={() => tachi.artifactTask(artifact.id, 'toggle', { taskId: task.id })} />
                 </label>
-                <span className={`ap-task-text ${t.done ? 'is-done' : ''}`}>{t.text}</span>
+                <span className={`ap-task-text ${task.done ? 'is-done' : ''}`}>{task.text}</span>
                 <span className="ap-assign">
                   {as ? <Avatar user={as} size={22} /> : <span className="ap-noassign" aria-hidden />}
-                  <select className="ap-select" aria-label={`${t.text} 담당자`} value={t.assigneeId ?? ''}
-                    onChange={e => tachi.artifactTask(artifact.id, 'assign', { taskId: t.id, assigneeId: e.target.value })}>
-                    <option value="">담당 미정</option>
+                  <select className="ap-select" aria-label={t('ap.assignee', { text: task.text })} value={task.assigneeId ?? ''}
+                    onChange={e => tachi.artifactTask(artifact.id, 'assign', { taskId: task.id, assigneeId: e.target.value })}>
+                    <option value="">{t('ap.unassigned')}</option>
                     {members.map(m => <option key={m.id} value={m.id}>{m.shortName}</option>)}
                   </select>
                 </span>
-                <button className="btn btn-icon ap-rm" aria-label={`${t.text} 삭제`} onClick={() => tachi.artifactTask(artifact.id, 'remove', { taskId: t.id })}>
+                <button className="btn btn-icon ap-rm" aria-label={t('ap.taskRemove', { text: task.text })} onClick={() => tachi.artifactTask(artifact.id, 'remove', { taskId: task.id })}>
                   <X size={14} strokeWidth={1.5} />
                 </button>
               </li>
@@ -234,14 +237,14 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
           })}
         </ul>
         <div className="ap-addtask">
-          <input className="input" value={newTask} placeholder="할 일 추가" aria-label="할 일 추가"
+          <input className="input" value={newTask} placeholder={t('ap.addTask')} aria-label={t('ap.addTask')}
             onChange={e => setNewTask(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) addTask(); }} />
-          <button className="btn btn-icon" aria-label="할 일 추가" onClick={addTask} disabled={!newTask.trim()}><Plus size={16} strokeWidth={1.5} /></button>
+          <button className="btn btn-icon" aria-label={t('ap.addTask')} onClick={addTask} disabled={!newTask.trim()}><Plus size={16} strokeWidth={1.5} /></button>
         </div>
       </Section>
 
-      <Section title="메모"><Field multiline value={artifact.notes} label="메모" byOther={byOther} onCommit={v => patch({ notes: v })} placeholder="함께 적어 두고 싶은 것" /></Section>
+      <Section title={t('ap.notes')}><Field multiline value={artifact.notes} label={t('ap.notes')} byOther={byOther} onCommit={v => patch({ notes: v })} placeholder={t('ap.notesPh')} /></Section>
     </div>
   );
 }
