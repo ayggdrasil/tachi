@@ -57,7 +57,8 @@ export type MessageKind =
   | 'schedule_request'
   | 'schedule_progress'
   | 'schedule_result'
-  | 'system';
+  | 'system'
+  | 'task_card';          // todo execution: calendar invite / booking link / assignee reminder / follow-up
 
 export interface CardAction {
   id: string;             // action id sent back with socket `action`, e.g. 'share_memory'
@@ -113,7 +114,8 @@ export type MessagePayload =
   | ArtifactRefPayload
   | ScheduleRequestPayload
   | ScheduleProgressPayload
-  | ScheduleResultPayload;
+  | ScheduleResultPayload
+  | TaskCardPayload;
 
 export interface PhotoPayload { type: 'photo'; url: string; width?: number; height?: number }
 
@@ -185,6 +187,20 @@ export interface ReportPayload {
   sessions: ReportSession[];
   moodLabel?: string;           // '좋음' (only when mood is public)
   highlight?: string;           // one warm sentence
+  /** open gathering to-dos (family-room artifacts only), most urgent first */
+  openTasks?: ReportOpenTask[];
+  /** one line about the open to-dos, e.g. '남은 할 일 2개 · KTX·차량 예약(민준) 외 1개' */
+  tasksLine?: string;
+}
+
+export interface ReportOpenTask {
+  artifactId: ID;
+  taskId: ID;
+  text: string;
+  assigneeId?: ID;
+  status: TaskStatus;
+  dueAt?: ISODate;
+  followUpCount: number;
 }
 
 export interface ReportSession {
@@ -305,7 +321,97 @@ export interface Trip {
 }
 
 // ── Artifacts (gathering plans) ────────────────────────────────────────────
-export interface ArtifactTask { id: ID; text: string; assigneeId?: ID; done: boolean }
+export interface ArtifactTask {
+  id: ID; text: string; assigneeId?: ID; done: boolean;
+  // ── execution & tracking (all optional; older tasks have none of these) ──
+  /** what Tachi can do for this task (classified heuristically or by the LLM; the family may override) */
+  action?: TaskAction;
+  /** kept in sync with `done` (done ⇔ status === 'done') */
+  status?: TaskStatus;
+  dueAt?: ISODate;
+  /** last time the action was executed (invite sent / booking link shared / reminder sent) */
+  executedAt?: ISODate;
+  /** short human-readable outcome: '초대 4명에게 보냄', '예약 완료 · 수연' */
+  result?: string;
+  /** primary link produced by the action (.ics download or booking deep link) */
+  link?: string;
+  /** reminder / nudge / escalation / reply history, oldest first */
+  followUps?: TaskFollowUp[];
+  /** when the follow-up scheduler should look at this task next (undefined = nothing scheduled) */
+  nextFollowUpAt?: ISODate;
+  /** escalation level reached by automatic follow-ups: 0 none, 1 reminder, 2 second nudge, 3 told the family room */
+  followUpLevel?: number;
+  completedBy?: ID;
+  completedAt?: ISODate;
+}
+
+export type TaskActionKind = 'calendar_invite' | 'booking_link' | 'reminder' | 'none';
+export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'blocked';
+export type BookingCategory = 'restaurant' | 'lodging' | 'train' | 'car' | 'other';
+
+export interface BookingLink { label: string; url: string; provider: 'naver' | 'kakao' | 'korail' | 'srt' | 'other' }
+
+export interface TaskAction {
+  kind: TaskActionKind;
+  category?: BookingCategory;
+  /** search phrase used for booking links, e.g. '경주 불국사 한정식' */
+  query?: string;
+  links?: BookingLink[];
+  /** local calendar event created for this task / gathering */
+  eventId?: ID;
+  /** who decided the kind: the offline rules, the LLM, or a family member */
+  classifiedBy?: 'heuristic' | 'llm' | 'user';
+}
+
+export interface TaskFollowUp {
+  id: ID;
+  at: ISODate;
+  kind: 'reminder' | 'nudge' | 'escalate' | 'manual' | 'reply' | 'invite' | 'booking' | 'status';
+  /** 'auto' for the scheduler, otherwise the user who triggered it */
+  by: ID | 'auto';
+  level?: number;
+  roomId?: ID;
+  reply?: 'done' | 'help' | 'later';
+  note: string;
+}
+
+export interface TaskCardPayload {
+  type: 'task_card';
+  artifactId: ID;
+  taskId?: ID;
+  action: TaskActionKind;
+  /** 'invite' | 'booking' | 'reminder' | 'nudge' | 'escalate' | 'done' */
+  stage: 'invite' | 'booking' | 'reminder' | 'nudge' | 'escalate' | 'done';
+  title: string;
+  taskText?: string;
+  assigneeId?: ID;
+  status?: TaskStatus;
+  dueAt?: ISODate;
+  links?: BookingLink[];
+  event?: { id: ID; title: string; startsAt: ISODate; endsAt: ISODate; label: string; location?: string; attendeeIds: ID[] };
+  icsUrl?: string;
+}
+
+/** A local calendar entry (the calendar provider interface can later be backed by Google Calendar). */
+export interface CalendarEvent {
+  id: ID;
+  /** stable iCalendar UID */
+  uid: string;
+  artifactId?: ID;
+  title: string;
+  description: string;
+  location?: string;
+  startsAt: ISODate;
+  endsAt: ISODate;
+  organizerId: ID;
+  attendeeIds: ID[];
+  /** iCalendar SEQUENCE: bumps whenever the time / place changes */
+  sequence: number;
+  status: 'confirmed' | 'cancelled';
+  provider: 'local' | string;
+  createdAt: ISODate;
+  updatedAt: ISODate;
+}
 
 export interface Artifact {
   id: ID;
@@ -408,6 +514,11 @@ export interface ClientToServerEvents {
   'artifact:update': (p: { artifactId: ID; patch: ArtifactPatch }) => void;
   'artifact:task': (p: { artifactId: ID; op: 'add' | 'toggle' | 'assign' | 'remove'; taskId?: ID; text?: string; assigneeId?: ID }) => void;
   'artifact:assist': (p: { artifactId: ID }) => void;          // ask Tachi to suggest tasks / ideas
+  /** run a task's action now: send calendar invites / share a booking link / remind the assignee (kind overrides the classified one) */
+  'artifact:task:execute': (p: { artifactId: ID; taskId: ID; kind?: TaskActionKind }, ack?: (r: { ok: boolean; error?: string; message?: string }) => void) => void;
+  /** set a task's status explicitly (todo / in_progress / done / blocked) */
+  'artifact:task:status': (p: { artifactId: ID; taskId: ID; status: TaskStatus }) => void;
+  'demo:followups': () => void;                                // director: run the to-do follow-up scheduler now
   'privacy:set': (p: { category: PrivacyCategory; visibility: Visibility }) => void;
   'memory:visibility': (p: { memoryId: ID; visibility: Visibility }) => void;
   'model:set': (p: { key: ModelKey }) => void;

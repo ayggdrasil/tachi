@@ -2,7 +2,8 @@
 // Agent A (orchestrator) only calls through this interface.
 import type {
   Artifact, ArtifactTask, HealthSummary, ItineraryPayload, Memory, MemoryPerson, ModelKey, ModelState,
-  PrivacyCategory, PrivacySettings, ProactiveKind, ReportPayload, SessionLog, Slot, TripSuggestionPayload, User,
+  PrivacyCategory, PrivacySettings, ProactiveKind, ReportOpenTask, ReportPayload, SessionLog, Slot, TripSuggestionPayload, User,
+  BookingCategory, TaskActionKind,
 } from '../../shared/types';
 
 /** Every AI result carries which model produced it and whether the heuristic fallback answered. */
@@ -117,6 +118,16 @@ export interface GatheringDraft {
   notes: string;
 }
 
+// ── To-do execution ───────────────────────────────────────────────────────
+export interface TaskClassifyInput {
+  tasks: { id: string; text: string; assigneeId?: string }[];
+  title?: string;
+  place?: string;
+}
+
+/** What Tachi can do for one to-do. `query` is a short search noun for booking links ('한정식', '한옥 숙소'). */
+export interface TaskClassification { kind: TaskActionKind; category?: BookingCategory; query?: string }
+
 // ── Bots ───────────────────────────────────────────────────────────────────
 export interface BotContext {
   persona: User;                 // the family member the bot speaks as
@@ -153,13 +164,15 @@ export interface Brain {
   planItinerary(suggestion: Omit<TripSuggestionPayload, 'type'>, senior: User): Promise<AIResult<Omit<ItineraryPayload, 'type' | 'tripId'>>>;
 
   proactiveMessage(input: { kind: ProactiveKind; memory?: Memory; senior: User; now: Date }): Promise<AIResult<{ text: string; quickReplies: string[] }>>;
-  composeReport(input: { sessions: SessionLog[]; privacy: PrivacySettings; moodToday?: string; senior: User; now: Date }): Promise<AIResult<Omit<ReportPayload, 'type'>>>;
+  composeReport(input: { sessions: SessionLog[]; privacy: PrivacySettings; moodToday?: string; senior: User; now: Date; openTasks?: ReportOpenTask[]; people?: Record<string, string> }): Promise<AIResult<Omit<ReportPayload, 'type'>>>;
 
   classifyFamilyIntent(text: string, asker: User): Promise<AIResult<FamilyIntent>>;
   answerFamily(question: string, ctx: FamilyContext): Promise<AIResult<FamilyAnswer>>;
 
   draftGathering(input: GatheringInput): Promise<AIResult<GatheringDraft>>;
   assistArtifact(artifact: Artifact, members: User[]): Promise<AIResult<{ message: string; newTasks: Omit<ArtifactTask, 'id' | 'done'>[] }>>;
+  /** Classify gathering to-dos into actions (calendar invite / booking link / reminder / none), keyed by task id. Optional: callers fall back to the heuristic. */
+  classifyTasks?(input: TaskClassifyInput): Promise<AIResult<Record<string, TaskClassification>>>;
   /** Free-text availability → slot ids that work for this person. */
   parseAvailability(text: string, slots: Slot[]): Promise<AIResult<string[]>>;
 
