@@ -191,6 +191,10 @@ test('gathering draft + assist + availability + bots', async () => {
   assert.deepEqual(await av('토/일 저녁만 돼요'), ['slot-1', 'slot-3']);
   assert.deepEqual(await av('22일 일요일 괜찮아요'), ['slot-5']);
   assert.deepEqual(await av('음 잘 모르겠어요'), []);
+  const all = slots.map(s => s.id);
+  for (const t of ['전부 가능해요', '모두 가능해요', '언제나 괜찮아', '아무 때나', '다 좋아요', '다 돼요']) assert.deepEqual(await av(t), all, t);
+  for (const t of ['다 안 돼요', '모두 어려워요', '전부 안 돼']) assert.deepEqual(await av(t), [], t);
+  assert.deepEqual(await av('점심 먹었어'), []);
 
   const bot = async (id: string, kind: string, text: string) => (await brain.botReply({ persona: user(id), senior: mom, recent: [], trigger: { kind, text } })).value;
   assert.match(await bot('jieun', 'share_card', '1984년 봄 불국사'), /엄마|사진/);

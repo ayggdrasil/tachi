@@ -3,7 +3,7 @@ import {
   DAILY_REPORT_TIME, DIRECTOR_ID, KIN_RELATIONS, SENIOR_ID, TACHI_ID, USERS,
 } from '../../shared/constants';
 import type {
-  DemoState, GraphDelta, HealthSummary, ID, Memory, Message, MessageKind, MessageMeta, MessagePayload, CardAction,
+  Artifact, DemoState, GraphDelta, HealthSummary, ID, Memory, Message, MessageKind, MessageMeta, MessagePayload, CardAction,
   Poll, Presence, PrivacySettings, ReportSession, Room, Trip, User,
 } from '../../shared/types';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -387,6 +387,19 @@ export function scrubHiddenTitles<T>(viewerId: ID, value: T): T {
   const before = j;
   for (const t of titles.sort((a, b) => b.length - a.length)) j = j.split(JSON.stringify(t).slice(1, -1)).join('비공개 추억');
   return j === before ? value : (JSON.parse(j) as T);
+}
+
+/** Viewer-aware artifact: non-kin lose senior-derived background and links; anyone loses links to resources they cannot see. */
+export function artifactFor(viewerId: ID, a: Artifact): Artifact {
+  if (seesAll(viewerId)) return a;
+  const kin = viewerIsKin(viewerId);
+  const out: Artifact = { ...a };
+  const mem = a.linkedMemoryId ? ctx.db.memories.get(a.linkedMemoryId) : undefined;
+  const trip = a.linkedTripId ? ctx.db.trips.get(a.linkedTripId) : undefined;
+  if (!kin || (a.linkedMemoryId && !memoryVisibleToFamily(mem))) delete out.linkedMemoryId;
+  if (!kin || (a.linkedTripId && !tripVisibleToFamily(trip))) delete out.linkedTripId;
+  if (!kin && (a.linkedMemoryId || a.linkedTripId || a.background)) out.background = '';
+  return scrubHiddenTitles(viewerId, out);
 }
 
 /** After any privacy change: senior/director keep their live stream; family clients rebuild from a freshly projected bootstrap. */

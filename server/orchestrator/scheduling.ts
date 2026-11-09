@@ -96,9 +96,10 @@ export async function startScheduling(familyRoomId: ID, asker: { id: ID }, opts:
   void asker;
 }
 
-export async function submitAvailability(pollId: ID, userId: ID, slotIds: ID[]): Promise<boolean> {
+export async function submitAvailability(pollId: ID, userId: ID, slotIds: ID[], opts: { standIn?: () => boolean } = {}): Promise<boolean> {
   const poll = ctx.db.polls.get(pollId);
   if (!poll || poll.status !== 'open' || !poll.participantIds.includes(userId)) return false;
+  if (opts.standIn && (poll.responses[userId] || !opts.standIn())) return false; // a stand-in never overwrites a human answer
   const valid = [...new Set(slotIds)].filter(id => poll.slots.some(s => s.id === id));
   poll.responses[userId] = valid;
   ctx.db.polls.put(poll);
@@ -222,7 +223,7 @@ export async function handleScheduleAction(userId: ID, msg: Message, actionId: s
       d.setDate(d.getDate() + 7);
       return { id: `slot-${i}`, startsAt: d.toISOString(), label: `${dateLabel(d)} ${pad2(d.getHours())}:00` };
     });
-    await startScheduling(poll.familyRoomId, { id: userId }, { slots: shifted, repoll: true });
+    await startScheduling(poll.familyRoomId, { id: userId }, { slots: shifted, repoll: true, artifactId: poll.artifactId });
   }
 }
 

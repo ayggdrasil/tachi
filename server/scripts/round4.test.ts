@@ -8,11 +8,11 @@ import { io as connect, type Socket } from 'socket.io-client';
 import { FAMILY_ROOM_ID, SENIOR_ROOM_ID } from '../../shared/constants';
 import type { Artifact, Bootstrap, ClientToServerEvents, Memory, Message, ServerToClientEvents } from '../../shared/types';
 import { createApp } from '../orchestrator/app';
-import { applyMemoryVisibility, messageFor, post } from '../orchestrator/core';
+import { applyMemoryVisibility, messageFor, patchDemo, post, setDemoClock } from '../orchestrator/core';
 import { offerTrip, acceptTrip } from '../orchestrator/senior';
 import { botSpeak } from '../orchestrator/bots';
 import { answerProvenance, buildFamilyContext } from '../orchestrator/family';
-import { startScheduling, tryMomAvailability } from '../orchestrator/scheduling';
+import { startScheduling, tryMomAvailability, submitAvailability } from '../orchestrator/scheduling';
 import { createGathering } from '../orchestrator/artifacts';
 
 type Client = { id: string; sock: Socket<ServerToClientEvents, ClientToServerEvents>; boot: Bootstrap; msgs: Message[] };
@@ -110,6 +110,53 @@ async function main() {
   await new Promise(r => jieun.sock.emit('action', { roomId: FAMILY_ROOM_ID, messageId: bad.id, actionId: 'start_scheduling' }, r));
   check(ctx.db.polls.all().length === n2, 'F8: foreign / unknown artifactId does not start a poll');
 
+  // ── round-5 F9: re-polling the older artifact keeps its artifactId even though a newer artifact exists
+  console.log('round5 F9 repoll artifactId');
+  const pollA = ctx.db.polls.all().find(p => p.artifactId === 'art-r4-a')!;
+  for (const p of ctx.db.polls.all()) if (p.status === 'open') ctx.db.polls.put({ ...p, status: 'closed' });
+  const sl = pollA.slots[0];
+  const res = post(FAMILY_ROOM_ID, {
+    senderId: 'tachi', kind: 'schedule_result', text: '결과',
+    payload: { type: 'schedule_result', pollId: pollA.id, slot: sl, available: [], unavailable: [], confirmed: false } as never,
+    actions: [{ id: 'repoll', label: '다시 조율', data: { pollId: pollA.id } }],
+  });
+  const nBefore = ctx.db.polls.all().length;
+  await new Promise(r => jieun.sock.emit('action', { roomId: FAMILY_ROOM_ID, messageId: res.id, actionId: 'repoll' }, r));
+  const repoll = await waitFor('repoll poll', () => ctx.db.polls.all().length > nBefore && ctx.db.polls.all().at(-1));
+  check(repoll?.artifactId === 'art-r4-a', `round5 F9: replacement poll stays on the older artifact (${repoll?.artifactId})`);
+  for (const p of ctx.db.polls.all()) if (p.status === 'open') ctx.db.polls.put({ ...p, status: 'closed' });
+
+  // ── round-5 F4: a human answer during the bot's typing delay is never overwritten
+  console.log('round5 F4 stand-in race');
+  patchDemo({ botsEnabled: true });
+  await startScheduling(FAMILY_ROOM_ID, { id: 'jieun' });
+  const racePoll = ctx.db.polls.all().filter(p => p.status === 'open').at(-1)!;
+  const botIds = racePoll.participantIds.filter(id => id !== 'mom' && !!ctx.db.users.get(id)?.isBot);
+  const victim = botIds[0];
+  check(!!victim, 'round5 F4: setup has an unclaimed persona');
+  // when the stand-in starts typing (its delay is over, the 600ms window begins), a human answers for that persona
+  const humanSlot = racePoll.slots[1].id;
+  const origTo = ctx.io.to.bind(ctx.io);
+  let fired = false;
+  (ctx.io as { to: unknown }).to = (room: string) => {
+    const r = origTo(room);
+    const emit = r.emit.bind(r);
+    (r as { emit: unknown }).emit = (ev: string, ...args: unknown[]) => {
+      const a0 = args[0] as { userId?: string } | undefined;
+      if (!fired && ev === 'typing' && a0?.userId === victim) { fired = true; void submitAvailability(racePoll.id, victim, [humanSlot]); }
+      return (emit as (...x: unknown[]) => boolean)(ev, ...args);
+    };
+    return r;
+  };
+  await waitFor('race fired', () => fired, 9000);
+  await sleep(1500);
+  (ctx.io as { to: unknown }).to = origTo;
+  patchDemo({ botsEnabled: false });
+  check(ctx.db.polls.get(racePoll.id)!.responses[victim]?.join() === humanSlot, 'round5 F4: human answer submitted during the delay survives (no stand-in overwrite)');
+  const standIn = await submitAvailability(racePoll.id, victim, [racePoll.slots[2].id], { standIn: () => true });
+  check(!standIn && ctx.db.polls.get(racePoll.id)!.responses[victim]?.join() === humanSlot, 'round5 F4: stand-in submit refuses to replace an existing response');
+  for (const p of ctx.db.polls.all()) if (p.status === 'open') ctx.db.polls.put({ ...p, status: 'closed' });
+
   // ── F7: all-availability answers while a poll awaits mom
   console.log('F7 all-availability');
   for (const p of ctx.db.polls.all()) if (p.status === 'open') ctx.db.polls.put({ ...p, status: 'closed' });
@@ -138,6 +185,46 @@ async function main() {
   check(/생신/.test(merged.title) && /생신/.test(merged.purpose ?? ''), `gathering: title/purpose gain the birthday angle (${merged.title})`);
   const last = ctx.db.messages.byRoom(FAMILY_ROOM_ID, 12).filter(m => m.kind === 'artifact').at(-1);
   check(last?.payload?.type === 'artifact' && last.payload.artifactId === art.id, 'gathering: an artifact message is re-posted');
+
+  // ── round-5 F5: a trip derived from a private memory is never linked into a family proposal
+  console.log('round5 F5 private-memory trip');
+  const m5b = mk('mem-r5-f5', { title: '비밀 부산 추억', visibility: 'private', status: 'saved', place: '부산', placeId: undefined });
+  ctx.db.memories.put(m5b);
+  await offerTrip(SENIOR_ROOM_ID, m5b);
+  const offer5 = await waitFor('trip offer 5', () => mom.msgs.find(m => m.kind === 'trip_suggestion' && m.meta?.memoryId === m5b.id));
+  await acceptTrip(SENIOR_ROOM_ID, offer5?.meta?.tripId as string);
+  for (const t of ctx.db.trips.all()) if (t.memoryId !== m5b.id) ctx.db.trips.put({ ...t, status: 'declined' }); // only the private-memory trip is a candidate
+  const g5 = await createGathering(FAMILY_ROOM_ID, minjun, '부산 가족 여행 가요', { forceNew: true });
+  check(!g5.linkedTripId && !JSON.stringify(g5).includes('비밀 부산'), 'round5 F5: private-memory trip not linked into the family proposal');
+
+  // ── round-5 F2: recall while a trip offer is pending re-surfaces the SAME trip's controls
+  console.log('round5 F2 recall keeps trip controls');
+  const hae = ctx.db.memories.get('mem-haeundae-1988')!;
+  applyMemoryVisibility(hae.id, 'family');
+  await offerTrip(SENIOR_ROOM_ID, hae);
+  const offer2 = await waitFor('trip offer 2', () => mom.msgs.find(m => m.kind === 'trip_suggestion' && m.meta?.memoryId === hae.id));
+  const trip2 = offer2?.meta?.tripId as string;
+  const nTrips = ctx.db.trips.all().length;
+  mom.sock.emit('message:send', { roomId: SENIOR_ROOM_ID, text: '해운대 피서 기억나?' });
+  const remind = await waitFor('trip reminder', () => mom.msgs.find(m => m.id !== offer2?.id && m.senderId === 'tachi' && m.actions?.some(a => a.id === 'accept_trip' && a.data?.tripId === trip2)));
+  check(!!remind && ctx.db.trips.all().length === nTrips, 'round5 F2: reminder with accept/decline for the same tripId, no second Trip');
+  mom.sock.emit('action', { roomId: SENIOR_ROOM_ID, messageId: remind!.id, actionId: 'accept_trip' }, () => undefined);
+  await waitFor('accepted', () => ctx.db.trips.get(trip2)?.status === 'accepted');
+  await sleep(200);
+  const both = [offer2!.id, remind!.id].map(id => ctx.db.messages.get(id)!);
+  check(both.every(m => m.actions?.find(a => a.id === 'accept_trip')?.done && m.actions?.find(a => a.id === 'accept_trip')?.chosen), 'round5 F2: both cards marked done with chosen on accept');
+  check(ctx.db.trips.all().filter(t => t.memoryId === hae.id && t.status !== 'declined').length === 1, 'round5 F2: still exactly one trip for the memory');
+
+  // ── round-5 F11: ambiguous medication statement asks instead of writing
+  console.log('round5 F11 ambiguous medication');
+  setDemoClock('19:00');
+  const today0 = JSON.stringify(ctx.db.kv.get<{ medications: unknown }>('health')?.medications);
+  const nm = mom.msgs.length;
+  mom.sock.emit('message:send', { roomId: SENIOR_ROOM_ID, text: '약 안 먹었어' });
+  const q = await waitFor('med question', () => mom.msgs.slice(nm).find(m => m.senderId === 'tachi' && /어떤 약을 말씀/.test(m.text)));
+  check(!!q && (q.quickReplies?.length ?? 0) >= 2, 'round5 F11: ambiguous dose gets a question with chips');
+  check(JSON.stringify(ctx.db.kv.get<{ medications: unknown }>('health')?.medications) === today0, 'round5 F11: no medication record was written or changed');
+  setDemoClock(null);
 
   void applyMemoryVisibility;
   await close();

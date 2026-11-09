@@ -3,7 +3,7 @@ import { TACHI_ID } from '../../shared/constants';
 import type { Artifact, ArtifactPatch, ID, Memory, Message, Trip, User } from '../../shared/types';
 import { ctx } from './ctx';
 import {
-  emitTyping, getPrivacy, markActionDone, isStale, memoryVisibleToFamily, getUser, isMember, now, roomChannel, seesAll, senior, tachiSay, withTyping,
+  artifactFor, emitTyping, forViewers, getPrivacy, tripVisibleToFamily, viewerIsKin, markActionDone, isStale, memoryVisibleToFamily, getUser, isMember, now, roomChannel, seesAll, senior, tachiSay, withTyping,
 } from './core';
 import { nowIso, uid } from '../util/misc';
 import { reactBots } from './bots';
@@ -37,7 +37,7 @@ export function pickMemoryForGathering(proposal: string, trip?: Trip): Memory | 
 
 function pickTrip(proposal: string): Trip | undefined {
   if (getPrivacy().trip !== 'family') return undefined;
-  const trips = ctx.db.trips.all().filter(t => t.status !== 'declined');
+  const trips = ctx.db.trips.all().filter(t => t.status !== 'declined' && tripVisibleToFamily(t));
   const t = trips.find(x => x.status === 'accepted') ?? trips.at(-1);
   if (!t) return undefined;
   const named = new Set(findPlaces(proposal).map(p => p.region));
@@ -52,7 +52,8 @@ export function latestOpenArtifact(roomId: ID): Artifact | undefined {
 
 export function emitArtifact(a: Artifact): void {
   if (isStale()) return;
-  ctx.io.to(roomChannel(a.roomId)).emit('artifact:upsert', a);
+  const room = ctx.db.rooms.get(a.roomId);
+  forViewers((s, v) => { if (seesAll(v) || room?.memberIds.includes(v)) s.emit('artifact:upsert', artifactFor(v, a)); });
 }
 
 const EVENT_NOUNS: [string, RegExp][] = [
@@ -178,8 +179,12 @@ export async function createGathering(
     if (sameGathering(recent, text)) return mergeIntoArtifact(recent, roomId, proposer, members, text);
     if (!opts.trip) { await askGatheringChoice(roomId, recent, text); return recent; }
   }
-  const trip = opts.trip ?? pickTrip(text);
-  const memory = opts.memory ?? pickMemoryForGathering(text, trip);
+  // non-kin proposers (e.g. an invited friend) never pull the senior's memories / trips into a draft; hidden resources are dropped too
+  const kinProposer = viewerIsKin(proposer.id);
+  let trip = kinProposer ? (opts.trip ?? pickTrip(text)) : undefined;
+  if (trip && !seesAll(proposer.id) && !tripVisibleToFamily(trip)) trip = undefined;
+  let memory = kinProposer ? (opts.memory ?? pickMemoryForGathering(text, trip)) : undefined;
+  if (memory && !seesAll(proposer.id) && !memoryVisibleToFamily(memory)) memory = undefined;
   const ai = await withTyping(roomId, () => ctx.brain.draftGathering({
     proposalText: text, proposer, members, senior: senior(),
     linkedMemory: memory ? { id: memory.id, title: memory.title, summary: memory.summary, place: memory.place, year: memory.year, people: memory.people } : undefined,
@@ -187,6 +192,7 @@ export async function createGathering(
   }));
   if (isStale()) throw new Error('stale');
   const d = ai.value;
+  if (!kinProposer) d.background = `${proposer.name}님이 "${text.replace(/[!.]+$/, '')}"라고 제안했어요.`;
   const dest = destinationRegions(text, trip);
   if (dest.display && dest.regions.size && ![...dest.regions].some(r => (d.place ?? '').includes(r))) d.place = `${dest.display} 일대`;
   const t = nowIso();

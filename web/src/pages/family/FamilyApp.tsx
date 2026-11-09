@@ -102,18 +102,28 @@ export default function FamilyApp() {
   }, [embedded, me, visibleRooms, messages]);
 
   // side room: did I answer my schedule request here?
-  const answeredHere = useMemo(() => {
-    if (!room || room.type !== 'side') return false;
-    return (messages[room.id] ?? []).some(m => m.payload?.type === 'schedule_request' && m.payload.answered);
+  // the room's CURRENT request: latest schedule_request for its pollId
+  const currentReq = useMemo(() => {
+    if (!room || room.type !== 'side') return null;
+    let best: { id: string; answered: boolean; at: string } | null = null;
+    for (const m of messages[room.id] ?? []) {
+      const pl = m.payload;
+      if (pl?.type !== 'schedule_request') continue;
+      if (room.pollId && pl.pollId !== room.pollId) continue;
+      if (!best || m.createdAt >= best.at) best = { id: m.id, answered: !!pl.answered, at: m.createdAt };
+    }
+    return best;
   }, [room, messages]);
+  const answeredHere = !!currentReq?.answered;
+  const answeredReqId = currentReq?.answered ? currentReq.id : null;
   const goFamily = useCallback(() => {
     setActiveId(FAMILY_ROOM_ID); setView('chat'); setPanel(null);
   }, []);
   useEffect(() => {
-    if (!embedded || !answeredHere) return;
+    if (!embedded || !answeredReqId) return;
     const t = window.setTimeout(goFamily, 1500);
     return () => window.clearTimeout(t);
-  }, [embedded, answeredHere, goFamily]);
+  }, [embedded, answeredReqId, goFamily]);
 
   const switchPersona = useCallback((id: string) => {
     rememberPersona(id);

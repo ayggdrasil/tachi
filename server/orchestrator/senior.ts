@@ -218,28 +218,32 @@ async function continueMemory(room: Room, mem: Memory, text: string): Promise<vo
 const slotNow = (): '아침' | '점심' | '저녁' => { const h = now().getHours(); return h < 11 ? '아침' : h < 16 ? '점심' : '저녁'; };
 
 /** Persist a structured observation into HealthSummary. Returns what was actually stored. */
-function applyObservation(obs: SeniorObservation | undefined): { medication: boolean; mood: boolean } {
-  const done = { medication: false, mood: false };
+function applyObservation(obs: SeniorObservation | undefined): { medication: boolean; mood: boolean; ask: boolean } {
+  const done = { medication: false, mood: false, ask: false };
   if (!obs) return done;
   const h: HealthSummary = getHealth() ?? { updatedAt: nowIso(), bloodPressure: [], medications: [], sleepHours: [], steps: [], mood: [], notes: [] };
   const today = ymd(now());
   const med = obs.medication;
   if (med && typeof med.taken === 'boolean') {
     const todays = h.medications.filter(m => m.date === today);
+    const explicit = !!(med.name || med.time);
     const byName = med.name ? todays.filter(m => m.name.includes(med.name!) || med.name!.includes(m.name)) : todays;
     const bySlot = med.time ? byName.filter(m => m.time === med.time) : byName;
-    let target: (typeof h.medications)[number] | undefined = bySlot[0];
-    if (!target && !med.name && !med.time) {
-      target = med.taken ? todays.find(m => !m.taken) : todays.find(m => m.time === slotNow()) ?? todays.find(m => !m.taken);
-    }
-    if (target) {
-      h.medications = h.medications.map(m => (m === target ? { ...m, taken: med.taken } : m));
+    // write only for an explicitly identified dose, or when exactly one dose is due right now; otherwise ask
+    const candidates = explicit ? bySlot : todays.filter(m => m.time === slotNow());
+    if (candidates.length > 1 || (!explicit && candidates.length === 0)) {
+      done.ask = true;
     } else {
-      const name = med.name ?? [...h.medications].reverse()[0]?.name ?? '복용약';
-      h.medications = [...h.medications, { date: today, name, time: med.time ?? slotNow(), taken: med.taken }];
+      const target = candidates[0];
+      if (target) {
+        h.medications = h.medications.map(m => (m === target ? { ...m, taken: med.taken } : m));
+      } else {
+        const name = med.name ?? '복용약';
+        h.medications = [...h.medications, { date: today, name, time: med.time ?? slotNow(), taken: med.taken }];
+      }
+      h.medications = h.medications.slice(-28);
+      done.medication = true;
     }
-    h.medications = h.medications.slice(-28);
-    done.medication = true;
   }
   if (typeof obs.mood === 'string' && obs.mood.trim()) {
     h.mood = [...h.mood.filter(x => x.date !== today), { date: today, label: obs.mood.trim().slice(0, 12) }].slice(-7);
@@ -269,9 +273,11 @@ async function smallTalk(room: Room, text: string): Promise<void> {
   let reply = ai.value.reply;
   const stored = applyObservation(observation);
   if (/기록|적어\s*(둘|두|놓|놨)|메모/.test(reply)) reply = stripRecordClaims(reply);
-  if (stored.medication) reply = `${reply} 복약 상태를 기록해 둘게요.`;
+  let chips = quickReplies;
+  if (stored.ask) { reply = '어떤 약을 말씀하시는 거예요? 아침 혈압약인가요, 저녁 관절약인가요?'; chips = ['아침 혈압약', '저녁 관절약']; }
+  else if (stored.medication) reply = `${reply} 복약 상태를 기록해 둘게요.`;
   else if (stored.mood) reply = `${reply} 오늘 기분을 기록해 둘게요.`;
-  await tachiSay(room.id, { text: reply, quickReplies, meta: { category } }, ai);
+  await tachiSay(room.id, { text: reply, quickReplies: chips, meta: { category } }, ai);
   if (!ctx.db.kv.get<string>('active-proactive')) {
     const title = ({ health: '건강 이야기', mood: '기분 이야기', memory: '추억 이야기', trip: '나들이 이야기', daily: '일상 대화' } as Record<PrivacyCategory, string>)[category] ?? '일상 대화';
     logSeniorSession(category, title, `${title}를 나누셨어요.`);
@@ -382,7 +388,38 @@ async function doRecall(room: Room, text: string, keywords: string[]): Promise<v
     meta: memMeta(mem.id),
   }, ai);
   logSeniorSession('memory', '추억 떠올리기', `${mem.title} 이야기를 다시 떠올리셨어요.`, mem.id);
-  if (!getPending(room.id)) scheduleOffer(room.id, mem, 1500);
+  const pending = getPending(room.id);
+  if (!pending) scheduleOffer(room.id, mem, 1500);
+  else if (pending.type === 'trip_confirm') await resurfaceTripOffer(room.id, pending.tripId);
+}
+
+/** Cards carrying accept/decline for one trip (the original offer and any re-surfaced reminders). */
+function tripOfferCards(roomId: ID, tripId: ID): Message[] {
+  return ctx.db.messages.byRoom(roomId, 80).filter(m => m.senderId === TACHI_ID
+    && !!m.actions?.some(a => a.id === 'accept_trip' && a.data?.tripId === tripId));
+}
+
+/** After a recall the pending offer would be buried: say it again with the SAME trip's controls (no second Trip). */
+async function resurfaceTripOffer(roomId: ID, tripId: ID): Promise<void> {
+  const trip = ctx.db.trips.get(tripId);
+  if (!trip || trip.status !== 'suggested') return;
+  const open = tripOfferCards(roomId, tripId).filter(m => m.actions?.some(a => a.id === 'accept_trip' && !a.done));
+  const last = ctx.db.messages.byRoom(roomId, 1).at(-1);
+  if (last && open.some(m => m.id === last.id)) return; // already the latest thing on screen
+  for (const m of open) if (m.kind !== 'trip_suggestion') markActionDone(m); // retire older reminders
+  const m = await tachiSay(roomId, {
+    text: '아까 말씀드린 경주 여행, 어떠세요?',
+    actions: [
+      { id: 'accept_trip', label: '좋아요, 가볼래요', style: 'primary', data: { tripId } },
+      { id: 'decline_trip', label: '다음에요', data: { tripId } },
+    ],
+    meta: tripMeta(tripId, trip.memoryId),
+  });
+  void m;
+}
+
+function settleTripCards(roomId: ID, tripId: ID, chosen: 'accept_trip' | 'decline_trip'): void {
+  for (const m of tripOfferCards(roomId, tripId)) markActionDone(m, undefined, chosen);
 }
 
 // ── 4.4 trip ────────────────────────────────────────────────────────────────
@@ -454,9 +491,8 @@ export async function offerTrip(roomId: ID, mem: Memory): Promise<void> {
 export async function acceptTrip(roomId: ID, tripId: ID): Promise<void> {
   const trip = ctx.db.trips.get(tripId);
   if (!trip || trip.status === 'declined') return;
-  const offer = await cardMessage(roomId, 'trip_suggestion', 'tripId', tripId);
   if (trip.itinerary) { // idempotent retry
-    if (offer) markActionDone(offer, undefined, 'accept_trip');
+    settleTripCards(roomId, tripId, 'accept_trip');
     if (getPending(roomId)?.type === 'trip_confirm') setPending(roomId, null);
     return;
   }
@@ -476,7 +512,7 @@ export async function acceptTrip(roomId: ID, tripId: ID): Promise<void> {
     ],
     meta: tripMeta(tripId, trip.memoryId),
   }, ai);
-  if (offer) markActionDone(offer, undefined, 'accept_trip'); // committed
+  settleTripCards(roomId, tripId, 'accept_trip'); // committed
   setPending(roomId, { type: 'itinerary', tripId, messageId: posted.id });
 }
 
@@ -485,8 +521,7 @@ async function declineTrip(roomId: ID, tripId: ID): Promise<void> {
   if (trip) { trip.status = 'declined'; ctx.db.trips.put(trip); emitTrip(trip); }
   plans.delete(tripId);
   setPending(roomId, null);
-  const offer = await cardMessage(roomId, 'trip_suggestion', 'tripId', tripId);
-  if (offer) markActionDone(offer, undefined, 'decline_trip');
+  settleTripCards(roomId, tripId, 'decline_trip');
   await tachiSay(roomId, { text: '네, 다음에 또 좋은 곳 알려드릴게요.', meta: tripMeta(tripId, trip?.memoryId) });
 }
 

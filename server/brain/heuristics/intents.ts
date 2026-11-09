@@ -106,7 +106,7 @@ export function availability(text: string, slots: Slot[]): string[] {
     if (k.week !== undefined && ((d.getTime() > firstWeekEnd ? 1 : 0) !== k.week)) return false;
     return true;
   };
-  const allWords = /다\s*(?:돼|되|괜찮|좋)|아무\s*(?:때|날)나?|언제든|언제나|상관\s*없|전부\s*(?:돼|되|좋)|아무때/;
+  const allWords = /(?:다|전부|모두|전체|전부다|모두다)\s*(?:돼|되|가능|괜찮|좋|상관)|아무\s*(?:때|날)(?:나|든)?|어느\s*(?:때|날)(?:나|든)?|언제(?:든|나|라도)|상관\s*없|아무때/;
   const clauses = t.split(/[,.;!?]|\s(?:근데|그런데|하지만|그리고|대신)\s|(?<=요)\s+(?=[가-힣])/).map(s => s.trim()).filter(Boolean);
   const neg = /안\s*돼|안\s*되|못\s*(?:가|와|해|나|갈|올|하)|어려|힘들|불가|빼고|제외|말고|곤란|약속|바빠|바쁘/;
   let positive: Set<string> | undefined;
@@ -114,6 +114,7 @@ export function availability(text: string, slots: Slot[]): string[] {
   let any = false;
   let hasAllWord = false;
   for (const c of clauses) {
+    if (/먹었|먹었|먹고|드셨|드시|식사|밥/.test(c) && !allWords.test(c) && !/돼|되|가능|괜찮|좋/.test(c)) continue; // meal talk, not availability
     const isNeg = neg.test(c);
     if (allWords.test(c) && !isNeg) { hasAllWord = true; any = true; continue; }
     const k = clauseConstraint(c);

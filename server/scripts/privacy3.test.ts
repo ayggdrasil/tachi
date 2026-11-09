@@ -6,9 +6,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { io as connect, type Socket } from 'socket.io-client';
 import { FAMILY_ROOM_ID } from '../../shared/constants';
-import type { Bootstrap, ClientToServerEvents, Memory, Message, ServerToClientEvents, Trip } from '../../shared/types';
+import type { Artifact, Bootstrap, ClientToServerEvents, Memory, Message, ServerToClientEvents, Trip } from '../../shared/types';
 import { createApp } from '../orchestrator/app';
 import { applyMemoryVisibility, tripVisibleToFamily } from '../orchestrator/core';
+import { createGathering, emitArtifact } from '../orchestrator/artifacts';
 
 type Client = { id: string; sock: Socket<ServerToClientEvents, ClientToServerEvents>; boot: Bootstrap; msgs: Message[] };
 let failures = 0;
@@ -72,6 +73,29 @@ async function main() {
   check(friend.msgs.every(m => m.senderId !== 'tachi' || m.payload?.type !== 'health_card'), 'F7: live health card is redacted for the friend');
   const live = friend.msgs.filter(m => m.kind === 'health_card');
   check(live.length === 0, 'F7: no health_card kind reaches the friend live');
+
+  // ── round-5 F6: artifacts are projected per viewer (bootstrap, live upsert, non-kin proposals)
+  const seedMem = ctx.db.memories.all().find(m => m.visibility === 'family' && m.status === 'saved')!;
+  const art: Artifact = {
+    id: 'art-p3', roomId: room.id, kind: 'gathering', title: '가족 모임', background: `${seedMem.title} 이야기에서 시작된 모임`, purpose: '', place: '경주 일대',
+    dateStatus: 'undecided', agenda: [], tasks: [], notes: '', linkedMemoryId: seedMem.id, linkedTripId: 'trip-none',
+    createdBy: 'jieun', updatedBy: 'tachi', updatedAt: new Date().toISOString(), createdAt: new Date().toISOString(),
+  };
+  const liveArts: Artifact[] = [];
+  friend.sock.on('artifact:upsert', a => liveArts.push(a));
+  const kinArts: Artifact[] = [];
+  jieun.sock.on('artifact:upsert', a => kinArts.push(a));
+  ctx.db.artifacts.put(art);
+  emitArtifact(art);
+  await waitFor('artifact upsert', () => liveArts.length && kinArts.length);
+  const stripped = (a?: Artifact) => !!a && !a.background && !a.linkedMemoryId && !a.linkedTripId && !JSON.stringify(a).includes(seedMem.title);
+  check(stripped(liveArts.at(-1)), 'round5 F6: live artifact:upsert strips background / linked resources for the friend');
+  check(kinArts.at(-1)?.linkedMemoryId === seedMem.id && !!kinArts.at(-1)?.background, 'round5 F6: kin still receives the full artifact');
+  const fb2 = await reboot(friend);
+  check(stripped(fb2.artifacts.find(a => a.id === art.id)), 'round5 F6: friend bootstrap artifact is stripped');
+  const proposer = ctx.db.users.get('u-jungsook')!;
+  const ga = await createGathering(room.id, proposer, '경주 가족 여행 가요', { memory: seedMem, forceNew: true });
+  check(!ga.linkedMemoryId && !ga.linkedTripId && !ga.background.includes(seedMem.title), 'round5 F6: non-kin proposal cannot pull memory / trip into the draft');
 
   // ── F6: retraction of a category hides the stored general answer for family
   mom.sock.emit('privacy:set', { category: 'health', visibility: 'private' });

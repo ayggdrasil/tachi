@@ -30,6 +30,26 @@ const LONG_KINDS = new Set(['memory_card', 'share_card', 'itinerary', 'schedule_
 
 type StepStat = 'running' | 'done' | 'timeout' | 'skipped';
 
+// completed steps that must not be sent again (replay only via 처음부터 재생)
+const NON_REPEATABLE = new Set(['photo', 'a-when', 'a-who', 'a-story', 'share', 'invite', 'trip', 'together', 'gathering', 'schedule', 'report']);
+
+/** Has the step's outcome already landed in the store? (used to settle a timed-out step without re-sending) */
+function outcomeExists(id: string): boolean {
+  const st = getState();
+  const has = (room: string, kind: string) => (st.messages[room] ?? []).some(m => m.kind === kind);
+  const fam = st.rooms.find(r => r.id === FAMILY_ROOM_ID);
+  switch (id) {
+    case 'invite': return !!fam?.memberIds.includes('harin');
+    case 'share': return has(FAMILY_ROOM_ID, 'share_card');
+    case 'a-story': return has(SENIOR_ROOM_ID, 'memory_card');
+    case 'trip': return has(SENIOR_ROOM_ID, 'itinerary');
+    case 'together': case 'gathering': return Object.keys(st.artifacts).length > 0 || has(FAMILY_ROOM_ID, 'artifact');
+    case 'schedule': return has(FAMILY_ROOM_ID, 'schedule_result');
+    case 'report': return has(FAMILY_ROOM_ID, 'report');
+    default: return false;
+  }
+}
+
 function fmtClock(offsetMin: number): string {
   const d = new Date(Date.now() + offsetMin * 60000);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -84,6 +104,8 @@ export default function DirectorConsole() {
   const total = DEMO_SCRIPT.length;
   const cursorRef = useRef(cursor);
   cursorRef.current = cursor;
+  const statRef = useRef(stat);
+  statRef.current = stat;
   const runningRef = useRef(running);
   runningRef.current = running;
   const manualRef = useRef(false);
@@ -93,10 +115,24 @@ export default function DirectorConsole() {
   startedRef.current = startedAt;
   const messages = useTachi(s => s.messages);
   const polls = useTachi(s => s.polls);
+  useTachi(s => s.rooms); useTachi(s => s.artifacts); // re-render when outcomes land (timeout hint)
 
   const runStep = useCallback((i: number) => {
     const step = DEMO_SCRIPT[i];
     if (!step || runningRef.current) return;
+    const prev = statRef.current[step.id];
+    if (NON_REPEATABLE.has(step.id) && prev === 'done') {
+      // already committed: just move the cursor, never re-send
+      setCursor(i + 1);
+      return;
+    }
+    if (prev === 'timeout' && outcomeExists(step.id)) {
+      setStat(d => ({ ...d, [step.id]: 'done' }));
+      setCursor(c => Math.max(c, i + 1));
+      if (i === total - 1) setEndedAt(Date.now());
+      setDwell(true);
+      return;
+    }
     const roomId = step.waitFor ? (step.waitFor.room === 'senior' ? SENIOR_ROOM_ID : FAMILY_ROOM_ID) : null;
     const baseline = new Set((roomId ? getState().messages[roomId] ?? [] : []).map(m => m.id));
     stepStartRef.current = Date.now();
@@ -213,7 +249,7 @@ export default function DirectorConsole() {
     if (runningRef.current) return;
     const c = Math.max(0, cursorRef.current - 1);
     setCursor(c);
-    setStat(d => { const n = { ...d }; const s = DEMO_SCRIPT[c]; if (s) delete n[s.id]; return n; });
+    setStat(d => { const n = { ...d }; const s = DEMO_SCRIPT[c]; if (s && !NON_REPEATABLE.has(s.id)) delete n[s.id]; return n; });
   }, []);
   const resetCursor = useCallback(() => {
     runningRef.current = null;
@@ -466,14 +502,15 @@ export default function DirectorConsole() {
                   <li key={s.id}>
                     <button className={`dc-step ${isNext ? 'is-next' : ''} ${isDone || isSkipped ? 'is-done' : ''} ${st === 'running' ? 'is-running' : ''}`}
                       disabled={busy}
+                      title={isDone && NON_REPEATABLE.has(s.id) ? '완료됨 · 다시 보내지 않아요 (처음부터 재생으로 초기화)' : undefined}
                       onClick={e => { runStep(i); e.currentTarget.blur(); }} aria-current={isNext ? 'step' : undefined}>
                       <span className="dc-step-n">
                         {st === 'running' ? <Loader2 size={13} strokeWidth={2} className="dc-spin" aria-label="진행 중" /> : isDone ? <Check size={13} strokeWidth={2} aria-label="완료" /> : isSkipped ? <span aria-label="건너뜀">–</span> : i + 1}
                       </span>
                       <span className="dc-step-main">
-                        <span className="dc-step-label">{s.label}{isSkipped && <span className="caption faint"> · 건너뜀</span>}</span>
+                        <span className="dc-step-label">{s.label}{isDone && NON_REPEATABLE.has(s.id) && !isNext && <span className="caption faint"> · 완료됨</span>}{isSkipped && <span className="caption faint"> · 건너뜀</span>}</span>
                         {(isNext || st === 'running' || st === 'timeout' || isSkipped) && (
-                          <span className="dc-step-hint">{st === 'running' ? (s.director === 'model' && modelTarget ? `→ ${modelTarget} · 응답 기다리는 중…` : '응답 기다리는 중…') : st === 'timeout' ? '시간 초과 · 다시 눌러 재시도' : isSkipped ? (skip[s.id] ?? '건너뛰었어요') : s.hint}</span>
+                          <span className="dc-step-hint">{st === 'running' ? (s.director === 'model' && modelTarget ? `→ ${modelTarget} · 응답 기다리는 중…` : '응답 기다리는 중…') : st === 'timeout' ? (outcomeExists(s.id) ? '이미 반영돼 있어요 · 눌러서 이어가기' : '시간 초과 · 다시 눌러 재시도') : isSkipped ? (skip[s.id] ?? '건너뛰었어요') : s.hint}</span>
                         )}
                       </span>
                     </button>

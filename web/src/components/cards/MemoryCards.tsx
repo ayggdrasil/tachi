@@ -34,7 +34,6 @@ export function MemoryCard({ message, variant, actionSlot }: CardProps) {
     ['시기', when],
     ['장소', m.place],
     ['함께한 사람', m.people.map(x => x.name).join(', '), true],
-    ['감정', m.emotions.join(', '), true],
   ];
   // The compact graph is a proof, not a dump: memory, people, place and year only. Emotion/topic nodes live in the album's full graph.
   const KEEP = new Set(['Memory', 'Person', 'Place', 'Era']);
@@ -59,12 +58,13 @@ export function MemoryCard({ message, variant, actionSlot }: CardProps) {
       {nodes.length > 0 && (
         <div className="cd-graph cd-graph-c" role="group" aria-label={`기억 그래프에 저장됨 · 노드 ${nodes.length} · 연결 ${edges.length}`}>
           <span className="cd-label">기억 그래프</span>
-          <MemoryGraph nodes={nodes} edges={edges} highlightIds={[...nodes.map(n => n.id), ...edges.map(e => e.id)]} compact large={senior} height={senior ? 176 : 130} />
+          <MemoryGraph nodes={nodes} edges={edges} highlightIds={[...nodes.map(n => n.id), ...edges.map(e => e.id)]} compact large={senior} height={senior ? 150 : 130} />
         </div>
       )}
       {(m.story || m.tags.length > 0) && (
         <details className="cd-disc">
           <summary>이야기 보기</summary>
+          {m.emotions.length > 0 && <p className="cd-meta"><b>감정</b> {m.emotions.join(', ')}</p>}
           {m.story && <blockquote className="cd-story">“{m.story}”</blockquote>}
           {m.tags.length > 0 && <div className="cd-badges">{m.tags.map(t => <span key={t} className="badge">{t}</span>)}</div>}
         </details>
@@ -93,19 +93,37 @@ const REL_SENIOR: Record<string, string> = {
   TAKEN_AT: '찍은 곳', APPEARS_IN: '함께한 사람', IN_ERA: '시기', ABOUT: '사건', EVOKES: '감정', MENTIONS: '키워드', FAMILY_OF: '가족',
 };
 
+const OPENER_RE = /^(그때|그해|그 해|\d{4}년|\d{2}년|[가-힣]+\s?(?:봄|여름|가을|겨울)에)/;
+const ACTION_RE = /(했|갔|왔|울|웃|잃|도망|뛰|달려|찾|놀라|무서|기뻐|행복|눈물|안았|먹었|잡|넘어|터졌|혼났|다쳤|소리)/;
+
+/** The memory's most distinctive sentence: an action/emotion beat, not the year/place opener. */
+export function pickAnecdote(story: string): string {
+  const sents = story.split(/(?<=[.!?。])\s+/).map(x => x.trim()).filter(Boolean);
+  if (sents.length <= 1) return story;
+  const score = (x: string, i: number) => (ACTION_RE.test(x) ? 3 : 0) + (OPENER_RE.test(x) ? -3 : 0) + (i === 0 ? -1 : 0) + Math.min(x.length, 80) / 80;
+  return sents.map((x, i) => [x, score(x, i)] as const).sort((a, b) => b[1] - a[1])[0][0];
+}
+
 export function RecallCard({ message, variant }: CardProps) {
   const p = message.payload as RecallCardPayload;
   const m = p.memory;
   const senior = variant === 'senior';
   const nodeBy = new Map(p.path.nodes.map(n => [n.id, n]));
   const hops = p.path.edges.map(e => ({ id: e.id, a: nodeBy.get(e.source)?.name ?? e.source, b: nodeBy.get(e.target)?.name ?? e.target, t: e.type }));
-  const excerpt = m.story.length > 110 ? m.story.slice(0, 108) + '…' : m.story;
+  const anecdote = pickAnecdote(m.story);
+  const excerpt = anecdote.length > 110 ? anecdote.slice(0, 108) + '…' : anecdote;
   return (
     <article className="cd cd-recall cd-compact" aria-label={m.title}>
       {m.photoUrl && <img className="cd-photo-in cd-photo-recall" src={m.photoUrl} alt="" loading="lazy" decoding="async" />}
       <div className="cd-row cd-between"><h3 className="cd-title">{m.title}</h3>
-        {senior && <SpeakButton text={[message.text, m.story].filter(Boolean).join(' ')} />}</div>
+        {senior && <SpeakButton text={[message.text, m.title, m.story].filter(Boolean).join('. ')} />}</div>
       <p className="cd-warm cd-clamp2">{excerpt}</p>
+      {m.story.length > anecdote.length && (
+        <details className="cd-disc cd-disc-story">
+          <summary>이야기 전체 보기</summary>
+          <blockquote className="cd-story">“{m.story}”</blockquote>
+        </details>
+      )}
       {p.matched.length > 0 && (
         <div className="cd-row"><span className="cd-label">찾은 단서</span>{p.matched.map(x => <span key={x} className="badge">{x}</span>)}</div>
       )}

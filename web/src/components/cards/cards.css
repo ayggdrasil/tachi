@@ -83,9 +83,10 @@
 
 /* Compact primary-moment cards (fit the ~510px chat viewport on a 390x844 phone) */
 .cd-compact { gap: var(--space-8); }
-.cd-photo-mem { height: 160px; object-fit: contain; }
+.cd-photo-mem { height: 120px; object-fit: contain; }
 .cd-photo-recall { height: 120px; }
-.senior .cd-photo-mem { height: 168px; }
+.senior .cd-photo-mem { height: 120px; }
+.cd-recall .cd-clamp2 { -webkit-line-clamp: 3; }
 .senior .cd-memory .cd-dl-2 { row-gap: 2px; }
 .cd-facts { gap: var(--space-4) var(--space-12); }
 .cd-facts dd, .cd-facts dt { line-height: 1.35; overflow-wrap: anywhere; }

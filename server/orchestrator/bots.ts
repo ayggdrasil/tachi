@@ -125,11 +125,14 @@ export function scheduleBotAnswers(poll: Poll): void {
       if (!roomId) return;
       emitTyping(roomId, userId);
       await new Promise(r => setTimeout(r, 600));
+      // the world may have changed during the typing delay: reload and recheck everything before speaking for anyone
+      const again = ctx.db.polls.get(poll.id);
+      if (!again || again.status !== 'open' || again.responses[userId] || !botsOn() || !canStandIn(userId)) return;
       post(roomId, {
-        senderId: userId, text: slotLine(fresh, prefs, userId),
+        senderId: userId, text: slotLine(again, prefs, userId),
         meta: { generatedBy: getUser(userId)?.isBot ? 'bot' : 'assisted' },
       });
-      await submitAvailability(fresh.id, userId, prefs);
+      await submitAvailability(again.id, userId, prefs, { standIn: () => canStandIn(userId) });
     });
   }
 }
