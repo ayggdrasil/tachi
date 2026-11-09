@@ -22,11 +22,12 @@ npm install
 npm run demo
 ```
 
-1. 브라우저에서 <http://localhost:4100/?lang=ko> 를 엽니다. `?lang=ko`를 빼면 영어로 동작해요.
+1. 브라우저에서 <http://localhost:4100> 을 엽니다.
 2. 맨 위 **AI 모델** 카드에서 **Anthropic (Claude)** 또는 **OpenAI (ChatGPT)** 를 고르고, API 키를 붙여넣고 **연결**을 누릅니다. `sk-ant-`로 시작하는 키를 붙여넣으면 Anthropic이 자동으로 선택돼요.
 3. 타치가 아주 짧은 시험 요청을 한 번 보냅니다. 성공하면 카드에 **✓ 모델 이름 · 응답 시간**이 뜨고, 그 뒤 모든 대화는 실제 LLM이 답해요. 키가 틀렸거나, 크레딧이 없거나, 계정이 모델을 쓸 수 없으면 그 자리에서 이유를 알려주고 원래 상태를 그대로 둬요.
 4. 써 보기: **어머니 김순자**로 들어가 말을 걸거나 옛 사진을 올려 보세요. 가족 쪽 화면은 **딸 김지은**, 90초 데모 시나리오는 **디렉터**에서 볼 수 있어요.
 
+- **한국어로 바꾸기:** 앱은 영어가 기본이에요. 첫 화면에서 **Soonja Kim**(어머니)으로 들어가 아래 탭 **Settings → Language → 한국어**를 누르세요. 디렉터 화면의 **Language**로도 바꿀 수 있어요. 바꾸면 데모 데이터가 한국어로 다시 시작되고, 타치도 한국어로 대화해요. 주소 뒤에 붙이는 `?lang=ko`는 첫 화면 글자만 바꿔요.
 - **이 컴퓨터에 기억하기**(기본으로 켜짐): 키를 프로젝트 폴더의 `.env`에 저장해서 서버를 재시작해도 유지돼요. `.env`는 git에 올라가지 않고 본인 계정만 읽을 수 있어요. 키는 고른 제공사로만 전송돼요. **연결 해제**를 누르면 지워져요.
 - 키가 없으면 오프라인 **데모 브레인**으로 모든 화면이 동작해요. 정해진 답만 하고, 답변에 ‘기본 응답’ 표시가 붙어요. 키 발급: [console.anthropic.com](https://console.anthropic.com/settings/keys) · [platform.openai.com](https://platform.openai.com/api-keys)
 - 키 카드는 서버를 실행한 컴퓨터의 브라우저에서만 보여요. 같은 Wi-Fi의 휴대폰, 터널, 다른 웹사이트에서는 키를 보거나 바꿀 수 없어요.
@@ -43,6 +44,7 @@ Run the same three commands as above (`git clone …`, `npm install`, `npm run d
 3. Tachi sends one tiny test request. On success the card shows **✓ model · latency**, and every chat after that is answered by the real model. A wrong key, an account without credit or a model the account can't use is reported right there, and the app stays on what was working.
 4. Try it: sign in as **Mom** (the senior app) and chat or share an old photo. The family side is the **daughter**; the 90-second scripted demo runs in **Director**.
 
+- **Korean:** the app speaks English by default. Switch in the senior app (**Settings → Language → 한국어**) or the Director console; the demo re-seeds in Korean.
 - **Remember on this computer** (on by default) saves the key to `.env` in the project folder, so it survives restarts. `.env` is git-ignored and owner-only, and the key is only ever sent to the provider you picked. **Disconnect** removes it again.
 - No key? Everything still runs on the offline **demo brain** (scripted replies, marked “Basic reply”). Get a key at [console.anthropic.com](https://console.anthropic.com/settings/keys) or [platform.openai.com](https://platform.openai.com/api-keys).
 - The key card only appears in a browser on the machine running the server. Phones on the same Wi-Fi, tunnels and other websites can't read or change the key.
@@ -58,7 +60,7 @@ Run the same three commands as above (`git clone …`, `npm install`, `npm run d
 - 🔁 **Swappable LLMs.** Claude Sonnet 5.5 · Claude Haiku 5.5 · ChatGPT Terra · ChatGPT Luna — switch live; an offline **demo brain** keeps everything working without keys.
 - 🤖 **Demo-ready.** AI family bots chime in with 1–2 lines; a Director console runs the 90-second script; real phones can join over LAN.
 - 🧠 **LLM-driven 1:1 with the senior.** With a live model, the senior's own chat is a real conversation: Tachi answers questions about memories it doesn't have yet, asks one gentle question at a time, and **pushes the new memory into the DB + graph once the story is complete** (never on the first sentence; private until she agrees to share).
-- 🌏 **English by default, Korean on demand.** Switch in the Director or senior settings, or add `?lang=ko`.
+- 🌏 **English by default, Korean on demand.** Switch in the senior app (**Settings → Language**) or the Director console; the demo re-seeds in that language. (`?lang=ko` only translates the landing page.)
 - 🗂 **Room switcher + 1:1 chats.** Jump between rooms from a menu; tap any family member (or their name in a chat) to open a person-to-person side chat. AI-bot relatives answer in character.
 - 🗺 **Trip story cards.** When the senior shares a trip, the family room gets a travel-story card (the memory it grew from, highlights and the date); the day-by-day plan unfolds on tap.
 
