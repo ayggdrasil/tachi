@@ -372,6 +372,25 @@ export interface ModelOption {
 
 export interface ModelState { active: ModelKey; options: ModelOption[] }
 
+/** Why a bring-your-own key was not accepted (localised on the client). */
+export type KeyErrorCode = 'provider' | 'format' | 'forbidden' | 'rejected' | 'quota' | 'model' | 'timeout' | 'unreachable' | 'other';
+/** Result of handing the server an API key: tested against the provider before it is kept. */
+export interface ApiKeyResult {
+  ok: boolean;
+  error?: KeyErrorCode;
+  detail?: string;                  // short provider message (key masked)
+  model?: string;                   // label of the model now active
+  latencyMs?: number;
+  saved?: boolean;                  // written to the local .env
+}
+/** GET /api/llm — the landing page's model card. providers/saved only for a browser on the server's own machine. */
+export interface LlmStatus {
+  active: ModelKey; label: string; live: boolean; healthy?: boolean; latencyMs?: number;
+  canConfigure: boolean;
+  providers?: { anthropic: boolean; openai: boolean };
+  saved?: { anthropic: boolean; openai: boolean };
+}
+
 // ── Demo / presence ────────────────────────────────────────────────────────
 export interface DemoState {
   botsEnabled: boolean;
@@ -421,8 +440,8 @@ export interface ClientToServerEvents {
   'privacy:set': (p: { category: PrivacyCategory; visibility: Visibility }) => void;
   'memory:visibility': (p: { memoryId: ID; visibility: Visibility }) => void;
   'model:set': (p: { key: ModelKey }) => void;
-  /** Director only: hand the server an LLM API key at runtime (held in process memory only, never stored or logged). Empty key clears it. */
-  'model:apikey': (p: { provider: 'anthropic' | 'openai'; key: string }, ack: (r: { ok: boolean; error?: string }) => void) => void;
+  /** Director only: hand the server an LLM API key at runtime. Tested first; kept in memory, or also in the server's .env with remember. Empty key clears it. */
+  'model:apikey': (p: { provider: 'anthropic' | 'openai'; key: string; remember?: boolean }, ack: (r: ApiKeyResult) => void) => void;
   'demo:proactive': (p: { kind?: ProactiveKind }) => void;
   'demo:report': () => void;
   'demo:reset': () => void;

@@ -21,7 +21,7 @@ console.log(`
    ${st('boot.local')}  http://localhost:${PORT}
 ${urls.map(u => `   ${st('boot.lan')}  ${u}`).join('\n') || `   ${st('boot.noNet')}`}
    ${st('boot.director')}  http://localhost:${PORT}/demo?key=${DIRECTOR_KEY}
-   ${st('boot.model')}  ${active?.label ?? model.active}${active?.provider === 'mock' ? ` ${st('boot.offline')}` : ''}
+   ${st('boot.model')}  ${active?.label ?? model.active}${active?.provider === 'mock' ? ` ${st('boot.offline')}\n             ${st('boot.connect', { url: `http://localhost:${PORT}` })}` : ''}
    ${st('boot.graph')}  ${ctx.graph.engine === 'kuzu' ? st('boot.graph.kuzu') : st('boot.graph.mem')}
 `);
 

@@ -6,6 +6,7 @@ import { Avatar } from '../components/common/Avatar';
 import { useLan } from './demo/useLan';
 import { useT, useLocale } from '../lib/i18n';
 import { relLabel } from './family/rooms';
+import { LlmSetup } from './LlmSetup';
 import './Landing.css';
 
 export default function Landing() {
@@ -37,6 +38,8 @@ export default function Landing() {
           <h1 className="ld-mark">{t('app.name')}</h1>
           <p className="ld-pitch">{t('ld.pitch')}</p>
         </header>
+
+        <LlmSetup />
 
         <section aria-labelledby="ld-who">
           <h2 id="ld-who" className="ld-h">{t('ld.who')}</h2>

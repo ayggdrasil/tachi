@@ -28,6 +28,7 @@ const T: Record<string, [string, string]> = {
   'boot.director': [`Director  `, `디렉터    `],
   'boot.model': [`Model     `, `모델      `],
   'boot.offline': [`(offline demo mode, no API key)`, `(API 키 없이 오프라인 데모 모드)`],
+  'boot.connect': [`→ Use a real LLM: open {url} and paste an Anthropic or OpenAI API key in the “AI model” card`, `→ 실제 LLM 사용: {url} 을 열고 ‘AI 모델’ 카드에 Anthropic 또는 OpenAI API 키를 붙여넣으세요`],
   'boot.graph': [`Graph     `, `그래프    `],
   'boot.graph.kuzu': [`Kùzu graph DB`, `Kùzu 그래프 DB`],
   'boot.graph.mem': [`in-memory graph`, `인메모리 그래프`],

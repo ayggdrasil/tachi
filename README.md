@@ -19,6 +19,32 @@ An AI companion that turns a senior's old photos and stories into a living memor
 
 **Live demo:** <https://sb-4ytb6h9dessx.vercel.run> (Director console: `/demo?key=…`, ask the team for the key).
 
+## For judges: run it with your own LLM key (3 minutes)
+
+Needs [Node.js](https://nodejs.org) 20.12 or newer.
+
+```bash
+git clone https://github.com/ayggdrasil/tachi.git && cd tachi
+```
+
+```bash
+npm install
+```
+
+```bash
+npm run demo
+```
+
+1. Open <http://localhost:4100>. The first card is **AI model**.
+2. Pick **Anthropic (Claude)** or **OpenAI (ChatGPT)**, paste your API key, press **Connect**. (Pasting a key that starts with `sk-ant-` picks Anthropic automatically.)
+3. Tachi sends one tiny test request. On success the card shows **✓ model · latency**, and every chat after that is answered by the real model. A wrong key, an account without credit or a model the account can't use is reported right there, and the app stays on what was working.
+
+**Remember on this computer** (on by default) saves the key to `.env` in the project folder, so it survives restarts. `.env` is git-ignored and owner-only, and the key is only ever sent to the provider you picked. **Disconnect** removes it again.
+
+No key? Everything still runs on the offline **demo brain** (scripted replies, marked 오프라인 응답 / “Offline reply”). Get a key at [console.anthropic.com](https://console.anthropic.com/settings/keys) or [platform.openai.com](https://platform.openai.com/api-keys).
+
+The key card only appears in a browser on the machine running the server. Phones on the same Wi-Fi, tunnels and other websites can't read or change the key.
+
 ## Quick start
 
 ```bash
@@ -34,7 +60,7 @@ Development with hot reload: `npm run dev` → <http://localhost:5173>.
 
 ### Real LLMs (optional)
 
-Create `.env` in the project root:
+Easiest: paste a key in the **AI model** card on <http://localhost:4100> (see [For judges](#for-judges-run-it-with-your-own-llm-key-3-minutes)). Or create `.env` in the project root yourself:
 
 ```bash
 ANTHROPIC_API_KEY=sk-ant-...
@@ -49,7 +75,7 @@ TACHI_MODEL_GPT_LUNA=gpt-6-luna
 
 Claude requests use `output_config.effort: "low"` for short, fast replies (Sonnet 5.5 also opts into server-side refusal fallback); OpenAI requests use `reasoning_effort: "low"`.
 
-**No `.env` access (e.g. the hosted demo)?** Open the Director console → **Model → API key**, choose OpenAI or Anthropic, paste a key and press **Connect**. The key is kept in server memory only (never stored, logged or sent to other clients) and disappears on restart; **Remove** switches back to the demo brain.
+**No `.env` access (e.g. the hosted demo)?** Open the Director console → **Model → API key**, choose OpenAI or Anthropic, paste a key and press **Connect**. The key is tested first; a rejected key never replaces a working one. By default it is kept in server memory only (never logged or sent to other clients) and disappears on restart. Tick **Save on this server (.env)** to keep it across restarts. **Remove** forgets it (memory and `.env`) and switches back to the demo brain.
 
 Without keys Tachi runs on the deterministic **demo brain** (the UI marks those replies as 오프라인 응답). If a live call fails or times out mid-demo, that single reply falls back automatically.
 

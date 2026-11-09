@@ -14,6 +14,7 @@ import { Dialog } from '../family/Dialog';
 import { useLan } from './useLan';
 import { applyTheme } from '../../styles/theme';
 import './DirectorConsole.css';
+import { guessProvider, keyErrorText } from '../LlmSetup';
 
 const PHONE_W = 390;
 const PHONE_H = 844;
@@ -650,22 +651,21 @@ function Phone({ scale, label, name, src, k, caption }: { scale: number; label: 
 }
 
 
-/** Operator BYO key: the key goes to the server over the Director socket and lives in process memory only. */
+/** Operator BYO key: tested by the server first; process memory only unless "save" (then the server's .env, survives restarts). */
 function ApiKeyForm() {
   const t = useT();
   const [provider, setProvider] = useState<'openai' | 'anthropic'>('openai');
   const [key, setKey] = useState('');
+  const [save, setSave] = useState(false);
   const [pending, setPending] = useState(false);
   const [note, setNote] = useState('');
   const submit = async (value: string) => {
-    setPending(true); setNote('');
-    const r = await tachi.setApiKey(provider, value);
+    setPending(true); setNote(value ? t('key.checking', { provider: provider === 'openai' ? 'OpenAI' : 'Anthropic' }) : '');
+    const r = await tachi.setApiKey(provider, value, save);
     setPending(false);
-    if (!r.ok) { setNote(t('dir.key.fail', { error: r.error ?? '?' })); return; }
+    if (!r.ok) { setNote(keyErrorText(t, r, provider)); return; }
     setKey('');
-    const ms = getState().models;
-    const label = ms?.options.find(o => o.key === ms.active)?.label ?? '';
-    setNote(value ? t('dir.key.ok', { model: label }) : t('dir.key.cleared'));
+    setNote(value ? t(r.saved ? 'key.okSaved' : 'key.ok', { model: r.model ?? '', ms: r.latencyMs ?? 0 }) : t('dir.key.cleared'));
   };
   return (
     <form className="dc-key" onSubmit={e => { e.preventDefault(); if (key.trim()) void submit(key.trim()); }}>
@@ -679,10 +679,14 @@ function ApiKeyForm() {
       </div>
       <div className="dc-key-row">
         <input className="input" type="password" autoComplete="off" spellCheck={false} value={key}
-          onChange={e => setKey(e.target.value)} placeholder={t('dir.key.placeholder')} aria-label={t('dir.key.title')} />
+          onChange={e => { const v = e.target.value; setKey(v); const g = guessProvider(v.trim()); if (g) setProvider(g); }}
+          placeholder={t('dir.key.placeholder')} aria-label={t('dir.key.title')} />
         <button className="btn btn-primary" type="submit" disabled={pending || !key.trim()}>{t('dir.key.connect')}</button>
         <button className="btn btn-ghost" type="button" disabled={pending} onClick={() => void submit('')}>{t('dir.key.clear')}</button>
       </div>
+      <label className="dc-key-save caption">
+        <input type="checkbox" checked={save} onChange={e => setSave(e.target.checked)} /> {t('dir.key.save')}
+      </label>
       <p className="caption faint" role="status">{note || t('dir.key.hint')}</p>
     </form>
   );

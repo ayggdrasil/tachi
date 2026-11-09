@@ -35,3 +35,21 @@
 @media (hover: hover) { .ld-lang-i:hover { background: var(--hover); } }
 .ld-lang-i.is-on { color: var(--text); font-weight: var(--weight-semibold); background: var(--press); }
 .ld-pitch { text-wrap: balance; }
+
+/* AI model card (bring-your-own key, local machine only) */
+.ld-llm { display: flex; flex-direction: column; gap: var(--space-10); }
+.ld-llm-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); }
+.ld-llm-title { font-size: var(--text-body); display: flex; align-items: center; gap: var(--space-6); }
+.ld-llm-live { display: inline-flex; align-items: center; gap: var(--space-4); padding: var(--space-2) var(--space-8); border-radius: var(--radius-pill); background: var(--press); color: var(--text); font-weight: var(--weight-medium); }
+.ld-llm-form { display: flex; flex-direction: column; gap: var(--space-10); }
+.ld-llm-prov { display: flex; flex-wrap: wrap; gap: var(--space-6); }
+.ld-llm-field { display: flex; flex-direction: column; gap: var(--space-4); }
+.ld-llm-field .input { width: 100%; font-family: var(--font-mono); }
+.ld-llm-get { display: inline-flex; align-items: center; gap: var(--space-4); align-self: flex-start; color: var(--text-2); }
+.ld-llm-remember { display: flex; align-items: flex-start; gap: var(--space-8); cursor: pointer; }
+.ld-llm-remember input { margin-top: 3px; width: 18px; height: 18px; flex: none; accent-color: var(--ink); }
+.ld-llm-remember > span { display: flex; flex-direction: column; }
+.ld-llm-sub { margin-top: var(--space-2); }
+.ld-llm-actions { display: flex; flex-wrap: wrap; gap: var(--space-8); }
+.ld-llm-note { color: var(--text-2); }
+.ld-llm-note.is-bad { color: var(--text); font-weight: var(--weight-semibold); }

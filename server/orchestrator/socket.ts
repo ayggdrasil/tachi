@@ -16,6 +16,7 @@ import { st } from '../i18n';
 import { fireProactive, postReport } from './proactive';
 import { forceClosePoll } from './scheduling';
 import { resetDemo } from './reset';
+import { connectApiKey } from './llmKeys';
 import { sleep, warn } from '../util/misc';
 
 const busy = (): string => st('err.busy');
@@ -217,27 +218,11 @@ export function attachSocketHandlers(io: IO): void {
 
     sock.on('model:apikey', (p, ack) => {
       const done = typeof ack === 'function' ? ack : () => {};
-      if (!requireDirector(sock)) { done({ ok: false, error: 'director only' }); return; }
-      const provider = p?.provider;
-      const key = typeof p?.key === 'string' ? p.key.trim() : '';
-      if (provider !== 'anthropic' && provider !== 'openai') { done({ ok: false, error: 'bad provider' }); return; }
-      if (key && (key.length < 20 || key.length > 400 || /\s/.test(key))) { done({ ok: false, error: 'bad key' }); return; }
-      const envName = provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY';
-      // memory only: never written to the DB, kv, logs or any client payload
-      if (key) process.env[envName] = key; else delete process.env[envName];
-      let state = ctx.brain.getModelState();
-      const prefer: ModelKey[] = provider === 'anthropic' ? ['claude-sonnet', 'claude-haiku'] : ['gpt-terra', 'gpt-luna'];
-      const current = state.options.find(o => o.key === state.active);
-      if (key) {
-        const pick = prefer.find(k => state.options.some(o => o.key === k && o.available));
-        if (pick) state = ctx.brain.setActiveModel(pick);
-      } else if (current && !current.available) {
-        state = ctx.brain.setActiveModel('demo');
-      }
-      ctx.db.kv.set('model', state.active);
-      io.emit('model:update', state);
-      void preflightModel(state.active);
-      done({ ok: true });
+      if (!requireDirector(sock)) { done({ ok: false, error: 'forbidden' }); return; }
+      // tested against the provider before it is kept; memory only unless remember (then the server's .env too). Never logged or sent to clients.
+      connectApiKey(p?.provider, p?.key, { remember: !!p?.remember })
+        .then(done)
+        .catch(e => { warn('model:apikey failed:', e); done({ ok: false, error: 'other' }); });
     });
 
     sock.on('demo:invite', p => {

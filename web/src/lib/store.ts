@@ -2,6 +2,7 @@
 // FROZEN API — pages use: initTachi(userId), useTachi(selector), tachi.* commands.
 import { useSyncExternalStore } from 'react';
 import type {
+  ApiKeyResult,
   Artifact, ArtifactPatch, Bootstrap, Locale, Contact, DemoState, GraphDelta, GraphEdge, GraphNode, HealthSummary, ID,
   Memory, Message, ModelKey, ModelState, Poll, Presence, PrivacyCategory, PrivacySettings, ProactiveKind, Room,
   Trip, User, Visibility,
@@ -216,10 +217,11 @@ export const tachi = {
   setPrivacy(category: PrivacyCategory, visibility: Visibility) { getSocket().emit('privacy:set', { category, visibility }); },
   setMemoryVisibility(memoryId: ID, visibility: Visibility) { getSocket().emit('memory:visibility', { memoryId, visibility }); },
   setModel(key: ModelKey) { getSocket().emit('model:set', { key }); },
-  setApiKey(provider: 'anthropic' | 'openai', key: string): Promise<{ ok: boolean; error?: string }> {
+  /** The server tests the key against the provider first (up to two models × 6 s), hence the long wait. */
+  setApiKey(provider: 'anthropic' | 'openai', key: string, remember = false): Promise<ApiKeyResult> {
     return new Promise(resolve => {
-      const timer = setTimeout(() => resolve({ ok: false, error: 'timeout' }), 8000);
-      getSocket().emit('model:apikey', { provider, key }, r => { clearTimeout(timer); resolve(r); });
+      const timer = setTimeout(() => resolve({ ok: false, error: 'timeout' }), 20_000);
+      getSocket().emit('model:apikey', { provider, key, remember }, r => { clearTimeout(timer); resolve(r); });
     });
   },
   demo: {

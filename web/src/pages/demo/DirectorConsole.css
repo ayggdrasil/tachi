@@ -110,3 +110,5 @@
 .dc-key-prov { display: flex; gap: var(--space-6); }
 .dc-key-row { display: flex; gap: var(--space-6); }
 .dc-key-row .input { flex: 1; min-width: 0; }
+.dc-key-save { display: flex; align-items: center; gap: var(--space-6); color: var(--text-2); cursor: pointer; }
+.dc-key-save input { accent-color: var(--ink); }

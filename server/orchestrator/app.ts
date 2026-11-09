@@ -21,6 +21,7 @@ import { st } from '../i18n';
 import { applyLocale, resolveBootLocale } from './locale';
 import { installGuards, memoryVisibleToFamily, senior, syncClock } from './core';
 import { attachSocketHandlers, preflightModel } from './socket';
+import { connectApiKey, isLocalRequest, llmStatus } from './llmKeys';
 import { startTicker, stopTicker } from './proactive';
 import { log, warn } from '../util/misc';
 import type { Locale, ModelKey } from '../../shared/types';
@@ -120,15 +121,24 @@ export async function createApp(opts: AppOptions = {}) {
   });
 
   let qrCache: { key: string; qr: string } | undefined;
-  const isLoopback = (a?: string) => !!a && ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(a);
   app.get('/api/lan', async (req, res) => {
     const dirKey = process.env.TACHI_DIRECTOR_KEY;
-    const directorUrl = dirKey && isLoopback(req.socket.remoteAddress) ? `http://localhost:${port}/demo?key=${dirKey}` : undefined;
+    // only for a browser on this machine: a tunnel (cloudflared, ngrok) also connects from loopback, so forwarded requests never get the key
+    const directorUrl = dirKey && isLocalRequest(req) ? `http://localhost:${port}/demo?key=${dirKey}` : undefined;
     const urls = ctx.lanUrls.length ? ctx.lanUrls : [`http://localhost:${port}`];
     try {
       if (qrCache?.key !== urls[0]) qrCache = { key: urls[0], qr: await QRCode.toDataURL(urls[0] + '/', { margin: 1, width: 320 }) };
       res.json({ urls, qr: qrCache.qr, ...(directorUrl ? { directorUrl } : {}) });
     } catch (e) { warn('qr failed:', e); res.json({ urls, qr: '', ...(directorUrl ? { directorUrl } : {}) }); }
+  });
+  // bring-your-own LLM key from the landing page: only a browser on the server's own machine (see isLocalRequest)
+  app.get('/api/llm', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.json(llmStatus(isLocalRequest(req))); });
+  app.post('/api/llm/key', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    if (!isLocalRequest(req)) { res.status(403).json({ ok: false, error: 'forbidden' }); return; }
+    const b = (req.body ?? {}) as { provider?: unknown; key?: unknown; remember?: unknown };
+    try { res.json(await connectApiKey(b.provider, b.key, { remember: b.remember === true })); }
+    catch (e) { warn('api/llm/key failed:', e); res.status(500).json({ ok: false, error: 'other' }); }
   });
   app.get('/api/demo-photos', (_req, res) => {
     let files: string[] = [];
