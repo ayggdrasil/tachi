@@ -15,7 +15,7 @@ interface Props { roomId: string; variant: 'senior' | 'family'; onOpenArtifact?:
   /** When set, other people's names/avatars become buttons that open a 1:1 chat with them. */
   onOpenDm?: (userId: string) => void }
 
-const CARD_KINDS = new Set(['memory_card', 'recall_card', 'trip_suggestion', 'itinerary', 'share_card', 'artifact', 'schedule_request', 'schedule_result', 'health_card', 'report']);
+const CARD_KINDS = new Set(['memory_card', 'recall_card', 'trip_suggestion', 'itinerary', 'share_card', 'artifact', 'schedule_request', 'schedule_result', 'health_card', 'report', 'task_card']);
 /** Cards that render their own actions inside (right under the primary content) so they stay above the fold. */
 const INLINE_ACTIONS = new Set(['memory_card', 'itinerary', 'trip_suggestion']);
 const TEXT_ABOVE = new Set(['recall_card']);
@@ -160,6 +160,7 @@ export function MessageList({ roomId, variant, onOpenArtifact, onOpenRoom, empty
                         {m.text}
                       </div>
                     )}
+                    {m.kind === 'text' && isTachi && !!m.meta?.toolsUsed?.length && <div className="ml-checked">{t('ml.checked', { tools: m.meta.toolsUsed.join(' · ') })}</div>}
                     {m.kind === 'text' && senior && isTachi && <div className="ml-tools"><SpeakButton text={m.text} /></div>}
                     {m.kind !== 'text' && TEXT_ABOVE.has(m.kind) && m.text && (
                       <div className="ml-text ml-tachi">{m.text}</div>

@@ -35,16 +35,26 @@
 @media (hover: none) { .ap-rm { opacity: 1; } }
 
 .ap-tasks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.ap-task { display: flex; align-items: center; gap: var(--space-8); padding: var(--space-6) 0; border-bottom: 1px solid var(--border); }
+.ap-task { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-6) 0 var(--space-8); border-bottom: 1px solid var(--border); }
+.ap-task-main { display: flex; align-items: center; gap: var(--space-8); }
+.ap-task-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-6); padding-left: 40px; }
+.ap-act { min-height: 32px; padding: 0 var(--space-10); font-size: var(--text-small); margin-left: auto; }
+@media (pointer: coarse) { .ap-act { min-height: var(--target-min); } }
+.ap-link { display: inline-flex; align-items: center; min-height: 24px; color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+.ap-note { padding-left: 40px; }
+.ap-spin { animation: ap-rot 1s linear infinite; }
+@keyframes ap-rot { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ap-spin { animation: none; } }
 .ap-check { width: 20px; height: 20px; accent-color: var(--ink); flex: none; margin: 0; }
 .ap-task-text { flex: 1; min-width: 0; font-size: var(--text-caption); }
 .ap-task-text.is-done { color: var(--text-3); text-decoration: line-through; }
 .ap-assign { display: inline-flex; align-items: center; gap: var(--space-4); flex: none; }
 .ap-noassign { width: 22px; height: 22px; border-radius: 50%; border: 1px dashed var(--border-strong); }
-.ap-select { border: 0; background: transparent; font-size: var(--text-small); color: var(--text-2); max-width: 84px; padding: 2px; border-radius: var(--radius-sm); }
+.ap-select { border: 0; background: transparent; font-size: var(--text-small); color: var(--text-2); max-width: 84px; min-height: 28px; padding: 2px; border-radius: var(--radius-sm); } /* WCAG 2.5.8: >= 24px target */
 @media (hover: hover) { .ap-select:hover { background: var(--hover); } }
 .ap-addtask { display: flex; gap: var(--space-6); margin-top: var(--space-8); }
 .ap-check-hit { display: inline-flex; align-items: center; justify-content: center; min-width: 32px; min-height: 32px; flex: none; }
 @media (pointer: coarse) { .ap-check-hit { min-width: var(--target-min); min-height: var(--target-min); } }
 
 .ap-addtask .btn-icon { flex: none; }
+@media (pointer: coarse) { .ap-task-meta, .ap-note { padding-left: calc(var(--target-min) + var(--space-8)); } }

@@ -4,7 +4,7 @@ import type { Memory, ModelKey, ProactiveKind, Visibility } from '../../shared/t
 import { ctx, type IO, type Sock } from './ctx';
 import { buildBootstrap } from './bootstrap';
 import {
-  applyMemoryVisibility, emitPresence, getPrivacy, patchDemo, resyncFamilyViewers, rotateHiddenPhotos, roomChannel, runWithGen, seesAll,
+  applyMemoryVisibility, emitPresence, enqueue, getPrivacy, patchDemo, resyncFamilyViewers, rotateHiddenPhotos, roomChannel, runWithGen, seesAll,
   setDemoClock, userChannel,
 } from './core';
 import { handleAction, handleIncoming } from './messages';
@@ -15,6 +15,9 @@ import { getLocale, isLocale } from './locale';
 import { st } from '../i18n';
 import { fireProactive, postReport } from './proactive';
 import { forceClosePoll } from './scheduling';
+import { executeTask, normalizeTasks, runFollowUps, setTaskStatus } from './tasks';
+import { emitArtifact } from './artifacts';
+import { nowIso } from '../util/misc';
 import { resetDemo } from './reset';
 import { connectApiKey } from './llmKeys';
 import { sleep, warn } from '../util/misc';
@@ -189,6 +192,37 @@ export function attachSocketHandlers(io: IO): void {
     sock.on('artifact:update', p => { const u = uid(); if (u && p) safe('artifact:update', () => updateArtifact(u, p.artifactId, p.patch), sock); });
     sock.on('artifact:task', p => { const u = uid(); if (u && p) safe('artifact:task', () => artifactTask(u, p), sock); });
     sock.on('artifact:assist', p => { const u = uid(); if (u && p) safe('artifact:assist', () => assistArtifact(u, p.artifactId), sock); });
+    sock.on('artifact:task:execute', (p, ack) => {
+      const reply = (r: { ok: boolean; error?: string; message?: string }) => { if (typeof ack === 'function') ack(r); };
+      const u = uid();
+      if (!u || !p || typeof p.artifactId !== 'string' || typeof p.taskId !== 'string') { reply({ ok: false, error: st('err.badRequest') }); return; }
+      if (ctx.resetting) { sock.emit('toast', { text: busy() }); reply({ ok: false, error: busy() }); return; }
+      const room = ctx.db.rooms.get(ctx.db.artifacts.get(p.artifactId)?.roomId ?? '');
+      const run = () => executeTask(u, p.artifactId, p.taskId, p.kind);
+      // serialize with the artifact's room so Tachi's lines keep their order
+      const job = room ? new Promise<{ ok: boolean; error?: string; message?: string }>(res => { void enqueue(room.id, async () => { res(await run()); }).then(() => res({ ok: false, error: st('err.cancelledReset') })); }) : runWithGen(ctx.gen, run);
+      job.then(r => { if (!r.ok && r.message) sock.emit('toast', { text: r.message }); reply(r); }).catch(e => {
+        warn('artifact:task:execute failed:', e);
+        sock.emit('toast', { text: st('err.retry') });
+        reply({ ok: false, error: st('err.generic') });
+      });
+    });
+    sock.on('artifact:task:status', p => {
+      const u = uid();
+      if (!u || !p) return;
+      safe('artifact:task:status', () => {
+        const a = ctx.db.artifacts.get(p.artifactId);
+        const room = a && ctx.db.rooms.get(a.roomId);
+        const t = a?.tasks.find(x => x.id === p.taskId);
+        if (!a || !room || !t || !(u === DIRECTOR_ID || room.memberIds.includes(u))) return;
+        if (!['todo', 'in_progress', 'done', 'blocked'].includes(p.status)) return;
+        setTaskStatus(t, p.status, u === DIRECTOR_ID ? 'tachi' : u);
+        a.updatedBy = u === DIRECTOR_ID ? 'director' : u;
+        a.updatedAt = nowIso();
+        ctx.db.artifacts.put(normalizeTasks(a));
+        emitArtifact(a);
+      }, sock);
+    });
 
     sock.on('privacy:set', p => {
       const u = uid();
@@ -240,6 +274,13 @@ export function attachSocketHandlers(io: IO): void {
       if (!requireDirector(sock)) return;
       safe('demo:closePoll', async () => {
         if (!(await forceClosePoll())) sock.emit('toast', { text: st('toast.noPoll') });
+      }, sock);
+    });
+    sock.on('demo:followups', () => {
+      if (!requireDirector(sock)) return;
+      safe('demo:followups', async () => {
+        const n = await runFollowUps();
+        sock.emit('toast', { text: n ? st('task.followups.done', { n, s: n === 1 ? '' : 's' }) : st('task.followups.none') });
       }, sock);
     });
     sock.on('demo:say', p => {

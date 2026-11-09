@@ -3,6 +3,8 @@ import type { HealthCardPayload, ReportPayload } from '../../../../shared/types'
 import { useT } from '../../lib/i18n';
 import { HealthSummaryView } from '../health/HealthSummaryView';
 import type { CardProps } from './types';
+import { useTachi } from '../../lib/store';
+import { TaskStatusChip } from './TaskCards';
 import './cards.css';
 
 export function HealthCard({ message, variant }: CardProps) {
@@ -35,10 +37,34 @@ export function ReportCard({ message }: CardProps) {
       </ul>
       {p.moodLabel && <p className="cd-row"><span className="cd-label">{t('report.mood')}</span><span className="badge">{p.moodLabel}</span></p>}
       {p.highlight && <p className="cd-warm">{p.highlight}</p>}
+      {p.openTasks && p.openTasks.length > 0 && <OpenTasks tasks={p.openTasks} line={p.tasksLine} />}
     </article>
   );
 }
 
 export function SystemLine({ message }: CardProps) {
   return <p className="cd-system">{message.text}</p>;
+}
+
+function OpenTasks({ tasks, line }: { tasks: NonNullable<ReportPayload['openTasks']>; line?: string }) {
+  const tr = useT();
+  const users = useTachi(s => s.users);
+  return (
+    <section className="cd-opentasks" aria-label={tr('task.openTasks')}>
+      <p className="cd-cap-top">{line || tr('task.openCount', { n: tasks.length })}</p>
+      <ul>
+        {tasks.map(t => (
+          <li key={t.taskId}>
+            <TaskStatusChip status={t.status} compact />
+            {/* one text column so a long task wraps beside the chip, with owner / reminders inline after it */}
+            <span className="cd-ot-body">
+              {t.text}
+              {t.assigneeId && users[t.assigneeId] && <span className="cd-meta"> · {users[t.assigneeId].shortName}</span>}
+              {t.followUpCount > 0 && <span className="cd-meta"> · {tr('task.reminded', { n: t.followUpCount })}</span>}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }

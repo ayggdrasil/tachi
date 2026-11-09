@@ -9,6 +9,7 @@ import { nowIso, uid } from '../util/misc';
 import { reactBots } from './bots';
 import { st } from '../i18n';
 import { findPlaces, placeById, resolvePlace } from '../data/places';
+import { normalizeTasks, refineTaskActions, resetFollowUps, setTaskStatus } from './tasks';
 
 /** Regions named by the proposal text (gazetteer match) or the linked trip's destination. */
 function destinationRegions(text: string, trip?: Trip): { regions: Set<string>; display?: string } {
@@ -126,8 +127,9 @@ async function mergeIntoArtifact(a: Artifact, roomId: ID, proposer: User, member
   if (changes.length) {
     fresh.updatedBy = TACHI_ID;
     fresh.updatedAt = nowIso();
-    ctx.db.artifacts.put(fresh);
+    ctx.db.artifacts.put(normalizeTasks(fresh));
     emitArtifact(fresh);
+    if (addTasks.length) refineTaskActions(fresh.id);
     m = await tachiSay(roomId, {
       kind: 'artifact',
       text: st('art.merged', { changes: changes.join(', ') }),
@@ -208,8 +210,9 @@ export async function createGathering(
     tasks: (d.tasks ?? []).map(x => ({ id: uid('task'), text: x.text, assigneeId: x.assigneeId && memberIds.has(x.assigneeId) ? x.assigneeId : undefined, done: false })),
     notes: d.notes ?? '', linkedMemoryId: memory?.id, linkedTripId: trip?.id, createdBy: proposer.id, updatedBy: TACHI_ID, updatedAt: t, createdAt: t,
   };
-  ctx.db.artifacts.put(art);
+  ctx.db.artifacts.put(normalizeTasks(art));
   emitArtifact(art);
+  refineTaskActions(art.id);
   const m = await tachiSay(roomId, {
     kind: 'artifact',
     text: st('art.created', { title: art.title }),
@@ -233,7 +236,7 @@ function editable(userId: ID, artifactId: ID): Artifact | undefined {
 function touch(a: Artifact, userId: ID): void {
   a.updatedBy = seesAll(userId) && userId !== 'mom' ? 'director' : userId;
   a.updatedAt = nowIso();
-  ctx.db.artifacts.put(a);
+  ctx.db.artifacts.put(normalizeTasks(a));
   emitArtifact(a);
 }
 
@@ -254,15 +257,20 @@ export function artifactTask(userId: ID, p: { artifactId: ID; op: 'add' | 'toggl
   if (p.op === 'add') {
     const text = (p.text ?? '').trim().slice(0, 300);
     if (!text) return;
-    a.tasks.push({ id: uid('task'), text, assigneeId: p.assigneeId, done: false });
+    const room = ctx.db.rooms.get(a.roomId);
+    const assignee = typeof p.assigneeId === 'string' && room?.memberIds.includes(p.assigneeId) ? p.assigneeId : undefined;
+    a.tasks.push({ id: uid('task'), text, assigneeId: assignee, done: false });
   } else {
     const t = a.tasks.find(x => x.id === p.taskId);
     if (!t) return;
-    if (p.op === 'toggle') t.done = !t.done;
-    else if (p.op === 'assign') t.assigneeId = p.assigneeId || undefined;
-    else a.tasks = a.tasks.filter(x => x.id !== p.taskId);
+    if (p.op === 'toggle') setTaskStatus(t, t.done ? 'todo' : 'done', userId);
+    else if (p.op === 'assign') {
+      const next = p.assigneeId || undefined;
+      if (next !== t.assigneeId) { t.assigneeId = next; resetFollowUps(t); }
+    } else a.tasks = a.tasks.filter(x => x.id !== p.taskId);
   }
   touch(a, userId);
+  if (p.op === 'add') refineTaskActions(a.id);
 }
 
 export async function assistArtifact(userId: ID, artifactId: ID): Promise<void> {
@@ -280,7 +288,8 @@ export async function assistArtifact(userId: ID, artifactId: ID): Promise<void> 
   }
   fresh.updatedBy = TACHI_ID;
   fresh.updatedAt = nowIso();
-  ctx.db.artifacts.put(fresh);
+  ctx.db.artifacts.put(normalizeTasks(fresh));
   emitArtifact(fresh);
+  refineTaskActions(fresh.id);
   await tachiSay(a.roomId, { text: ai.value.message || st('art.assistFallback') }, ai);
 }

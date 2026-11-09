@@ -31,6 +31,7 @@
 .ml-senior .ml-actions-row .btn { padding: 0 var(--space-12); }
 .ml-senior .ml-actions { grid-template-columns: 1fr; max-width: 100%; }
 .ml-model { font-size: var(--text-micro); color: var(--text-3); }
+.ml-checked { font-size: var(--text-micro); color: var(--text-2); margin-top: 4px; }
 .ml-gen { font-size: var(--text-micro); }
 .ml-auto-cap { font-size: var(--senior-caption); color: var(--text-2); }
 .ml-chips { display: flex; flex-wrap: wrap; gap: var(--space-8); margin-top: var(--space-6); }

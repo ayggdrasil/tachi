@@ -26,3 +26,4 @@ export const assistPrompt: typeof KO.assistPrompt = (...a) => pick().assistPromp
 export const availabilityPrompt: typeof KO.availabilityPrompt = (...a) => pick().availabilityPrompt(...a);
 export const botPrompt: typeof KO.botPrompt = (...a) => pick().botPrompt(...a);
 export const memoryBlock: typeof KO.memoryBlock = (...a) => pick().memoryBlock(...a);
+export const taskClassifyPrompt: typeof KO.taskClassifyPrompt = (...a) => pick().taskClassifyPrompt(...a);

@@ -19,6 +19,7 @@ import { reactBots } from './bots';
 import { clearProactiveMemory, getProactiveMemory, noteSeniorReply } from './proactive';
 import { logSeniorSession } from './sessions';
 import { tryMomAvailability } from './scheduling';
+import { tryToolLoop } from './agentic';
 import { agentTurn } from './seniorAgent';
 import { isKo } from './locale';
 import { nowIso, uid, warn, ymd } from '../util/misc';
@@ -84,6 +85,8 @@ async function tryAgent(room: Room, text: string | undefined, photoUrl: string |
       if (ITINERARY_TOGETHER_RE.test(text)) { await makeGatheringFromText(room.id, pending.tripId); return true; }
     }
   }
+  // tool-shaped requests (reminders / routes / places) go through the tool loop first; it returns undefined to fall through
+  if (!photoUrl && text && !yesNo(text) && await tryToolLoop(room, 'senior', senior(), text)) return true;
   try { return await agentTurn(room, text, photoUrl, msgId); } catch (e) { warn('senior agent failed, using the offline pipeline:', e); return false; }
 }
 
@@ -198,6 +201,8 @@ async function handleSeniorText(room: Room, text: string): Promise<void> {
   }
   // a plain yes while the trip offer is still being prepared is remembered and honoured when it posts
   if (!pending && offerReserved.size && yesNo(text) === 'yes' && queueAcceptIfReserved()) return;
+  // agent loop (reminders / routes); any failure falls through to the state machine below unchanged
+  if (!yesNo(text) && await tryToolLoop(room, 'senior', senior(), text)) return;
   const names = await ctx.graph.nodeNames().catch(() => [] as string[]);
   const ai = await withTyping(room.id, () => ctx.brain.classifySeniorIntent(text, { knownNodeNames: names, pending: pending?.type ?? null }));
   const intent = ai.value;

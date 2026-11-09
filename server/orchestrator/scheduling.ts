@@ -10,6 +10,7 @@ import {
 import { emitArtifact, latestOpenArtifact } from './artifacts';
 import { reactBots, scheduleBotAnswers } from './bots';
 import { nowIso, uid } from '../util/misc';
+import { replanTaskDueDates, tryTaskReply } from './tasks';
 
 function openPoll(familyRoomId: ID): Poll | undefined {
   return ctx.db.polls.all().filter(p => p.familyRoomId === familyRoomId && p.status === 'open').at(-1);
@@ -182,7 +183,10 @@ export async function closePoll(pollId: ID): Promise<void> {
       ],
     });
   reactBots(poll.familyRoomId, res, unanimous ? { kind: 'schedule_result', text: st('sched.react.confirmed', { label: best.label }) } : { kind: 'text', text: st('sched.react.candidate', { label: best.label }) });
-  if (unanimous) await announceConfirmed(poll, best);
+  if (unanimous) {
+    await announceConfirmed(poll, best);
+    if (artifact) replanTaskDueDates(artifact.id); // due dates follow the confirmed slot (never throws)
+  }
 }
 
 /** Family-room actions on a non-unanimous result card: confirm_slot / repoll. */
@@ -218,6 +222,7 @@ export async function handleScheduleAction(userId: ID, msg: Message, actionId: s
     }
     reactBots(poll.familyRoomId, msg, { kind: 'schedule_result', text: st('sched.react.confirmed', { label: slot.label }) });
     await announceConfirmed(poll, slot);
+    if (artifact) replanTaskDueDates(artifact.id);
   } else if (actionId === 'repoll') {
     markActionDone(msg);
     const shifted: Slot[] = poll.slots.map((sl, i) => {
@@ -247,6 +252,7 @@ export async function handlePickSlots(userId: ID, msg: Message, data?: Record<st
 
 export async function handleSideMessage(room: Room, userId: ID, text?: string): Promise<void> {
   if (!text) return;
+  if (await tryTaskReply(room, userId, text)) return; // 완료 / 도움 필요 / 나중에 to a to-do reminder
   const poll = room.pollId ? ctx.db.polls.get(room.pollId) : undefined;
   if (!poll || poll.status !== 'open') {
     await tachiSay(room.id, { text: st('sched.alreadySet') });

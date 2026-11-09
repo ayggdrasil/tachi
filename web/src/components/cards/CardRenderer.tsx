@@ -2,6 +2,7 @@ import { PhotoCard, MemoryCard, ShareCard, RecallCard } from './MemoryCards';
 import { TripSuggestionCard, ItineraryCard } from './TripCards';
 import { ArtifactCard, ScheduleProgressCard, ScheduleRequestCard, ScheduleResultCard } from './GatheringCards';
 import { HealthCard, ReportCard, SystemLine } from './MiscCards';
+import { TaskCard } from './TaskCards';
 import type { CardProps } from './types';
 
 /** Renders the structured card for a non-text message; returns null for plain text. */
@@ -21,6 +22,7 @@ export function CardRenderer(props: CardProps) {
     case 'schedule_request': return kindOk('schedule_request') ? <ScheduleRequestCard {...props} /> : null;
     case 'schedule_progress': return kindOk('schedule_progress') ? <ScheduleProgressCard {...props} /> : null;
     case 'schedule_result': return kindOk('schedule_result') ? <ScheduleResultCard {...props} /> : null;
+    case 'task_card': return kindOk('task_card') ? <TaskCard {...props} /> : null;
     case 'system': return <SystemLine {...props} />;
     default: return null;
   }

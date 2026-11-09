@@ -6,8 +6,11 @@ import type { Memory, PrivacyCategory, ProactiveKind, ReportPayload } from '../.
 import { ctx } from './ctx';
 import { getDemo, markFiredUpTo, getHealth, getPrivacy, maskedSummary, maskedTitle, memoryVisibleToFamily, now, patchDemo, reportHighlight, runWithGen, senior, tachiSay } from './core';
 import { reactBots } from './bots';
+import { deliverDueReminders } from './agentic';
 import { endSession, sessionHiddenFromFamily, startSession, todaysSessions } from './sessions';
 import { pick, warn, ymd } from '../util/misc';
+import { openTasksForReport, runFollowUps } from './tasks';
+import { openTasksLine } from '../brain/heuristics/tasks';
 
 const KEY_ACTIVE = 'active-proactive';
 const KINDS: ProactiveKind[] = ['morning', 'memory', 'evening', 'ask_photo'];
@@ -86,7 +89,9 @@ export async function postReport(auto = false): Promise<void> {
   // sessions about a memory the family cannot see are masked before the brain ever sees them
   const hidden = new Set(sessions.filter(sessionHiddenFromFamily).map(s => s.id));
   const forBrain = sessions.map(s => (hidden.has(s.id) ? { ...s, title: maskedTitle(), summary: maskedSummary(), memoryId: undefined } : s));
-  const ai = await ctx.brain.composeReport({ sessions: forBrain, privacy, moodToday, senior: senior(), now: now() });
+  const openTasks = openTasksForReport(FAMILY_ROOM_ID);
+  const people = Object.fromEntries(ctx.db.users.all().map(u => [u.id, u.shortName]));
+  const ai = await ctx.brain.composeReport({ sessions: forBrain, privacy, moodToday, senior: senior(), now: now(), openTasks, people });
   const v = ai.value;
   const rows = (v.sessions ?? []).map(s => (
     privacy[s.category] === 'private' || (s.title === maskedTitle() && s.summary === maskedSummary())
@@ -105,6 +110,8 @@ export async function postReport(auto = false): Promise<void> {
     moodLabel: privacy.mood === 'family' ? v.moodLabel ?? moodToday : undefined,
     sessions: rows,
     highlight,
+    // open gathering to-dos come from the orchestrator's own state (whatever the model returned)
+    ...(openTasks.length ? { openTasks, tasksLine: v.tasksLine || openTasksLine(openTasks, people) } : { openTasks: undefined, tasksLine: undefined }),
   };
   sessions.forEach(s => ctx.db.sessions.put({ ...s, reported: true }));
   const m = await tachiSay(FAMILY_ROOM_ID, {
@@ -130,6 +137,8 @@ function inWindow(t: Date, hhmm: string): boolean {
 }
 
 export async function tick(): Promise<void> {
+  // reminders are promises made to the senior: delivered even while the Director drives the demo
+  await deliverDueReminders().catch(e => warn('reminder delivery failed:', e));
   if (ctx.io?.sockets.adapter.rooms.get('user:director')?.size) return; // the Director drives the demo by hand
   const t = now();
   const today = ymd(t);
@@ -140,5 +149,6 @@ export async function tick(): Promise<void> {
     ctx.db.kv.set('report-fired-on', today);
     await postReport(true);
   }
+  await runFollowUps(t); // to-do follow-ups (reminder → second nudge → family room), demo clock
 }
 

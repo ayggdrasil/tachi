@@ -2,8 +2,11 @@
 // Agent A (orchestrator) only calls through this interface.
 import type {
   Locale, Artifact, ArtifactTask, HealthSummary, ItineraryPayload, Memory, MemoryPerson, ModelKey, ModelState,
-  PrivacyCategory, PrivacySettings, ProactiveKind, ReportPayload, SessionLog, Slot, TripSuggestionPayload, User,
+  PrivacyCategory, PrivacySettings, ProactiveKind, ReportOpenTask, ReportPayload, SessionLog, Slot, TripSuggestionPayload, User,
+  BookingCategory, TaskActionKind,
 } from '../../shared/types';
+import type { AnyTool, ToolAudience, ToolContext } from '../tools/types';
+import type { AgentOutcome } from './toolLoop';
 
 /** Every AI result carries which model produced it and whether the heuristic fallback answered. */
 export interface AIResult<T> {
@@ -117,12 +120,37 @@ export interface GatheringDraft {
   notes: string;
 }
 
+// ── To-do execution ───────────────────────────────────────────────────────
+export interface TaskClassifyInput {
+  tasks: { id: string; text: string; assigneeId?: string }[];
+  title?: string;
+  place?: string;
+}
+
+/** What Tachi can do for one to-do. `query` is a short search noun for booking links ('한정식', '한옥 숙소'). */
+export interface TaskClassification { kind: TaskActionKind; category?: BookingCategory; query?: string }
+
 // ── Bots ───────────────────────────────────────────────────────────────────
 export interface BotContext {
   persona: User;                 // the family member the bot speaks as
   senior: User;
   recent: { sender: string; text: string }[];   // last ~8 messages, display names
   trigger: { kind: string; text: string };      // the message being reacted to (kind = MessageKind)
+}
+
+// ── Agent (tool-calling loop) ─────────────────────────────────────────────
+export interface AgentRunInput {
+  goal: string;                  // the user's request (plus any context the orchestrator adds)
+  audience: ToolAudience;
+  tools: AnyTool[];              // the tools this request may use (already filtered by audience)
+  toolCtx: ToolContext;          // privacy is enforced inside tool execution with this context
+  system: string;
+  /** the deterministic offline planner may answer (demo brain, provider down, live failure) */
+  allowOffline: boolean;
+  /** skip the live provider even when one is configured (the request only suits the deterministic planner) */
+  offlineOnly?: boolean;
+  maxSteps?: number;
+  deadlineMs?: number;
 }
 
 // ── LLM-driven senior conversation (1:1 room) ──────────────────────────────
@@ -197,16 +225,24 @@ export interface Brain {
   planItinerary(suggestion: Omit<TripSuggestionPayload, 'type'>, senior: User): Promise<AIResult<Omit<ItineraryPayload, 'type' | 'tripId'>>>;
 
   proactiveMessage(input: { kind: ProactiveKind; memory?: Memory; senior: User; now: Date }): Promise<AIResult<{ text: string; quickReplies: string[] }>>;
-  composeReport(input: { sessions: SessionLog[]; privacy: PrivacySettings; moodToday?: string; senior: User; now: Date }): Promise<AIResult<Omit<ReportPayload, 'type'>>>;
+  composeReport(input: { sessions: SessionLog[]; privacy: PrivacySettings; moodToday?: string; senior: User; now: Date; openTasks?: ReportOpenTask[]; people?: Record<string, string> }): Promise<AIResult<Omit<ReportPayload, 'type'>>>;
 
   classifyFamilyIntent(text: string, asker: User): Promise<AIResult<FamilyIntent>>;
   answerFamily(question: string, ctx: FamilyContext): Promise<AIResult<FamilyAnswer>>;
 
   draftGathering(input: GatheringInput): Promise<AIResult<GatheringDraft>>;
   assistArtifact(artifact: Artifact, members: User[]): Promise<AIResult<{ message: string; newTasks: Omit<ArtifactTask, 'id' | 'done'>[] }>>;
+  /** Classify gathering to-dos into actions (booking link / reminder / none), keyed by task id. Optional: callers fall back to the heuristic. */
+  classifyTasks?(input: TaskClassifyInput): Promise<AIResult<Record<string, TaskClassification>>>;
   /** Free-text availability → slot ids that work for this person. */
   parseAvailability(text: string, slots: Slot[]): Promise<AIResult<string[]>>;
 
   /** 1–2 line in-character reply from a family bot. Return '' to stay silent. */
   botReply(ctx: BotContext): Promise<AIResult<string>>;
+
+  /**
+   * Agentic loop (plan → tools → verify). Live provider when available; otherwise (or when `allowOffline` and the live run
+   * failed) the offline planner. `value.ok === false` means: fall back to the state machine. Optional (additive).
+   */
+  runAgent?(input: AgentRunInput): Promise<AIResult<AgentOutcome>>;
 }
