@@ -5,6 +5,7 @@ import type { ToolAudience } from '../tools';
 import type { AgentStep } from './toolLoop';
 import { parseClock, parseWhen } from '../tools/time';
 import { getLocale } from './locale';
+import { withJosa } from './heuristics/ko';
 
 export interface PlannedCall { name: string; input: Record<string, unknown> }
 
@@ -134,7 +135,7 @@ export function composeFromSteps(steps: AgentStep[], audience: ToolAudience): st
       case 'map_search': {
         const ps = d.places as J[];
         if (en) lines.push(ps.length ? `Near ${d.center ?? 'there'} you'll find ${ps.map(p => p.name).join(', ')}. ${String(ps[0].seniorNote ?? '')}`.trim() : "I couldn't find a good place nearby.");
-        else lines.push(ps.length ? `${d.center ?? ''} 근처에는 ${ps.map(p => p.name).join(', ')}이 있어요. ${String(ps[0].seniorNote ?? '')}`.trim() : '근처에서 알맞은 곳을 찾지 못했어요.');
+        else lines.push(ps.length ? `${d.center ?? ''} 근처에는 ${withJosa(ps.map(p => String(p.name)).join(', '), '이', '가')} 있어요. ${String(ps[0].seniorNote ?? '')}`.trim() : '근처에서 알맞은 곳을 찾지 못했어요.');
         break;
       }
       case 'graph_search': {

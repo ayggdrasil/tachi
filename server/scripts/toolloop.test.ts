@@ -58,6 +58,8 @@ async function main() {
 
   const r3 = await ask(jieun, FAMILY_ROOM_ID, '타치, 불국사 근처에 가볼 만한 곳 있어?', 'family places reply', m => !!m.meta?.toolsUsed);
   check(!!r3 && /근처에는/.test(r3.text), `family places answer (${r3?.text})`);
+  // Regression: QA round integration ISSUE-012 — '동궁과 월지이 있어요' (subject particle must follow the last name's batchim)
+  check(!!r3 && !/월지이 있어요/.test(r3.text) && /(?:[가-힣]가|[가-힣]이) 있어요/.test(r3.text), `places answer uses the right particle (${r3?.text})`);
 
   const momBefore = mom.msgs.length;
   const r4 = await ask(jieun, FAMILY_ROOM_ID, '타치, 엄마한테 내일 오후 3시에 병원 가시라고 알려줘', 'family reminder reply', m => !!m.meta?.toolsUsed);
