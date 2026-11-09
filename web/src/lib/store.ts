@@ -216,6 +216,12 @@ export const tachi = {
   setPrivacy(category: PrivacyCategory, visibility: Visibility) { getSocket().emit('privacy:set', { category, visibility }); },
   setMemoryVisibility(memoryId: ID, visibility: Visibility) { getSocket().emit('memory:visibility', { memoryId, visibility }); },
   setModel(key: ModelKey) { getSocket().emit('model:set', { key }); },
+  setApiKey(provider: 'anthropic' | 'openai', key: string): Promise<{ ok: boolean; error?: string }> {
+    return new Promise(resolve => {
+      const timer = setTimeout(() => resolve({ ok: false, error: 'timeout' }), 8000);
+      getSocket().emit('model:apikey', { provider, key }, r => { clearTimeout(timer); resolve(r); });
+    });
+  },
   demo: {
     proactive(kind?: ProactiveKind) { getSocket().emit('demo:proactive', { kind }); },
     report() { getSocket().emit('demo:report'); },

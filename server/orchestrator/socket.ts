@@ -215,6 +215,31 @@ export function attachSocketHandlers(io: IO): void {
       }, sock);
     });
 
+    sock.on('model:apikey', (p, ack) => {
+      const done = typeof ack === 'function' ? ack : () => {};
+      if (!requireDirector(sock)) { done({ ok: false, error: 'director only' }); return; }
+      const provider = p?.provider;
+      const key = typeof p?.key === 'string' ? p.key.trim() : '';
+      if (provider !== 'anthropic' && provider !== 'openai') { done({ ok: false, error: 'bad provider' }); return; }
+      if (key && (key.length < 20 || key.length > 400 || /\s/.test(key))) { done({ ok: false, error: 'bad key' }); return; }
+      const envName = provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY';
+      // memory only: never written to the DB, kv, logs or any client payload
+      if (key) process.env[envName] = key; else delete process.env[envName];
+      let state = ctx.brain.getModelState();
+      const prefer: ModelKey[] = provider === 'anthropic' ? ['claude-sonnet', 'claude-haiku'] : ['gpt-terra', 'gpt-luna'];
+      const current = state.options.find(o => o.key === state.active);
+      if (key) {
+        const pick = prefer.find(k => state.options.some(o => o.key === k && o.available));
+        if (pick) state = ctx.brain.setActiveModel(pick);
+      } else if (current && !current.available) {
+        state = ctx.brain.setActiveModel('demo');
+      }
+      ctx.db.kv.set('model', state.active);
+      io.emit('model:update', state);
+      void preflightModel(state.active);
+      done({ ok: true });
+    });
+
     sock.on('demo:invite', p => {
       if (!p || !requireDirector(sock)) return;
       safe('demo:invite', () => inviteContact(p.roomId, p.contactId, DIRECTOR_ID), sock);

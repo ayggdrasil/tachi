@@ -417,6 +417,8 @@ export interface ClientToServerEvents {
   'privacy:set': (p: { category: PrivacyCategory; visibility: Visibility }) => void;
   'memory:visibility': (p: { memoryId: ID; visibility: Visibility }) => void;
   'model:set': (p: { key: ModelKey }) => void;
+  /** Director only: hand the server an LLM API key at runtime (held in process memory only, never stored or logged). Empty key clears it. */
+  'model:apikey': (p: { provider: 'anthropic' | 'openai'; key: string }, ack: (r: { ok: boolean; error?: string }) => void) => void;
   'demo:proactive': (p: { kind?: ProactiveKind }) => void;
   'demo:report': () => void;
   'demo:reset': () => void;

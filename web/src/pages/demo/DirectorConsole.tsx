@@ -489,6 +489,7 @@ export default function DirectorConsole() {
               ))}
               {!models && <li className="caption faint">{t('dir.modelsLoading')}</li>}
             </ul>
+            <ApiKeyForm />
           </section>
 
           <section className="dc-sec" aria-label={t('dir.scenario')}>
@@ -645,5 +646,44 @@ function Phone({ scale, label, name, src, k, caption }: { scale: number; label: 
       </div>
       {caption && <figcaption className="dc-cap caption muted">{caption}</figcaption>}
     </figure>
+  );
+}
+
+
+/** Operator BYO key: the key goes to the server over the Director socket and lives in process memory only. */
+function ApiKeyForm() {
+  const t = useT();
+  const [provider, setProvider] = useState<'openai' | 'anthropic'>('openai');
+  const [key, setKey] = useState('');
+  const [pending, setPending] = useState(false);
+  const [note, setNote] = useState('');
+  const submit = async (value: string) => {
+    setPending(true); setNote('');
+    const r = await tachi.setApiKey(provider, value);
+    setPending(false);
+    if (!r.ok) { setNote(t('dir.key.fail', { error: r.error ?? '?' })); return; }
+    setKey('');
+    const ms = getState().models;
+    const label = ms?.options.find(o => o.key === ms.active)?.label ?? '';
+    setNote(value ? t('dir.key.ok', { model: label }) : t('dir.key.cleared'));
+  };
+  return (
+    <form className="dc-key" onSubmit={e => { e.preventDefault(); if (key.trim()) void submit(key.trim()); }}>
+      <h3 className="dc-key-h caption">{t('dir.key.title')}</h3>
+      <div className="dc-key-prov" role="group" aria-label={t('dir.key.title')}>
+        {(['openai', 'anthropic'] as const).map(p => (
+          <button key={p} type="button" className="chip" aria-pressed={provider === p} onClick={() => setProvider(p)}>
+            {p === 'openai' ? 'OpenAI' : 'Anthropic'}
+          </button>
+        ))}
+      </div>
+      <div className="dc-key-row">
+        <input className="input" type="password" autoComplete="off" spellCheck={false} value={key}
+          onChange={e => setKey(e.target.value)} placeholder={t('dir.key.placeholder')} aria-label={t('dir.key.title')} />
+        <button className="btn btn-primary" type="submit" disabled={pending || !key.trim()}>{t('dir.key.connect')}</button>
+        <button className="btn btn-ghost" type="button" disabled={pending} onClick={() => void submit('')}>{t('dir.key.clear')}</button>
+      </div>
+      <p className="caption faint" role="status">{note || t('dir.key.hint')}</p>
+    </form>
   );
 }
