@@ -107,7 +107,9 @@ async function gatherMemories(message: string): Promise<AgentMemory[]> {
   const picked = new Map<ID, Memory>();
   const kws = keywordsOf(message);
   if (kws.length) {
-    const hits = await ctx.graph.search(kws, { limit: 3 }).catch(() => []);
+    let hits = await ctx.graph.search(kws, { limit: 3 }).catch(() => []);
+    // nothing by name in the graph: let the optional GBrain mirror suggest memories by free text ([] when it is off)
+    if (!hits.some(h => ctx.db.memories.get(h.memoryId)?.status === 'saved')) hits = await ctx.graph.deepRecall(message, { limit: 3 });
     for (const h of hits) { const m = ctx.db.memories.get(h.memoryId); if (m?.status === 'saved') picked.set(m.id, m); }
   }
   const pm = getProactiveMemory();

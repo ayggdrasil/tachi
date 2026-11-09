@@ -145,6 +145,7 @@ export interface RecallCardPayload {
   path: GraphPath;              // e.g. 불국사 ←TAKEN_AT− 기억 −APPEARS_IN← 박영수
   cypher?: string;              // the query shown small under the card
   alternatives: { memoryId: ID; title: string }[];
+  via?: 'graph' | 'gbrain';     // 'gbrain': found by the optional GBrain deep-recall mirror (no graph path; cypher holds the gbrain query)
 }
 
 export interface TripStop {

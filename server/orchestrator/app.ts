@@ -19,7 +19,7 @@ import { ctx, type IO } from './ctx';
 import type { Brain } from '../brain/contract';
 import { st } from '../i18n';
 import { applyLocale, resolveBootLocale } from './locale';
-import { installGuards, memoryVisibleToFamily, syncClock } from './core';
+import { installGuards, memoryVisibleToFamily, senior, syncClock } from './core';
 import { attachSocketHandlers, preflightModel } from './socket';
 import { startTicker, stopTicker } from './proactive';
 import { log, warn } from '../util/misc';
@@ -75,10 +75,14 @@ export async function createApp(opts: AppOptions = {}) {
     applyLocale(boot.locale);
     await seed(boot.locale);
   } else {
+    const saved = ctx.db.memories.all().filter(x => x.status === 'saved');
+    let rebuilt = false;
     try {
       const st = await ctx.graph.stats();
-      if (st.nodes === 0) for (const m of ctx.db.memories.all().filter(x => x.status === 'saved')) await ctx.graph.upsertMemory(m);
+      if (st.nodes === 0) { for (const m of saved) await ctx.graph.upsertMemory(m); rebuilt = true; } // also mirrored to GBrain
     } catch (e) { warn('graph rebuild failed:', e); }
+    // GBrain switched on for an existing database: copy the memories over once (background, never blocks boot)
+    if (!rebuilt) void ctx.graph.backfillMirror(saved, senior().name);
   }
   const demo = ctx.db.kv.get<import('../../shared/types').DemoState>('demo');
   syncClock(0); // the virtual clock never survives a restart
@@ -142,7 +146,12 @@ export async function createApp(opts: AppOptions = {}) {
     } catch (e) { res.status(500).json({ error: String(e) }); }
   });
   app.get('/api/status', (_req, res) => {
-    res.json({ ok: true, graphEngine: ctx.graph.engine, model: ctx.brain.getModelState().active });
+    const mirror = ctx.graph.mirrorStatus();
+    res.json({
+      ok: true, graphEngine: ctx.graph.engine, model: ctx.brain.getModelState().active,
+      // health only: this endpoint is open on the LAN, and URLs / error texts can carry slugs (names); details go to the server log
+      memoryMirror: mirror ? { engine: mirror.engine, state: mirror.state, pending: mirror.pending } : null,
+    });
   });
 
   if (process.env.NODE_ENV === 'production') {
