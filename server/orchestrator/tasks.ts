@@ -221,6 +221,11 @@ export async function escalateTask(a: Artifact, t: ArtifactTask, by: ID | 'auto'
 export async function shareBooking(a: Artifact, t: ArtifactTask, by: ID): Promise<TaskResult> {
   const cls = t.action?.kind === 'booking_link' ? t.action : { ...classifyTask(t.text), kind: 'booking_link' as const };
   const plan = buildBookingLinks({ category: cls.category ?? 'other', taskText: t.text, place: a.place, query: cls.query, date: a.slot ? new Date(a.slot.startsAt) : undefined });
+  // '숙소·식당 예약': one task, two bookings → restaurant links follow the lodging ones
+  if (cls.category === 'lodging' && /식당|맛집|한정식/.test(t.text)) {
+    const food = buildBookingLinks({ category: 'restaurant', taskText: t.text, place: a.place, query: /한정식/.test(t.text) ? '한정식' : '식당' });
+    plan.links.push(...food.links);
+  }
   t.action = { ...t.action, ...cls, kind: 'booking_link', query: plan.query, links: plan.links, classifiedBy: t.action?.classifiedBy ?? 'heuristic' };
   t.link = plan.links[0]?.url;
   t.executedAt = nowIso();
