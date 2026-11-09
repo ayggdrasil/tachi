@@ -1,25 +1,30 @@
 // Tachi brain: real LLM when an API key + model is active, deterministic demo heuristics otherwise.
 import type { ArtifactTask, ItineraryPayload, MemoryPerson, ModelOption, PrivacyCategory, TripStop } from '../../shared/types';
-import { findPlaces, placeById, resolvePlace, templateFor } from '../data/places';
+import { findPlaces, placeById, placeName, placeTravel, resolvePlace, templateFor } from '../data/places';
 import type { AIResult, Brain, ExtractedMemory, FamilyAnswer, GatheringDraft, SeniorIntent, TaskClassification } from './contract';
 import { BOOKING_CATEGORIES, TASK_KINDS, classifyTask } from './heuristics/tasks';
 import type { BookingCategory, TaskActionKind } from '../../shared/types';
 import { BANNED_HEALTH_WORDS, enforceBpWarning, questionCategory, assistArtifact as hAssist, answerFamily as hAnswer, botReply as hBot, draftGathering as hDraft, isBirthdayContext, BIRTHDAY_RE } from './heuristics/family';
 import { composeReport as hReport, planItinerary as hPlan, proactiveMessage as hProactive, recallReply as hRecall, seniorChat as hChat, shareSummary as hShare, suggestTrip as hSuggest } from './heuristics/compose';
-import { extractFromState, planNext, startTurn, SLOT_QUESTION } from './heuristics/interview';
+import { extractFromState, planNext, slotQuestion, startTurn } from './heuristics/interview';
 import { availability, familyIntent, seniorIntent } from './heuristics/intents';
-import { EMOTION_LABELS, decadeEra } from './heuristics/ko';
+import { decadeEra, emotionLabels } from './heuristics/ko';
 import { circuitOpen, complete, completeJson, completeToolTurn, loadImage, openCircuit, resetCircuit, str, strArr } from './llm';
-import { emptyOutcome, runAgentLoop, summarize, type AgentOutcome, type AgentStep } from './agent';
+import { emptyOutcome, runAgentLoop, summarize, type AgentOutcome, type AgentStep } from './toolLoop';
 import { composeFromSteps, planOffline } from './planner';
 import { executeTool } from '../tools';
 import { mergeObservation, validateObservation } from './heuristics/observe';
 import { ModelRegistry } from './models';
 import * as P from './prompts';
+import { buildAgentPrompt, normalizeAgentTurn } from './agent';
+import { getLocale, lim, setLocale } from './locale';
+import type { SeniorAgentInput, SeniorAgentTurn } from './contract';
 
-const DEMO_LABEL = '데모 브레인';
+const DEMO_LABELS = { ko: '데모 브레인', en: 'Demo brain' };
+const RULE_LABELS = { ko: '규칙 기반', en: 'Rule-based' };
+const demoLabel = () => DEMO_LABELS[getLocale()];
+const ruleLabel = () => RULE_LABELS[getLocale()];
 const llmStepTimeout = (): number => Number(process.env.TACHI_AGENT_STEP_TIMEOUT_MS || 12000);
-const RULE_LABEL = '규칙 기반';
 /** Thrown inside an llm callback when the requested provider operation could not run (heuristic substituted). */
 class Substitute extends Error {}
 type J = Record<string, unknown>;
@@ -36,30 +41,57 @@ export function createBrain(): Brain {
     console.warn(`[brain] ${kind} failed, using demo heuristic: ${msg}`);
   };
 
-  const rule = <T>(value: T): AIResult<T> => ({ value, model: RULE_LABEL, fallback: false, source: 'rule' });
+  const rule = <T>(value: T): AIResult<T> => ({ value, model: ruleLabel(), fallback: false, source: 'rule' });
 
   /** source: 'llm' only when a live provider produced the value; 'heuristic' for the offline brain; 'rule' via `rule()`. */
   async function run<T>(name: string, heur: () => T, llm?: (opt: ModelOption, c: Ctx) => Promise<T>): Promise<AIResult<T>> {
     const opt = registry.active();
-    if (opt.provider === 'mock') return { value: heur(), model: DEMO_LABEL, fallback: false, source: 'heuristic' };
-    if (!opt.available || circuitOpen(opt.provider)) return { value: heur(), model: DEMO_LABEL, fallback: true, source: 'heuristic' };
+    if (opt.provider === 'mock') return { value: heur(), model: demoLabel(), fallback: false, source: 'heuristic' };
+    if (!opt.available || circuitOpen(opt.provider)) return { value: heur(), model: demoLabel(), fallback: true, source: 'heuristic' };
     if (!llm) return rule(heur());
     const c: Ctx = { substituted: false, or: (v, h) => { if (v === undefined) c.substituted = true; return v ?? h; }, sub: () => { c.substituted = true; } };
     try {
       const value = await llm(opt, c);
       // F19: a live callback that filled any required field from the heuristic is not credited to the live model.
-      if (c.substituted) return { value: heur(), model: DEMO_LABEL, fallback: true, source: 'heuristic' };
+      if (c.substituted) return { value: heur(), model: demoLabel(), fallback: true, source: 'heuristic' };
       return { value, model: opt.label, fallback: false, source: 'llm' };
     } catch (e) {
       if (!(e instanceof Substitute)) warnOnce(name, e);
-      return { value: heur(), model: DEMO_LABEL, fallback: true, source: 'heuristic' };
+      return { value: heur(), model: demoLabel(), fallback: true, source: 'heuristic' };
     }
   }
 
   const ask = <T = J>(opt: ModelOption, p: { system: string; user: string }, maxTokens = 900, images?: { mime: string; base64: string }[], timeoutMs?: number) =>
     completeJson<T>(opt, { system: p.system, turns: [{ role: 'user', text: p.user }], maxTokens, images, timeoutMs });
 
+  const isLive = (): boolean => {
+    const o = registry.active();
+    return o.provider !== 'mock' && o.available && !circuitOpen(o.provider);
+  };
+
   const brain: Brain = {
+    setLocale: l => setLocale(l),
+    getLocale: () => getLocale(),
+    isLive,
+
+    seniorAgentTurn: async (input: SeniorAgentInput): Promise<AIResult<SeniorAgentTurn>> => {
+      const empty: AIResult<SeniorAgentTurn> = { value: { reply: '', quickReplies: [], actions: [] }, model: demoLabel(), fallback: true, source: 'heuristic' };
+      if (!isLive()) return empty;
+      const opt = registry.active();
+      try {
+        const img = input.photo?.path ? loadImage(input.photo.path) : undefined;
+        const turns = input.history.slice(-14).map(t => ({ role: t.role, text: t.text }));
+        const userText = input.message.trim() || (input.photo ? '(shared a photo)' : '(no text)');
+        turns.push({ role: 'user', text: input.photo && !input.message.trim() ? '(I shared a photo.)' : input.photo ? `${userText}\n(I also shared a photo.)` : userText });
+        const j = await completeJson<J>(opt, { system: buildAgentPrompt(input), turns, maxTokens: 2048, images: img ? [img] : undefined, timeoutMs: Number(process.env.TACHI_LLM_AGENT_TIMEOUT_MS || 12000) });
+        const value = normalizeAgentTurn(j, input);
+        return { value, model: opt.label, fallback: false, source: 'llm' };
+      } catch (e) {
+        warnOnce('seniorAgentTurn', e);
+        return empty;
+      }
+    },
+
     getModelState: () => registry.state(),
     setActiveModel: key => registry.setActive(key),
 
@@ -68,7 +100,7 @@ export function createBrain(): Brain {
       const k = key ?? st.active;
       const opt = st.options.find(o => o.key === k) ?? st.options[st.options.length - 1];
       if (opt.provider === 'mock') { registry.recordHealth(opt.key, true, 0); return { key: opt.key, ok: true, latencyMs: 0 }; }
-      if (!opt.available) { registry.recordHealth(opt.key, false, 0); return { key: opt.key, ok: false, latencyMs: 0, error: 'API 키 없음' }; }
+      if (!opt.available) { registry.recordHealth(opt.key, false, 0); return { key: opt.key, ok: false, latencyMs: 0, error: getLocale() === 'en' ? 'No API key' : 'API 키 없음' }; }
       const t0 = Date.now();
       try {
         const out = await complete(opt, { system: 'Reply with the single word OK.', turns: [{ role: 'user', text: 'OK' }], maxTokens: 8, timeoutMs: 6000 });
@@ -91,9 +123,9 @@ export function createBrain(): Brain {
       const img = loadImage(input.photoPath);
       if (!img) throw new Substitute('image unavailable');
       const j = await ask(opt, P.interviewStartPrompt(), 300, [img]);
-      let obs = str(j.observation, 80);
+      let obs = str(j.observation, lim(80));
       if (!obs) throw new Error('missing observation');
-      if (!/[.!요다]$/.test(obs)) obs += '.';
+      if (!/[.!요다?]$/.test(obs)) obs += '.';
       return startTurn(input, obs);
     }),
 
@@ -101,10 +133,10 @@ export function createBrain(): Brain {
       const { turn, nextSlot } = planNext(state, answer);
       if (turn.done || !nextSlot) return rule(turn);
       return run('interviewTurn', () => turn, async (opt, c) => {
-        const lastQ = SLOT_QUESTION[nextSlot];
+        const lastQ = slotQuestion(nextSlot);
         const ack = turn.reply.replace(lastQ, '').trim();
         const j = await ask(opt, P.interviewTurnPrompt(state, answer, nextSlot, ack, lastQ), 300);
-        const reply = str(j.reply, 140);
+        const reply = str(j.reply, lim(140));
         if (!reply || !/[?？]/.test(reply)) { c.sub(); return turn; }
         return { ...turn, reply };
       });
@@ -114,25 +146,27 @@ export function createBrain(): Brain {
       const h = extractFromState(state);
       return run<ExtractedMemory>('extractMemory', () => h, async (opt, c) => {
         const j = await ask(opt, P.extractMemoryPrompt(state, senior), 1200);
+        const loc = getLocale();
         const yr = typeof j.year === 'number' && Number.isInteger(j.year) && j.year >= 1900 && j.year <= 2030 ? j.year : h.year;
-        const place = str(j.place, 30) ?? h.place;
+        const place = str(j.place, lim(30)) ?? h.place;
         const rp = place ? resolvePlace(place) : undefined;
         const people: MemoryPerson[] = Array.isArray(j.people)
-          ? (j.people as J[]).filter(p => p && typeof p.name === 'string' && p.name.trim()).map(p => ({ name: String(p.name).trim().slice(0, 20), ...(typeof p.relation === 'string' && p.relation ? { relation: p.relation.slice(0, 10) } : {}) })).slice(0, 8)
+          ? (j.people as J[]).filter(p => p && typeof p.name === 'string' && p.name.trim()).map(p => ({ name: String(p.name).trim().slice(0, lim(20)), ...(typeof p.relation === 'string' && p.relation ? { relation: p.relation.slice(0, lim(10)) } : {}) })).slice(0, 8)
           : [];
-        const emotions = strArr(j.emotions, 3, 10).filter(e => EMOTION_LABELS.includes(e));
-        const season = str(j.season, 2);
+        const emotions = strArr(j.emotions, 3, 14).map(e => (loc === 'en' ? e.toLowerCase() : e)).filter(e => emotionLabels().includes(e));
+        const seasonRaw = str(j.season, 8);
+        const season = loc === 'en' ? seasonRaw?.toLowerCase().replace('fall', 'autumn') : seasonRaw;
         return {
-          title: c.or(str(j.title, 40), h.title),
-          story: c.or(str(j.story, 700), h.story),
-          summary: c.or(str(j.summary, 120), h.summary),
-          year: yr, era: yr ? decadeEra(yr) : str(j.era, 10) ?? h.era,
-          season: season && ['봄', '여름', '가을', '겨울'].includes(season) ? season : h.season,
+          title: c.or(str(j.title, lim(40)), h.title),
+          story: c.or(str(j.story, lim(700)), h.story),
+          summary: c.or(str(j.summary, lim(120)), h.summary),
+          year: yr, era: yr ? decadeEra(yr) : str(j.era, 12) ?? h.era,
+          season: season && (loc === 'en' ? ['spring', 'summer', 'autumn', 'winter'] : ['봄', '여름', '가을', '겨울']).includes(season) ? season : h.season,
           place, placeId: rp?.place.id ?? (place === h.place ? h.placeId : undefined),
           people: people.length ? people : h.people,
-          event: str(j.event, 12) ?? h.event,
+          event: str(j.event, lim(12)) ?? h.event,
           emotions: emotions.length ? emotions : h.emotions,
-          tags: strArr(j.tags, 8, 14).length ? strArr(j.tags, 8, 14) : h.tags,
+          tags: strArr(j.tags, 8, lim(14)).length ? strArr(j.tags, 8, lim(14)) : h.tags,
         };
       });
     },
@@ -144,9 +178,9 @@ export function createBrain(): Brain {
       return run<SeniorIntent>('classifySeniorIntent', () => h, async (opt, c) => {
         const j = await ask(opt, P.seniorIntentPrompt(text, ctx.knownNodeNames), 200);
         const type = String(j.type);
-        const kws = strArr(j.keywords, 5, 20);
+        const kws = strArr(j.keywords, 5, lim(20));
         if (type === 'recall' && kws.length) return { type: 'recall', keywords: kws };
-        if (type === 'trip') return { type: 'trip', destination: str(j.destination, 20) };
+        if (type === 'trip') return { type: 'trip', destination: str(j.destination, lim(20)) };
         if (type === 'ask_share') return { type: 'ask_share' };
         c.sub();
         return h;
@@ -155,16 +189,16 @@ export function createBrain(): Brain {
 
     recallReply: (memory, query) => run('recallReply', () => hRecall(memory, query), async (opt, c) => {
       const j = await ask(opt, P.recallPrompt(memory, query), 400);
-      return c.or(str(j.reply, 300), hRecall(memory, query));
+      return c.or(str(j.reply, lim(300)), hRecall(memory, query));
     }),
 
     seniorChat: (history, text) => run('seniorChat', () => hChat(text), async (opt, c) => {
       const h = hChat(text);
-      const hist = history.slice(-6).map(t => `${t.role === 'user' ? '어머님' : '타치'}: ${t.text}`).join('\n');
+      const hist = history.slice(-6).map(t => `${t.role === 'user' ? (getLocale() === 'en' ? 'Soonja' : '어머님') : (getLocale() === 'en' ? 'Tachi' : '타치')}: ${t.text}`).join('\n');
       const j = await ask(opt, P.seniorChatPrompt(hist, text), 400);
-      const reply = str(j.reply, 200);
+      const reply = str(j.reply, lim(200));
       if (!reply) throw new Error('missing reply');
-      const qr = strArr(j.quickReplies, 3, 14);
+      const qr = strArr(j.quickReplies, 3, lim(14));
       const cat = String(j.category) as PrivacyCategory;
       const observation = validateObservation(j.observation);
       return {
@@ -177,20 +211,20 @@ export function createBrain(): Brain {
     shareSummary: memory => run('shareSummary', () => hShare(memory), async (opt, c) => {
       const h = hShare(memory);
       const j = await ask(opt, P.shareSummaryPrompt(memory), 600);
-      return { title: c.or(str(j.title, 50), h.title), summary: c.or(str(j.summary, 500), h.summary) };
+      return { title: c.or(str(j.title, lim(50)), h.title), summary: c.or(str(j.summary, lim(500)), h.summary) };
     }),
 
     suggestTrip: memory => run('suggestTrip', () => hSuggest(memory), async (opt, c) => {
       const h = hSuggest(memory);
       const pl = placeById(memory.placeId) ?? findPlaces(memory.place ?? '')[0];
-      const nearby = (pl?.nearby ?? []).map(placeById).map(p => p?.name).filter((x): x is string => !!x);
-      const j = await ask(opt, P.suggestTripPrompt(memory, nearby, pl?.travelFromSeoul ?? ''), 500);
-      const hl = strArr(j.highlights, 4, 20);
+      const nearby = (pl?.nearby ?? []).map(placeById).map(p => (p ? placeName(p) : undefined)).filter((x): x is string => !!x);
+      const j = await ask(opt, P.suggestTripPrompt(memory, nearby, pl ? placeTravel(pl) : ''), 500);
+      const hl = strArr(j.highlights, 4, lim(20));
       return {
         memoryId: memory.id,
-        title: c.or(str(j.title, 40), h.title), reason: c.or(str(j.reason, 200), h.reason),
-        destination: c.or(str(j.destination, 20), h.destination),
-        highlights: c.or(hl.length >= 2 ? hl : undefined, h.highlights), durationLabel: c.or(str(j.durationLabel, 10), h.durationLabel),
+        title: c.or(str(j.title, lim(40)), h.title), reason: c.or(str(j.reason, lim(200)), h.reason),
+        destination: c.or(str(j.destination, lim(20)), h.destination),
+        highlights: c.or(hl.length >= 2 ? hl : undefined, h.highlights), durationLabel: c.or(str(j.durationLabel, lim(10)), h.durationLabel),
       };
     }),
 
@@ -202,25 +236,25 @@ export function createBrain(): Brain {
       const j = await ask(opt, P.itineraryPrompt(suggestion.title, suggestion.destination, suggestion.highlights, tplText), 2500, undefined, Number(process.env.TACHI_LLM_ITINERARY_TIMEOUT_MS || 20000));
       const days = Array.isArray(j.days) ? (j.days as J[]).map((d, i) => {
         const stops: TripStop[] = Array.isArray(d.stops) ? (d.stops as J[]).filter(s => s && typeof s.title === 'string' && /^\d{1,2}:\d{2}$/.test(String(s.time))).map(s => ({
-          time: String(s.time).padStart(5, '0'), title: String(s.title).slice(0, 30), description: str(s.description, 80) ?? '',
-          ...(str(s.travel, 40) ? { travel: str(s.travel, 40) } : {}), ...(str(s.note, 80) ? { note: str(s.note, 80) } : {}),
+          time: String(s.time).padStart(5, '0'), title: String(s.title).slice(0, lim(30)), description: str(s.description, lim(80)) ?? '',
+          ...(str(s.travel, lim(40)) ? { travel: str(s.travel, lim(40)) } : {}), ...(str(s.note, lim(80)) ? { note: str(s.note, lim(80)) } : {}),
         })).slice(0, 7) : [];
-        return { label: str(d.label, 10) ?? `${i + 1}일차`, stops };
+        return { label: str(d.label, lim(10)) ?? (getLocale() === 'en' ? `Day ${i + 1}` : `${i + 1}일차`), stops };
       }).filter(d => d.stops.length >= 2).slice(0, 4) : [];
       if (!days.length) throw new Error('invalid itinerary');
-      const tips = strArr(j.tips, 5, 80);
+      const tips = strArr(j.tips, 5, lim(80));
       const out: Omit<ItineraryPayload, 'type' | 'tripId'> = {
-        title: c.or(str(j.title, 40), h.title), destination: suggestion.destination, dateLabel: '날짜 미정', days, tips: c.or(tips.length ? tips : undefined, h.tips),
+        title: c.or(str(j.title, lim(40)), h.title), destination: suggestion.destination, dateLabel: getLocale() === 'en' ? 'Date to be decided' : '날짜 미정', days, tips: c.or(tips.length ? tips : undefined, h.tips),
       };
       return out;
     }),
 
-    proactiveMessage: ({ kind, memory, now }) => run('proactiveMessage', () => hProactive(kind, memory, now), async opt => {
-      const h = hProactive(kind, memory, now);
+    proactiveMessage: ({ kind, memory, now, senior }) => run('proactiveMessage', () => hProactive(kind, memory, now, senior), async opt => {
+      const h = hProactive(kind, memory, now, senior);
       const j = await ask(opt, P.proactivePrompt(kind, memory, now), 400);
-      const text = str(j.text, 220);
+      const text = str(j.text, lim(220));
       if (!text) throw new Error('missing text');
-      const qr = strArr(j.quickReplies, 3, 14);
+      const qr = strArr(j.quickReplies, 3, lim(14));
       return { text, quickReplies: qr.length ? qr : h.quickReplies };
     }),
 
@@ -229,7 +263,7 @@ export function createBrain(): Brain {
       if (!h.sessions.length) return Promise.resolve(rule(h));
       return run('composeReport', () => h, async (opt, c) => {
         const j = await ask(opt, P.reportHighlightPrompt(h.sessions, h.moodLabel), 400);
-        return { ...h, highlight: c.or(str(j.highlight, 200), h.highlight) };
+        return { ...h, highlight: c.or(str(j.highlight, lim(200)), h.highlight) };
       });
     },
 
@@ -244,7 +278,7 @@ export function createBrain(): Brain {
       if (refusal) return Promise.resolve(rule<FamilyAnswer>(h));
       return run<FamilyAnswer>('answerFamily', () => h, async opt => {
         const j = await ask(opt, P.familyAnswerPrompt(question, ctx), 700);
-        const text = str(j.text, 500);
+        const text = str(j.text, lim(500));
         if (!text) throw new Error('missing text');
         return { text: enforceBpWarning(text, ctx), showHealthCard: h.showHealthCard };
       });
@@ -255,16 +289,16 @@ export function createBrain(): Brain {
       const ids = new Set(input.members.map(m => m.id));
       const j = await ask(opt, P.gatheringPrompt(input), 1500);
       const tasks = Array.isArray(j.tasks) ? (j.tasks as J[]).filter(t => t && typeof t.text === 'string').map(t => ({
-        text: String(t.text).slice(0, 80), ...(typeof t.assigneeId === 'string' && ids.has(t.assigneeId) ? { assigneeId: t.assigneeId } : {}),
+        text: String(t.text).slice(0, lim(80)), ...(typeof t.assigneeId === 'string' && ids.has(t.assigneeId) ? { assigneeId: t.assigneeId } : {}),
       })).slice(0, 8) : [];
-      const agenda = strArr(j.agenda, 8, 80);
+      const agenda = strArr(j.agenda, 8, lim(80));
       // Birthday wording / cake-flower tasks only for explicit birthday context; otherwise reject model-invented ones.
       const bday = isBirthdayContext(input);
-      const clean = <T,>(v: T | undefined, txt: (x: T) => string): T | undefined => (v !== undefined && !bday && (BIRTHDAY_RE.test(txt(v)) || /케이크/.test(txt(v))) ? undefined : v);
+      const clean = <T,>(v: T | undefined, txt: (x: T) => string): T | undefined => (v !== undefined && !bday && (BIRTHDAY_RE.test(txt(v)) || /케이크|\bcake\b|\bflowers?\b/i.test(txt(v))) ? undefined : v);
       return {
-        title: c.or(clean(str(j.title, 40), x => x), h.title), background: c.or(str(j.background, 300), h.background), purpose: c.or(clean(str(j.purpose, 200), x => x), h.purpose),
-        place: c.or(str(j.place, 40), h.place), agenda: c.or(agenda.length >= 2 ? agenda : undefined, h.agenda), tasks: c.or(clean(tasks.length >= 2 ? tasks : undefined, ts => ts.map(t => t.text).join(' ')), h.tasks),
-        notes: c.or(str(j.notes, 300), h.notes),
+        title: c.or(clean(str(j.title, lim(40)), x => x), h.title), background: c.or(str(j.background, lim(300)), h.background), purpose: c.or(clean(str(j.purpose, lim(200)), x => x), h.purpose),
+        place: c.or(str(j.place, lim(40)), h.place), agenda: c.or(agenda.length >= 2 ? agenda : undefined, h.agenda), tasks: c.or(clean(tasks.length >= 2 ? tasks : undefined, ts => ts.map(t => t.text).join(' ')), h.tasks),
+        notes: c.or(str(j.notes, lim(300)), h.notes),
       };
     }),
 
@@ -272,10 +306,10 @@ export function createBrain(): Brain {
       const ids = new Set(members.map(m => m.id));
       const j = await ask(opt, P.assistPrompt(artifact, members), 700);
       const newTasks: Omit<ArtifactTask, 'id' | 'done'>[] = Array.isArray(j.newTasks) ? (j.newTasks as J[]).filter(t => t && typeof t.text === 'string').map(t => ({
-        text: String(t.text).slice(0, 80), ...(typeof t.assigneeId === 'string' && ids.has(t.assigneeId) ? { assigneeId: t.assigneeId } : {}),
+        text: String(t.text).slice(0, lim(80)), ...(typeof t.assigneeId === 'string' && ids.has(t.assigneeId) ? { assigneeId: t.assigneeId } : {}),
       })).slice(0, 3) : [];
       if (!newTasks.length) throw new Error('no tasks');
-      return { message: str(j.message, 160) ?? '빠지기 쉬운 준비를 제안했어요.', newTasks };
+      return { message: str(j.message, lim(160)) ?? (getLocale() === 'en' ? 'I suggested a few easily forgotten preparations.' : '빠지기 쉬운 준비를 제안했어요.'), newTasks };
     }),
 
     classifyTasks: input => {
@@ -313,11 +347,11 @@ export function createBrain(): Brain {
       const heur = hBot(ctx);
       if (heur === '' && ctx.trigger.kind !== 'share_card') return rule('');
       if (ctx.trigger.kind === 'system') return rule(heur);
-      const healthy = ctx.trigger.kind === 'health_card' || /혈압|건강|약\s*(?:먹|드|챙)/.test(ctx.trigger.text);
+      const healthy = ctx.trigger.kind === 'health_card' || /혈압|건강|약\s*(?:먹|드|챙)|blood pressure|\bbp\b|health|medicine|\bpills?\b/i.test(ctx.trigger.text);
       return run('botReply', () => heur, async (opt, c) => {
         const j = await ask(opt, P.botPrompt(ctx), 200);
         if (typeof j.reply !== 'string') { c.sub(); return heur; }
-        const r = j.reply.trim().slice(0, 140);
+        const r = j.reply.trim().slice(0, lim(140));
         // health reactions must be caring but never evaluative
         if (healthy && BANNED_HEALTH_WORDS.test(r)) { c.sub(); return heur; }
         return r;
@@ -343,14 +377,14 @@ export function createBrain(): Brain {
         // a state-changing tool already ran: never hide that behind the fallback — tell the user what was done
         if (out.mutated) {
           const answer = composeFromSteps(out.steps, input.audience);
-          if (answer) return { value: { ...out, ok: true, answer }, model: DEMO_LABEL, fallback: true, source: 'heuristic' };
+          if (answer) return { value: { ...out, ok: true, answer }, model: demoLabel(), fallback: true, source: 'heuristic' };
         }
         liveSteps = out.steps;
         if (!input.allowOffline) return { value: out, model: opt.label, fallback: true, source: 'llm' };
       }
-      if (!input.allowOffline) return { value: emptyOutcome('offline'), model: DEMO_LABEL, fallback: opt.provider !== 'mock', source: 'heuristic' };
+      if (!input.allowOffline) return { value: emptyOutcome('offline'), model: demoLabel(), fallback: opt.provider !== 'mock', source: 'heuristic' };
       const plan = planOffline(input.goal, input.audience, input.toolCtx.now());
-      if (!plan) return { value: { ...emptyOutcome('no_plan'), steps: liveSteps }, model: DEMO_LABEL, fallback: true, source: 'heuristic' };
+      if (!plan) return { value: { ...emptyOutcome('no_plan'), steps: liveSteps }, model: demoLabel(), fallback: true, source: 'heuristic' };
       const steps: AgentStep[] = [];
       for (const call of plan) {
         const run = await executeTool(call.name, call.input, input.toolCtx, { allowed: input.tools });
@@ -361,7 +395,7 @@ export function createBrain(): Brain {
       const value: AgentOutcome = answer
         ? { ok: true, answer, steps, ...summarize(steps, input.tools) }
         : { ...emptyOutcome('no_plan', 'planner produced no answer'), steps };
-      return { value, model: DEMO_LABEL, fallback: opt.provider !== 'mock', source: 'heuristic' };
+      return { value, model: demoLabel(), fallback: opt.provider !== 'mock', source: 'heuristic' };
     },
   };
   return brain;

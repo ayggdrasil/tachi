@@ -14,3 +14,6 @@
 .fam-contacts-empty { padding: var(--space-16) 0; text-align: center; }
 .fam-foot { text-align: center; padding-top: var(--space-4); }
 .fam-mb { margin-bottom: var(--space-16); margin-top: var(--space-4); }
+.fam-pick { width: 100%; text-align: left; border-radius: var(--radius-lg); padding: var(--space-8); min-height: var(--target-min); }
+@media (hover: hover) { .fam-pick:hover { background: var(--hover); } }
+.fam-pick:disabled { opacity: .6; }

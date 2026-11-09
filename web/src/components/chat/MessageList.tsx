@@ -1,15 +1,19 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowDown, Loader2 } from 'lucide-react';
 import type { CardAction, Message, User } from '../../../../shared/types';
-import { SYSTEM_ID, TACHI_ID, dayHeaderLabel, koreanTime } from '../../../../shared/constants';
+import { SYSTEM_ID, TACHI_ID, dateLabelL, timeLabelL } from '../../../../shared/constants';
 import { selectRoomMessages, tachi, useTachi } from '../../lib/store';
+import { useT, useLocale } from '../../lib/i18n';
+import { roomDisplayName } from '../common/roomName';
 import { Avatar } from '../common/Avatar';
 import { SpeakButton } from '../common/SpeakButton';
 import { CardRenderer } from '../cards/CardRenderer';
 import { ActionBar } from './ActionBar';
 import './MessageList.css';
 
-interface Props { roomId: string; variant: 'senior' | 'family'; onOpenArtifact?: (artifactId: string) => void; onOpenRoom?: (roomId: string) => void; emptyHint?: React.ReactNode }
+interface Props { roomId: string; variant: 'senior' | 'family'; onOpenArtifact?: (artifactId: string) => void; onOpenRoom?: (roomId: string) => void; emptyHint?: React.ReactNode;
+  /** When set, other people's names/avatars become buttons that open a 1:1 chat with them. */
+  onOpenDm?: (userId: string) => void }
 
 const CARD_KINDS = new Set(['memory_card', 'recall_card', 'trip_suggestion', 'itinerary', 'share_card', 'artifact', 'schedule_request', 'schedule_result', 'health_card', 'report', 'task_card']);
 /** Cards that render their own actions inside (right under the primary content) so they stay above the fold. */
@@ -18,23 +22,28 @@ const TEXT_ABOVE = new Set(['recall_card']);
 const reducedMotion = () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 function ModelLine({ message, variant, inline }: { message: Message; variant: 'senior' | 'family'; inline?: boolean }) {
+  const t = useT();
   // Seniors never see technical provenance; the family variant shows what actually produced the text.
   if (variant === 'senior') return null;
   const m = message.meta; if (!m?.model && !m?.fallback && !m?.source) return null;
-  const line = m.source === 'rule' ? '자동 안내'
-    : m.source === 'heuristic' || m.fallback ? '기본 응답'
-    : m.model ?? '타치';
+  const line = m.source === 'rule' ? t('ml.autoGuide')
+    : m.source === 'heuristic' || m.fallback ? t('ml.basicReply')
+    : m.model ?? t('common.tachi');
   return <span className="ml-model">{inline ? `· ${line}` : line}</span>;
 }
 
 function GenBadge({ message }: { message: Message }) {
+  const t = useT();
   const g = message.meta?.generatedBy; if (!g) return null;
-  return <span className="badge ml-gen">{g === 'bot' ? 'AI 봇' : '자동 응답'}</span>;
+  return <span className="badge ml-gen">{g === 'bot' ? t('ml.aiBot') : t('ml.autoReply')}</span>;
 }
 
 function dateKey(iso: string) { const d = new Date(iso); return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`; }
 
-export function MessageList({ roomId, variant, onOpenArtifact, onOpenRoom, emptyHint }: Props) {
+export function MessageList({ roomId, variant, onOpenArtifact, onOpenRoom, emptyHint, onOpenDm }: Props) {
+  const t = useT();
+  const locale = useLocale();
+  const room = useTachi(s => s.rooms.find(r => r.id === roomId));
   const messages = useTachi(selectRoomMessages(roomId));
   const users = useTachi(s => s.users);
   const meId = useTachi(s => s.meId);
@@ -87,7 +96,7 @@ export function MessageList({ roomId, variant, onOpenArtifact, onOpenRoom, empty
     const answer = last?.kind === 'health_card' ? messages[messages.length - 2] : undefined;
     const answerId = answer && answer.senderId === TACHI_ID && answer.kind === 'text' ? answer.id : undefined;
     if (answerId && atBottom.current) { pinMode.current = 'answer'; toCard(answerId); return; }
-    // Later bot reactions never re-pin: the answer stays where it is, with a "새 메시지" pill.
+    // Later bot reactions never re-pin: the answer stays where it is, with a "new message" pill.
     if (pinMode.current === 'answer' && last && last.senderId !== meId) { setShowNew(true); return; }
     pinMode.current = isCard ? 'card' : 'bottom';
     if (isCard && atBottom.current) toCard(last.id);
@@ -102,15 +111,18 @@ export function MessageList({ roomId, variant, onOpenArtifact, onOpenRoom, empty
   const lastMsg = messages[messages.length - 1];
   const showTyping = !!typing && typing.until > Date.now() && typing.userId !== meId;
   const typer: User | undefined = typing ? users[typing.userId] : undefined;
-  const typingText = typing?.userId === TACHI_ID ? '타치가 생각하고 있어요'
-    : `${typer?.shortName ?? '누군가'}${typer?.shortName === '어머니' ? '가' : '님이'} 입력 중`;
+  const typingText = typing?.userId === TACHI_ID ? t('ml.tachiThinking')
+    : t('ml.typing', { name: typer?.shortName ?? t('ml.someone'), josa: locale !== 'ko' ? '' : typer?.shortName === '어머니' ? '가' : '님이' });
+  const timeOf = (d: Date) => timeLabelL(d, locale);
+  const srTitle = senior && room?.type === 'tachi' ? t('ml.srTachi') : senior ? t('ml.srRoom', { name: roomDisplayName(room, meId, users, t) }) : t('ml.srFamily');
+  const openable = (id: string) => !!onOpenDm && id !== meId && id !== TACHI_ID && id !== SYSTEM_ID && !!users[id];
 
   let prev: Message | undefined;
   return (
     <div className={`ml-wrap ml-${variant}`}>
-      <div className="ml" ref={scrollRef} onScroll={onScroll} role="log" aria-live="polite" aria-relevant="additions" aria-label="대화">
-        <h2 className="sr-only">{senior ? '타치와 나눈 대화' : '대화 내용'}</h2>
-        {messages.length === 0 && <div className="ml-empty">{emptyHint ?? <p className="faint">아직 대화가 없어요</p>}</div>}
+      <div className="ml" ref={scrollRef} onScroll={onScroll} role="log" aria-live="polite" aria-relevant="additions" aria-label={t('ml.log')}>
+        <h2 className="sr-only">{srTitle}</h2>
+        {messages.length === 0 && <div className="ml-empty">{emptyHint ?? <p className="faint">{t('ml.empty')}</p>}</div>}
         {messages.map(m => {
           const showDate = !prev || dateKey(prev.createdAt) !== dateKey(m.createdAt);
           const isSystem = m.kind === 'system' || m.senderId === SYSTEM_ID;
@@ -129,16 +141,20 @@ export function MessageList({ roomId, variant, onOpenArtifact, onOpenRoom, empty
           );
           return (
             <Fragment key={m.id}>
-              {showDate && <div className="ml-date"><span>{dayHeaderLabel(date)}</span></div>}
+              {showDate && <div className="ml-date"><span>{dateLabelL(date, locale)}</span></div>}
               {isSystem ? (
                 <div className="ml-sys"><CardRenderer message={{ ...m, kind: 'system' }} variant={variant} /></div>
               ) : (
                 <div data-mid={m.id} className={`ml-row ${mine ? 'ml-me' : 'ml-other'} ${head ? 'ml-head' : ''}`}>
-                  {!mine && <div className="ml-av">{head && <Avatar user={sender} size={senior ? 36 : 30} decorative />}</div>}
+                  {!mine && <div className="ml-av">{head && (openable(m.senderId)
+                    ? <button type="button" className="ml-av-btn" aria-label={t('ml.messageName', { name: sender?.shortName ?? m.senderId })} onClick={() => onOpenDm?.(m.senderId)}><Avatar user={sender} size={senior ? 36 : 30} decorative /></button>
+                    : <Avatar user={sender} size={senior ? 36 : 30} decorative />)}</div>}
                   <div className="ml-col">
-                    {!mine && head && <div className="ml-name">{isTachi ? '타치' : sender?.shortName ?? m.senderId}<GenBadge message={m} /><span className="ml-time">{koreanTime(date)}</span>{isTachi && <ModelLine message={m} variant={variant} inline />}</div>}
+                    {!mine && head && <div className="ml-name">{isTachi ? t('common.tachi') : openable(m.senderId)
+                      ? <button type="button" className="ml-name-btn" onClick={() => onOpenDm?.(m.senderId)}>{sender?.shortName ?? m.senderId}<span className="ml-name-hint">{t('ml.chatPrivately')}</span></button>
+                      : sender?.shortName ?? m.senderId}<GenBadge message={m} /><span className="ml-time">{timeOf(date)}</span>{isTachi && <ModelLine message={m} variant={variant} inline />}</div>}
                     {!head && !mine && m.meta?.generatedBy && <div className="ml-name"><GenBadge message={m} /></div>}
-                    {isTachi && m.meta?.proactive && head && <div className="ml-pro">타치가 먼저 말을 걸었어요 · {koreanTime(date)}</div>}
+                    {isTachi && m.meta?.proactive && head && <div className="ml-pro">{t('ml.proactive', { time: timeOf(date) })}</div>}
                     {m.kind === 'text' && (
                       <div className={`ml-text ${mine ? 'ml-bubble' : isTachi ? 'ml-tachi' : 'ml-light'}`}>
                         {m.text}
@@ -150,7 +166,7 @@ export function MessageList({ roomId, variant, onOpenArtifact, onOpenRoom, empty
                       <div className="ml-text ml-tachi">{m.text}</div>
                     )}
                     {body && <div className="ml-card">{body}</div>}
-                    {senior && mine && m.meta?.generatedBy === 'assisted' && <span className="ml-auto-cap">자동 응답</span>}
+                    {senior && mine && m.meta?.generatedBy === 'assisted' && <span className="ml-auto-cap">{t('ml.autoReply')}</span>}
                     {!inline && <ActionBar message={m} onOpenArtifact={onOpenArtifact} />}
                     {isTachi && !head && <ModelLine message={m} variant={variant} />}
                     {isTachi && isLast && m.quickReplies && m.quickReplies.length > 0 && (
@@ -172,7 +188,7 @@ export function MessageList({ roomId, variant, onOpenArtifact, onOpenRoom, empty
         )}
       </div>
       {showNew && (
-        <button type="button" className="ml-new" onClick={() => { toBottom(true); setShowNew(false); }}><ArrowDown size={14} />새 메시지</button>
+        <button type="button" className="ml-new" onClick={() => { toBottom(true); setShowNew(false); }}><ArrowDown size={14} />{t('ml.newMessage')}</button>
       )}
     </div>
   );

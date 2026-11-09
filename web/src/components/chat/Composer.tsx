@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Camera, Image as ImageIcon, Images, Mic, Send, Square } from 'lucide-react';
 import { tachi } from '../../lib/store';
+import { useLocale, useT } from '../../lib/i18n';
 import './Composer.css';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -29,9 +30,13 @@ async function downscale(f: File): Promise<File> {
   } catch { return f; }
 }
 
-export function Composer({ roomId, variant, placeholder, allowPhoto = true }: {
+export function Composer({ roomId, variant, placeholder, allowPhoto = true, compact = false }: {
   roomId: string; variant: 'senior' | 'family'; placeholder?: string; allowPhoto?: boolean;
+  /** Senior variant for person-to-person rooms: no big "show Tachi a photo" row, just a camera button next to the input. */
+  compact?: boolean;
 }) {
+  const t = useT();
+  const locale = useLocale();
   const senior = variant === 'senior';
   const [text, setText] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -105,16 +110,16 @@ export function Composer({ roomId, variant, placeholder, allowPhoto = true }: {
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]; e.target.value = '';
     if (!f) return;
-    if (f.size > 15 * 1024 * 1024) { showErr('사진이 너무 커요. 다른 사진을 골라 주세요'); return; }
+    if (f.size > 15 * 1024 * 1024) { showErr(t('composer.photoTooBig')); return; }
     setErr(null); setUploading(true);
-    try { await tachi.sendPhoto(roomId, await downscale(f)); } catch { showErr('사진을 보내지 못했어요. 다시 눌러 주세요'); } finally { setUploading(false); }
+    try { await tachi.sendPhoto(roomId, await downscale(f)); } catch { showErr(t('composer.photoFailed')); } finally { setUploading(false); }
   };
 
   const toggleMic = () => {
     if (!SRctor) return;
     if (listening) { try { recRef.current?.stop(); } catch { /* noop */ } return; }
     const rec = new SRctor();
-    rec.lang = 'ko-KR'; rec.interimResults = true; rec.continuous = false;
+    rec.lang = locale === 'ko' ? 'ko-KR' : 'en-US'; rec.interimResults = true; rec.continuous = false;
     baseText.current = text ? text.trimEnd() + ' ' : '';
     rec.onresult = (ev: { results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal?: boolean }> }) => {
       let s = '';
@@ -124,23 +129,23 @@ export function Composer({ roomId, variant, placeholder, allowPhoto = true }: {
     rec.onend = () => setListening(false);
     rec.onerror = (ev: { error?: string }) => {
       setListening(false);
-      if (ev?.error === 'aborted' || ev?.error === 'no-speech') { if (ev.error === 'no-speech') showErr('잘 못 들었어요. 다시 한 번 눌러 주세요.'); return; }
+      if (ev?.error === 'aborted' || ev?.error === 'no-speech') { if (ev.error === 'no-speech') showErr(t('composer.didntHear')); return; }
       showErr(ev?.error === 'not-allowed' || ev?.error === 'service-not-allowed'
-        ? '마이크 사용을 허락해 주시면 말로도 할 수 있어요. 지금은 글자로 적어 주세요.' : '잘 못 들었어요. 다시 한 번 눌러 주세요.');
+        ? t('composer.micDenied') : t('composer.didntHear'));
     };
     recRef.current = rec;
-    try { setErr(null); rec.start(); setListening(true); } catch { setListening(false); showErr('잘 못 들었어요. 다시 한 번 눌러 주세요.'); }
+    try { setErr(null); rec.start(); setListening(true); } catch { setListening(false); showErr(t('composer.didntHear')); }
   };
 
   const pickSample = (url: string) => { setShowSamples(false); tachi.sendPhotoUrl(roomId, url); };
 
   const samplePop = showSamples && samples.length > 0 && (
-    <div className="cp-pop" id="cp-samples" role="group" aria-label="예시 사진" ref={sampleRef} style={popStyle}
+    <div className="cp-pop" id="cp-samples" role="group" aria-label={t('composer.samples')} ref={sampleRef} style={popStyle}
       onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); closeSamples(); } }}>
-      <p className="cp-pop-t">예시 사진</p>
+      <p className="cp-pop-t">{t('composer.samples')}</p>
       <div className="cp-thumbs">
         {samples.map(u => (
-          <button key={u} type="button" className="cp-thumb" onClick={() => pickSample(u)} aria-label="이 사진 보내기"><img src={u} alt="" loading="lazy" /></button>
+          <button key={u} type="button" className="cp-thumb" onClick={() => pickSample(u)} aria-label={t('composer.sendThis')}><img src={u} alt="" loading="lazy" /></button>
         ))}
       </div>
     </div>
@@ -153,13 +158,13 @@ export function Composer({ roomId, variant, placeholder, allowPhoto = true }: {
     return (
       <div className="cp cp-senior">
         {fileInput}
-        {allowPhoto && (
+        {allowPhoto && !compact && (
           <div className="cp-photo-row" ref={popRef}>
             <button type="button" className="btn cp-photo-btn" disabled={uploading} onClick={() => fileRef.current?.click()}>
-              <Camera size={24} />{uploading ? '사진을 올리는 중…' : '사진 보여주기'}
+              <Camera size={24} />{uploading ? t('composer.uploading') : t('composer.showPhoto')}
             </button>
             {samples.length > 0 && (
-              <button ref={triggerRef} type="button" className="btn cp-sample-btn" aria-label="예시 사진 보기" aria-expanded={showSamples} aria-controls="cp-samples" onClick={() => setShowSamples(v => !v)}><Images size={20} aria-hidden /><span className="cp-sample-l">예시</span></button>
+              <button ref={triggerRef} type="button" className="btn cp-sample-btn" aria-label={t('composer.viewSamples')} aria-expanded={showSamples} aria-controls="cp-samples" onClick={() => setShowSamples(v => !v)}><Images size={20} aria-hidden /><span className="cp-sample-l">{t('composer.samplesShort')}</span></button>
             )}
             {samplePop}
           </div>
@@ -167,16 +172,16 @@ export function Composer({ roomId, variant, placeholder, allowPhoto = true }: {
         {errEl}
         <div className="cp-row">
           {allowPhoto && (
-            <button type="button" className="cp-round cp-cam-compact" aria-label="사진 보여주기" disabled={uploading} onClick={() => fileRef.current?.click()}><Camera size={24} aria-hidden /></button>
+            <button type="button" className={`cp-round cp-cam-compact ${compact ? 'cp-cam-show' : ''}`} aria-label={compact ? t('composer.sendPhoto') : t('composer.showPhoto')} disabled={uploading} onClick={() => fileRef.current?.click()}><Camera size={24} aria-hidden /></button>
           )}
           {SRctor && (
-            <button type="button" className={`cp-round ${listening ? 'cp-on' : ''}`} aria-pressed={listening} aria-label="말로 입력하기" onClick={toggleMic}>
+            <button type="button" className={`cp-round ${listening ? 'cp-on' : ''}`} aria-pressed={listening} aria-label={t('composer.speak')} onClick={toggleMic}>
               {listening ? <Square size={22} /> : <Mic size={26} />}
             </button>
           )}
           <input className="input cp-input" value={text} onChange={e => onChange(e.target.value)} onKeyDown={onKeyDown}
-            placeholder={listening ? '듣고 있어요…' : (placeholder ?? '말씀해 보세요')} aria-label="메시지 입력" enterKeyHint="send" />
-          <button type="button" className="cp-round cp-send" disabled={!text.trim()} aria-label="보내기" onClick={submit}><Send size={24} /></button>
+            placeholder={listening ? t('composer.listening') : (placeholder ?? t('composer.placeholderSenior'))} aria-label={t('composer.input')} enterKeyHint="send" />
+          <button type="button" className="cp-round cp-send" disabled={!text.trim()} aria-label={t('composer.send')} onClick={submit}><Send size={24} /></button>
         </div>
       </div>
     );
@@ -185,19 +190,19 @@ export function Composer({ roomId, variant, placeholder, allowPhoto = true }: {
   return (
     <div className="cp cp-family">
       {fileInput}
-      {uploading && <p className="cp-up">사진을 올리는 중…</p>}
+      {uploading && <p className="cp-up">{t('composer.uploading')}</p>}
       {errEl}
       <div className="cp-row" ref={popRef}>
         {allowPhoto && (
-          <button type="button" className="btn btn-icon" aria-label="사진 보내기" disabled={uploading} onClick={() => fileRef.current?.click()}><ImageIcon size={20} /></button>
+          <button type="button" className="btn btn-icon" aria-label={t('composer.sendPhoto')} disabled={uploading} onClick={() => fileRef.current?.click()}><ImageIcon size={20} /></button>
         )}
         {allowPhoto && samples.length > 0 && (
-          <button ref={triggerRef} type="button" className="btn btn-icon" aria-label="예시 사진" aria-expanded={showSamples} aria-controls="cp-samples" onClick={() => setShowSamples(v => !v)}><Images size={20} /></button>
+          <button ref={triggerRef} type="button" className="btn btn-icon" aria-label={t('composer.samples')} aria-expanded={showSamples} aria-controls="cp-samples" onClick={() => setShowSamples(v => !v)}><Images size={20} /></button>
         )}
         {samplePop}
         <textarea ref={taRef} className="cp-ta" rows={1} value={text} onChange={e => onChange(e.target.value)} onKeyDown={onKeyDown}
-          placeholder={placeholder ?? '메시지를 입력하세요'} aria-label="메시지 입력" />
-        <button type="button" className="cp-send-sm" disabled={!text.trim()} aria-label="보내기" onClick={submit}><Send size={18} /></button>
+          placeholder={placeholder ?? t('composer.placeholderFamily')} aria-label={t('composer.input')} />
+        <button type="button" className="cp-send-sm" disabled={!text.trim()} aria-label={t('composer.send')} onClick={submit}><Send size={18} /></button>
       </div>
     </div>
   );

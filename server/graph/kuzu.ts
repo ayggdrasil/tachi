@@ -125,7 +125,7 @@ export class KuzuBackend implements Backend {
     const out: EntityMatch[] = [];
     for (const d of ENTITY_DEFS) {
       const pat = d.memoryIsSource ? `(m:Memory)-[:${d.rel}]->(n:${d.label})` : `(n:${d.label})-[:${d.rel}]->(m:Memory)`;
-      const rows = await this.exec(`MATCH ${pat} WHERE size(n.name) >= 2 AND (n.name CONTAINS $kw OR $kw CONTAINS n.name) RETURN ${this.selectCols(d.label)}, m.id AS mid`, { kw: keyword });
+      const rows = await this.exec(`MATCH ${pat} WHERE size(n.name) >= 2 AND (lower(n.name) CONTAINS lower($kw) OR lower($kw) CONTAINS lower(n.name)) RETURN ${this.selectCols(d.label)}, m.id AS mid`, { kw: keyword });
       for (const r of rows) {
         const node = this.entityNode(d.label, r);
         const src = d.memoryIsSource ? r.mid : node.id, dst = d.memoryIsSource ? node.id : r.mid;
@@ -140,8 +140,9 @@ export class KuzuBackend implements Backend {
     const out: TextMatch[] = [];
     for (const r of rows) {
       const memoryId = String(r.id).slice('memory:'.length);
-      if (String(r.title).includes(keyword)) out.push({ memoryId, field: 'title' });
-      else if (String(r.story).includes(keyword)) out.push({ memoryId, field: 'story' });
+      const kw = keyword.toLowerCase();
+      if (String(r.title).toLowerCase().includes(kw)) out.push({ memoryId, field: 'title' });
+      else if (String(r.story).toLowerCase().includes(kw)) out.push({ memoryId, field: 'story' });
     }
     return out;
   }

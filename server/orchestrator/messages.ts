@@ -7,14 +7,17 @@ import { handleSeniorAction, handleSeniorInput } from './senior';
 import { handleFamilyAction, handleFamilyInput } from './family';
 import { handleSideMessage } from './scheduling';
 import { TASK_ACTIONS, handleTaskAction } from './tasks';
+import { handleDmMessage } from './dm';
+import { st } from '../i18n';
 import { warn } from '../util/misc';
 
 const SENIOR_ACTIONS = new Set(['share_memory', 'skip_share', 'accept_trip', 'decline_trip', 'share_trip', 'make_gathering']);
 
 async function fallback(roomId: ID, err: unknown): Promise<void> {
   warn('handler failed:', err);
-  ctx.io.to(`room:${roomId}`).emit('toast', { text: '잠시 문제가 있었어요. 다시 시도해 주세요.' });
-  await tachiSay(roomId, { text: '잠깐 생각이 엉켰어요. 한 번만 더 말씀해 주시겠어요?' }).catch(() => undefined);
+  ctx.io.to(`room:${roomId}`).emit('toast', { text: st('msg.hiccup.toast') });
+  if (ctx.db.rooms.get(roomId)?.type === 'dm') return; // Tachi is not part of 1:1 chats
+  await tachiSay(roomId, { text: st('msg.hiccup.say') }).catch(() => undefined);
 }
 
 /** A user (real or via demo:say) sends text/photo into a room. */
@@ -26,7 +29,7 @@ export function handleIncoming(userId: ID, roomId: ID, input: { text?: string; p
   const photoUrl = typeof input.photoUrl === 'string' && input.photoUrl.startsWith('/') ? input.photoUrl : undefined;
   if (!text && !photoUrl) return;
   const msg = post(roomId, photoUrl
-    ? { senderId: userId, kind: 'photo', text: text || '사진을 보냈어요', payload: { type: 'photo', url: photoUrl } }
+    ? { senderId: userId, kind: 'photo', text: text || st('msg.photoSent'), payload: { type: 'photo', url: photoUrl } }
     : { senderId: userId, kind: 'text', text: text! });
   void enqueue(roomId, async () => {
     try { await route(room, userId, text, photoUrl, msg); } catch (e) { await fallback(roomId, e); }
@@ -35,7 +38,8 @@ export function handleIncoming(userId: ID, roomId: ID, input: { text?: string; p
 
 async function route(room: Room, userId: ID, text: string | undefined, photoUrl: string | undefined, msg: Message): Promise<void> {
   const fresh = ctx.db.rooms.get(room.id) ?? room;
-  if (fresh.type === 'tachi') await handleSeniorInput(fresh, userId, text, photoUrl);
+  if (fresh.type === 'dm') await handleDmMessage(fresh, userId, msg);
+  else if (fresh.type === 'tachi') await handleSeniorInput(fresh, userId, text, photoUrl);
   else if (fresh.type === 'family') await handleFamilyInput(fresh, userId, text, msg);
   else await handleSideMessage(fresh, userId, text);
 }
@@ -58,7 +62,7 @@ const reject = (userId: ID, p: { roomId: ID; messageId: ID; actionId: string }, 
  * - family/scheduling actions: membership + (for button actions) the action present on the stored message.
  */
 export function handleAction(userId: ID, p: { roomId: ID; messageId: ID; actionId: string; data?: Record<string, unknown> }): Promise<ActionResult> {
-  if (!p || typeof p.roomId !== 'string' || typeof p.messageId !== 'string' || typeof p.actionId !== 'string') return Promise.resolve({ ok: false, error: '잘못된 요청이에요.' });
+  if (!p || typeof p.roomId !== 'string' || typeof p.messageId !== 'string' || typeof p.actionId !== 'string') return Promise.resolve({ ok: false, error: st('err.badRequest') });
   const room = ctx.db.rooms.get(p.roomId);
   if (!room || !isMember(room, userId)) return Promise.resolve(reject(userId, p, 'not a member'));
   const actor = userId === DIRECTOR_ID ? SENIOR_ID : userId;
@@ -102,9 +106,9 @@ export function handleAction(userId: ID, p: { roomId: ID; messageId: ID; actionI
         resolve({ ok: true });
       } catch (e) {
         if (isActionRefused(e)) { resolve({ ok: false, error: 'refused', message: e.message }); return; }
-        resolve({ ok: false, error: '처리하지 못했어요. 다시 시도해 주세요.' });
+        resolve({ ok: false, error: st('err.actionFailed') });
         await fallback(p.roomId, e);
       }
-    }).then(() => resolve({ ok: false, error: '데모가 다시 준비되어 취소됐어요.' }));
+    }).then(() => resolve({ ok: false, error: st('err.cancelledReset') }));
   });
 }

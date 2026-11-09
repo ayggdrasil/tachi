@@ -1,6 +1,6 @@
 // Core helpers: clock, post/emit helpers, viewer-aware emitters.
 import {
-  DAILY_REPORT_TIME, DIRECTOR_ID, KIN_RELATIONS, SENIOR_ID, TACHI_ID, USERS,
+  DAILY_REPORT_TIME, DIRECTOR_ID, SENIOR_ID, TACHI_ID, isKinRelation, usersFor,
 } from '../../shared/constants';
 import type {
   Artifact, DemoState, GraphDelta, HealthSummary, ID, Memory, Message, MessageKind, MessageMeta, MessagePayload, CardAction,
@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { nanoid } from 'nanoid';
 import { ctx, type Sock } from './ctx';
+import { serverLocale, st } from '../i18n';
 import { clockNow, getClockOffsetMinutes, nowIso, setClockOffsetMinutes, sleep, uid, wallNow, warn, ymd } from '../util/misc';
 
 // ── ids / channels ──────────────────────────────────────────────────────────
@@ -27,13 +28,16 @@ export function viewerIsKin(userId?: ID): boolean {
   if (!userId) return false;
   if (seesAll(userId)) return true;
   const u = ctx.db.users.get(userId);
-  return !!u && (u.role === 'senior' || KIN_RELATIONS.includes(u.relation));
+  return !!u && (u.role === 'senior' || isKinRelation(u.relation));
 }
 
-export const DIRECTOR_USER: User = {
-  id: DIRECTOR_ID, name: '디렉터', shortName: '디렉터', role: 'family', relation: '운영', phone: '', initials: '디', isBot: false,
-  persona: '데모 운영자(관찰자)',
-};
+/** The Director observer persona (display strings follow the product language). */
+export function directorUser(): User {
+  return {
+    id: DIRECTOR_ID, name: st('director.name'), shortName: st('director.name'), role: 'family', relation: st('director.relation'), phone: '',
+    initials: st('director.initials'), isBot: false, persona: st('director.persona'),
+  };
+}
 
 // ── clock & state ───────────────────────────────────────────────────────────
 export function getDemo(): DemoState { return ctx.db.kv.get<DemoState>('demo')!; }
@@ -107,10 +111,10 @@ export function installGuards(): void {
 export function getPrivacy(): PrivacySettings { return ctx.db.kv.get<PrivacySettings>('privacy')!; }
 export function getHealth(): HealthSummary | undefined { return ctx.db.kv.get<HealthSummary>('health'); }
 export const getUser = (id: ID): User | undefined => ctx.db.users.get(id);
-export function senior(): User { return ctx.db.users.get(SENIOR_ID) ?? USERS[0]; }
-export function tachiUser(): User { return ctx.db.users.get(TACHI_ID) ?? USERS.find(u => u.id === TACHI_ID)!; }
+export function senior(): User { return ctx.db.users.get(SENIOR_ID) ?? usersFor(serverLocale())[0]; }
+export function tachiUser(): User { return ctx.db.users.get(TACHI_ID) ?? usersFor(serverLocale()).find(u => u.id === TACHI_ID)!; }
 export function isMember(room: Room, userId: ID): boolean { return isDirector(userId) || room.memberIds.includes(userId); }
-export function displayName(id: ID): string { return id === TACHI_ID ? '타치' : getUser(id)?.shortName ?? id; }
+export function displayName(id: ID): string { return id === TACHI_ID ? st('tachi.name') : getUser(id)?.shortName ?? id; }
 
 /** Run `fn` later, dropping it if the demo was reset in between; never throws. */
 export function later(ms: number, fn: () => void | Promise<void>): void {
@@ -229,7 +233,7 @@ export function markActionDone(m: Message, actionId?: string, chosenId?: string)
 // ── viewer-aware emitters ───────────────────────────────────────────────────
 export function memoryStub(m: Memory): Memory {
   return {
-    id: m.id, ownerId: m.ownerId, title: '비공개 추억', story: '', summary: '', people: [], emotions: [], tags: [],
+    id: m.id, ownerId: m.ownerId, title: st('mem.privateTitle'), story: '', summary: '', people: [], emotions: [], tags: [],
     visibility: 'private', status: 'saved', createdAt: m.createdAt,
   };
 }
@@ -284,18 +288,18 @@ export function tripVisibleToFamily(t: Trip | undefined | null): boolean {
   return memoryVisibleToFamily(ctx.db.memories.get(t.memoryId));
 }
 
-export const PRIVATE_NOTICE = '어머님이 비공개로 바꾼 내용이에요.';
-export const KIN_ONLY_TEXT = '가족에게만 공유된 내용이에요.';
+export const privateNotice = (): string => st('notice.private');
+export const kinOnlyText = (): string => st('notice.kinOnly');
 const redact = (m: Message, text: string): Message => ({ ...m, kind: 'text', text, payload: undefined, actions: undefined, quickReplies: undefined });
 
-const MASKED_TITLE = '대화';
-const MASKED_SUMMARY = '비공개 대화예요';
+export const maskedTitle = (): string => st('report.maskedTitle');
+export const maskedSummary = (): string => st('report.maskedSummary');
 /** Report highlight built only from times and public titles. */
 export function reportHighlight(rows: ReportSession[]): string {
-  if (!rows.length) return '오늘은 아직 나눈 대화가 없어요.';
+  if (!rows.length) return st('report.none');
   const times = [...new Set(rows.map(r => r.time))].join(', ');
   const lastPublic = [...rows].reverse().find(r => !r.isPrivate);
-  return `오늘 ${times}에 어머님과 대화했어요. ${lastPublic ? `${lastPublic.title} 이야기를 하시며 편안한 시간을 보내셨어요.` : '오늘 나눈 이야기는 어머님이 비공개로 해 두셨어요.'}`;
+  return st('report.highlight', { times, tail: lastPublic ? st('report.highlight.public', { title: lastPublic.title }) : st('report.highlight.private') });
 }
 
 /** Viewer-aware copy of a stored message: anything whose source (memory / trip / category) is no longer visible to a family viewer is redacted. */
@@ -309,7 +313,7 @@ export function projectMessage(viewerId: ID, m: Message): Message {
     const sensitivePayload = !!p && ['health_card', 'share_card', 'memory_card', 'recall_card', 'trip_suggestion', 'itinerary', 'report'].includes(p.type);
     const mm = m.meta;
     const tagged = !!mm && !!(mm.category || mm.memoryId || mm.tripId || mm.categoriesUsed?.length || mm.memoryIdsUsed?.length || mm.tripIdsUsed?.length);
-    if (sensitivePayload || tagged || m.kind === 'health_card' || m.kind === 'report') return redact(m, KIN_ONLY_TEXT);
+    if (sensitivePayload || tagged || m.kind === 'health_card' || m.kind === 'report') return redact(m, kinOnlyText());
   }
 
   // 1. memory provenance (meta or card payload). A message that is about a trip is gated by the TRIP (step 2), not by the memory it
@@ -319,11 +323,11 @@ export function projectMessage(viewerId: ID, m: Message): Message {
   if (memoryId) {
     const mem = ctx.db.memories.get(memoryId);
     if (!memoryVisibleToFamily(mem)) {
-      const text = '어머님이 이 추억을 비공개로 바꾸셨어요.';
+      const text = st('notice.memoryPrivate');
       if (p && (p.type === 'share_card' || p.type === 'memory_card' || p.type === 'recall_card')) {
-        const stub: Memory = { ...memoryStub(mem ?? ({ id: memoryId, ownerId: SENIOR_ID, createdAt: m.createdAt } as Memory)), title: '비공개로 바뀐 추억' };
+        const stub: Memory = { ...memoryStub(mem ?? ({ id: memoryId, ownerId: SENIOR_ID, createdAt: m.createdAt } as Memory)), title: st('mem.madePrivateTitle') };
         const payload: MessagePayload =
-          p.type === 'share_card' ? { type: 'share_card', memoryId, title: '비공개로 바뀐 추억', summary: '', people: [] }
+          p.type === 'share_card' ? { type: 'share_card', memoryId, title: st('mem.madePrivateTitle'), summary: '', people: [] }
             : p.type === 'memory_card' ? { type: 'memory_card', memoryId, memory: stub, graphDelta: { nodes: [], edges: [] } }
               : { type: 'recall_card', memoryId, memory: stub, matched: [], path: { nodes: [], edges: [] }, alternatives: [] };
         return { ...m, text, payload, actions: undefined, quickReplies: undefined };
@@ -334,17 +338,17 @@ export function projectMessage(viewerId: ID, m: Message): Message {
 
   // 2. trip provenance
   const tripId = m.meta?.tripId ?? (p && (p.type === 'trip_suggestion' || p.type === 'itinerary') ? p.tripId : undefined);
-  if (tripId && !tripVisibleToFamily(ctx.db.trips.get(tripId))) return redact(m, PRIVATE_NOTICE);
+  if (tripId && !tripVisibleToFamily(ctx.db.trips.get(tripId))) return redact(m, privateNotice());
 
   // 2b. answer provenance: any resource / category the answer drew on that is private now retracts it
   const usedMem = m.meta?.memoryIdsUsed ?? [];
   const usedTrip = m.meta?.tripIdsUsed ?? [];
   if (usedMem.some(id => !memoryVisibleToFamily(ctx.db.memories.get(id))) || usedTrip.some(id => !tripVisibleToFamily(ctx.db.trips.get(id)))
-    || (m.meta?.categoriesUsed ?? []).some(c => privacy[c] === 'private')) return redact(m, PRIVATE_NOTICE);
+    || (m.meta?.categoriesUsed ?? []).some(c => privacy[c] === 'private')) return redact(m, privateNotice());
 
   // 3. category provenance (health / mood / daily / trip ...) — applies to plain text too
   if (m.meta?.category && privacy[m.meta.category] === 'private') {
-    return m.kind === 'health_card' ? redact(m, '어머님이 건강 정보를 비공개로 바꾸셨어요.') : redact(m, PRIVATE_NOTICE);
+    return m.kind === 'health_card' ? redact(m, st('notice.healthPrivate')) : redact(m, privateNotice());
   }
 
   if (!p) return m;
@@ -353,7 +357,7 @@ export function projectMessage(viewerId: ID, m: Message): Message {
     const hit = (t?: string) => !!t && titles.some(x => t.includes(x));
     const rows: ReportSession[] = p.sessions.map(r => (
       !r.isPrivate && (privacy[r.category] === 'private' || hit(r.title) || hit(r.summary))
-        ? { ...r, title: MASKED_TITLE, summary: MASKED_SUMMARY, isPrivate: true } : r));
+        ? { ...r, title: maskedTitle(), summary: maskedSummary(), isPrivate: true } : r));
     const moodLeak = privacy.mood !== 'family' && !!p.moodLabel;
     const changed = rows.some((r, i) => r !== p.sessions[i]) || moodLeak || hit(p.highlight) || hit(m.text);
     if (!changed) return m;
@@ -362,7 +366,7 @@ export function projectMessage(viewerId: ID, m: Message): Message {
   }
   if (p.type === 'health_card') {
     const h = healthForFamily(p.summary);
-    if (!h) return redact(m, '어머님이 건강 정보를 비공개로 바꾸셨어요.');
+    if (!h) return redact(m, st('notice.healthPrivate'));
     return h === p.summary ? m : { ...m, payload: { ...p, summary: h } };
   }
   return m;
@@ -385,7 +389,7 @@ export function scrubHiddenTitles<T>(viewerId: ID, value: T): T {
   if (!titles.length) return value;
   let j = JSON.stringify(value);
   const before = j;
-  for (const t of titles.sort((a, b) => b.length - a.length)) j = j.split(JSON.stringify(t).slice(1, -1)).join('비공개 추억');
+  for (const t of titles.sort((a, b) => b.length - a.length)) j = j.split(JSON.stringify(t).slice(1, -1)).join(st('mem.privateTitle'));
   return j === before ? value : (JSON.parse(j) as T);
 }
 

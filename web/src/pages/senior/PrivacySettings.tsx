@@ -1,19 +1,23 @@
 import { Lock, Users } from 'lucide-react';
 import type { PrivacyCategory } from '../../../../shared/types';
-import { PRIVACY_LABELS } from '../../../../shared/constants';
+import { privacyLabelsFor } from '../../../../shared/constants';
 import { tachi, useTachi } from '../../lib/store';
+import { useLocale, useT } from '../../lib/i18n';
 import { Segmented } from '../../components/common/Segmented';
 
-const CATS = Object.keys(PRIVACY_LABELS) as PrivacyCategory[];
 
 export function PrivacySettings() {
+  const t = useT();
+  const locale = useLocale();
   const privacy = useTachi(s => s.privacy);
-  if (!privacy) return <div className="sa-center"><p className="sa-center-t">불러오는 중…</p></div>;
+  const PRIVACY_LABELS = privacyLabelsFor(locale);
+  const CATS = Object.keys(PRIVACY_LABELS) as PrivacyCategory[];
+  if (!privacy) return <div className="sa-center"><p className="sa-center-t">{t('common.loading')}</p></div>;
   const shared = CATS.filter(c => privacy[c] === 'family');
   return (
     <div className="sa-scroll">
-      <h1 className="sa-h sa-h1">가족에게 보여주기</h1>
-      <p className="sa-note">가족은 ‘가족 공개’로 둔 정보만 타치에게 물어볼 수 있어요.</p>
+      <h1 className="sa-h sa-h1">{t('priv.title')}</h1>
+      <p className="sa-note">{t('priv.note')}</p>
       <div className="sa-priv-list">
         {CATS.map(c => (
           <section key={c} className="sa-priv" aria-labelledby={`p-${c}`}>
@@ -21,14 +25,22 @@ export function PrivacySettings() {
               <h2 id={`p-${c}`} className="sa-priv-t">{PRIVACY_LABELS[c].label}</h2>
               <p className="sa-priv-d">{PRIVACY_LABELS[c].description}</p>
             </div>
-            <Segmented label={`${PRIVACY_LABELS[c].label} 공개 범위`} size="senior" value={privacy[c]} onChange={v => tachi.setPrivacy(c, v)}
-              options={[{ value: 'family', label: '가족 공개', icon: <Users size={20} aria-hidden /> }, { value: 'private', label: '나만 보기', icon: <Lock size={20} aria-hidden /> }]} />
+            <Segmented label={t('priv.scopeOf', { label: PRIVACY_LABELS[c].label })} size="senior" value={privacy[c]} onChange={v => tachi.setPrivacy(c, v)}
+              options={[{ value: 'family', label: t('vis.family'), icon: <Users size={20} aria-hidden /> }, { value: 'private', label: t('vis.private'), icon: <Lock size={20} aria-hidden /> }]} />
           </section>
         ))}
       </div>
+      <section className="sa-priv sa-lang" aria-labelledby="p-lang">
+        <div>
+          <h2 id="p-lang" className="sa-priv-t">{t('lang.title')}</h2>
+          <p className="sa-priv-d">{t('lang.note')}</p>
+        </div>
+        <Segmented label={t('lang.title')} size="senior" value={locale} onChange={v => { if (v !== locale) tachi.setLocale(v); }}
+          options={[{ value: 'en', label: 'English' }, { value: 'ko', label: '한국어' }]} />
+      </section>
       <section className="sa-preview">
-        <h2 className="sa-priv-t">지금 가족이 볼 수 있는 것</h2>
-        {shared.length === 0 ? <p className="sa-priv-d">지금은 가족에게 보이는 정보가 없어요.</p> : (
+        <h2 className="sa-priv-t">{t('priv.nowVisible')}</h2>
+        {shared.length === 0 ? <p className="sa-priv-d">{t('priv.noneVisible')}</p> : (
           <ul>{shared.map(c => <li key={c}><b>{PRIVACY_LABELS[c].label}</b>: {PRIVACY_LABELS[c].description}</li>)}</ul>
         )}
       </section>

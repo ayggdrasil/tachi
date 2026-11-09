@@ -1,5 +1,6 @@
 // Unclaimed family personas act as AI bots (4.9).
-import { BOT_SLOT_PREFS, KIN_RELATIONS, SENIOR_ID, TACHI_ID } from '../../shared/constants';
+import { BOT_SLOT_PREFS, SENIOR_ID, TACHI_ID, isKinRelation } from '../../shared/constants';
+import { serverLocale, st } from '../i18n';
 import type { ID, Message, MessageMeta, Poll, User } from '../../shared/types';
 import { ctx } from './ctx';
 import { displayName, emitTyping, getDemo, getUser, isAssistedOnly, later, messageFor, post, senior } from './core';
@@ -77,7 +78,7 @@ export function reactBots(roomId: ID, trigger: Message, as?: { kind: string; tex
   if (fromTachi && !as && !CARD_KINDS.has(trigger.kind)) return;
   const health = trigger.kind === 'health_card' || as?.kind === 'health_card';
   const pool = shuffle(candidates(roomId, fromTachi ? undefined : trigger.senderId)
-    .filter(u => !health || KIN_RELATIONS.includes(u.relation ?? '')));
+    .filter(u => !health || isKinRelation(u.relation ?? '')));
   let chosen = pool.filter(() => Math.random() < 0.6).slice(0, 2);
   if (!chosen.length && fromTachi && pool.length) chosen = [pool[0]];
   chosen.forEach((u, i) => {
@@ -86,22 +87,24 @@ export function reactBots(roomId: ID, trigger: Message, as?: { kind: string; tex
 }
 
 // ── schedule answers ────────────────────────────────────────────────────────
-const WD = ['일', '월', '화', '수', '목', '금', '토'];
+const WD_KO = ['일', '월', '화', '수', '목', '금', '토'];
+const WD_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 function natural(poll: Poll, slotId: ID): string {
   const s = poll.slots.find(x => x.id === slotId);
   if (!s) return '';
   const d = new Date(s.startsAt);
   const idx = poll.slots.indexOf(s);
-  const when = d.getHours() < 15 ? '점심' : '저녁';
-  return `${idx >= 4 ? '다음 주 ' : ''}${WD[d.getDay()]}요일 ${when}`;
+  const next = idx >= 4;
+  if (serverLocale() === 'ko') return `${next ? '다음 주 ' : ''}${WD_KO[d.getDay()]}요일 ${d.getHours() < 15 ? '점심' : '저녁'}`;
+  return `${next ? 'next ' : ''}${WD_EN[d.getDay()]} ${d.getHours() < 15 ? 'lunch' : 'dinner'}`;
 }
 
 export function slotLine(poll: Poll, slotIds: ID[], userId: ID): string {
   const names = slotIds.slice(0, 2).map(id => natural(poll, id)).filter(Boolean);
-  if (userId === SENIOR_ID) return slotIds.length >= poll.slots.length ? '난 아무 때나 괜찮다. 너희 편한 날로 하렴' : `${names.join(', ')} 좋구나`;
-  if (!names.length) return '이번엔 어렵겠어요';
-  return names.length === 1 ? `${names[0]}이면 괜찮아요` : `${names[0]}, ${names[1]} 가능해요`;
+  if (userId === SENIOR_ID) return slotIds.length >= poll.slots.length ? st('slot.mom.any') : st('slot.mom.some', { names: names.join(', ') });
+  if (!names.length) return st('slot.none');
+  return names.length === 1 ? st('slot.one', { a: names[0] }) : st('slot.two', { a: names[0], b: names[1] });
 }
 
 /** Can a bot answer for this persona right now? Unclaimed, or only held by Director-stage phones. */
@@ -139,6 +142,6 @@ export function scheduleBotAnswers(poll: Poll): void {
 
 export async function greetInvitee(roomId: ID, user: User): Promise<void> {
   if (!botsOn() || !user.isBot) return;
-  later(1500, async () => { await botSpeak(roomId, user, { kind: 'system', text: '초대' }); });
+  later(1500, async () => { await botSpeak(roomId, user, { kind: 'system', text: st('bot.inviteTrigger') }); });
 }
 

@@ -1,12 +1,12 @@
 // AI brain contract. FROZEN — Agent B implements `createBrain()` in server/brain/index.ts;
 // Agent A (orchestrator) only calls through this interface.
 import type {
-  Artifact, ArtifactTask, HealthSummary, ItineraryPayload, Memory, MemoryPerson, ModelKey, ModelState,
+  Locale, Artifact, ArtifactTask, HealthSummary, ItineraryPayload, Memory, MemoryPerson, ModelKey, ModelState,
   PrivacyCategory, PrivacySettings, ProactiveKind, ReportOpenTask, ReportPayload, SessionLog, Slot, TripSuggestionPayload, User,
   BookingCategory, TaskActionKind,
 } from '../../shared/types';
 import type { AnyTool, ToolAudience, ToolContext } from '../tools/types';
-import type { AgentOutcome } from './agent';
+import type { AgentOutcome } from './toolLoop';
 
 /** Every AI result carries which model produced it and whether the heuristic fallback answered. */
 export interface AIResult<T> {
@@ -153,8 +153,52 @@ export interface AgentRunInput {
   deadlineMs?: number;
 }
 
+// ── LLM-driven senior conversation (1:1 room) ──────────────────────────────
+/** A memory the agent can see while talking (retrieved from the graph + recent ones). */
+export type AgentMemory = Pick<Memory, 'id' | 'title' | 'summary' | 'story' | 'year' | 'season' | 'place' | 'people' | 'event' | 'emotions' | 'visibility'>;
+
+/** The memory the senior is telling right now (collected across turns until the agent saves it). */
+export type MemoryDraft = Partial<ExtractedMemory> & { photoUrl?: string; turns?: number };
+
+export interface SeniorAgentInput {
+  locale: Locale;
+  senior: User;
+  history: ChatTurn[];                 // recent turns of the senior's 1:1 room (oldest first, text only)
+  message: string;                     // the senior's latest text ('' when only a photo was sent)
+  photo?: { url: string; path?: string };   // a photo just uploaded in this turn (vision models see it)
+  memories: AgentMemory[];             // relevant memories (graph search on the message) + a few recent ones
+  allMemoryTitles: { id: string; title: string }[];
+  draft?: MemoryDraft;                 // memory currently being collected (null when none)
+  pending?: string | null;             // pending confirmation in the room (share_confirm / trip_confirm / itinerary …)
+  health?: HealthSummary;              // for health talk
+  now: Date;
+}
+
+/** Things the agent decides to do; the orchestrator executes them (DB writes, cards, flows). */
+export type SeniorAgentAction =
+  | { type: 'save_memory'; memory: ExtractedMemory }          // the story is complete enough → persist to SQLite + graph (private until shared)
+  | { type: 'update_draft'; draft: MemoryDraft }               // keep collecting (merged into the room's draft)
+  | { type: 'show_memory'; memoryId: string }                  // show an existing memory card (recall)
+  | { type: 'share_memory'; memoryId: string }                 // senior agreed to share with the family
+  | { type: 'suggest_trip'; memoryId: string }                 // offer a nearby trip based on that memory
+  | { type: 'accept_trip' } | { type: 'decline_trip' }
+  | { type: 'log_health'; systolic?: number; diastolic?: number; observation?: SeniorObservation };
+
+export interface SeniorAgentTurn {
+  reply: string;                       // what Tachi says (in the input locale; ≤ 3 short sentences, one question at most)
+  quickReplies: string[];              // 0–3 chips
+  actions: SeniorAgentAction[];
+}
+
 // ── Brain ──────────────────────────────────────────────────────────────────
 export interface Brain {
+  /** Product language for every prompt and offline template (default 'en'). */
+  setLocale(locale: Locale): void;
+  getLocale(): Locale;
+  /** True when the active model is a live, available provider (the senior agent path runs only then). */
+  isLive(): boolean;
+  /** One LLM turn of the senior's 1:1 conversation: reply + actions (save/recall/share/trip/health). */
+  seniorAgentTurn(input: SeniorAgentInput): Promise<AIResult<SeniorAgentTurn>>;
   /** Current model state (for UI), and runtime switching. */
   getModelState(): ModelState;
   setActiveModel(key: ModelKey): ModelState;

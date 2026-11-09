@@ -5,7 +5,7 @@
 //    existing state-machine path unchanged.
 import { SENIOR_ID, SENIOR_ROOM_ID } from '../../shared/constants';
 import type { Message, MessageMeta, PrivacyCategory, Room, User } from '../../shared/types';
-import { agentSystemPrompt } from '../brain/agent';
+import { agentSystemPrompt } from '../brain/toolLoop';
 import { questionCategory } from '../brain/heuristics/family';
 import { planOffline } from '../brain/planner';
 import { dueReminders, markDelivered, reminderCategory } from '../tools/reminders';
@@ -61,7 +61,7 @@ async function surface(notices: ToolNotice[]): Promise<void> {
  * Try to answer with the agent loop. Returns the posted message, or undefined when the caller must run the state machine.
  * Never throws for agent problems (they are logged and fall back).
  */
-export async function tryAgent(room: Room, audience: ToolAudience, asker: User, text: string): Promise<Message | undefined> {
+export async function tryToolLoop(room: Room, audience: ToolAudience, asker: User, text: string): Promise<Message | undefined> {
   if (!ctx.brain.runAgent) return undefined;
   const offline = planOffline(text, audience, now()) !== null;
   const cat = questionCategory(text);

@@ -7,6 +7,7 @@ import {
 } from './core';
 import { nowIso, uid } from '../util/misc';
 import { reactBots } from './bots';
+import { st } from '../i18n';
 import { findPlaces, placeById, resolvePlace } from '../data/places';
 import { normalizeTasks, refineTaskActions, resetFollowUps, setTaskStatus } from './tasks';
 
@@ -58,8 +59,12 @@ export function emitArtifact(a: Artifact): void {
 }
 
 const EVENT_NOUNS: [string, RegExp][] = [
-  ['birthday', /생신|생일/], ['seventy', /칠순|환갑|팔순/], ['wedding', /결혼|상견례/], ['graduation', /졸업/], ['holiday', /추석|설날|명절/],
+  ['birthday', /생신|생일|birthday/i], ['seventy', /칠순|환갑|팔순|\b(60th|70th|80th)\b/i], ['wedding', /결혼|상견례|wedding/i], ['graduation', /졸업|graduat/i],
+  ['holiday', /추석|설날|명절|chuseok|seollal|lunar new year|thanksgiving/i],
 ];
+const BIRTHDAY_RE = /생신|생일|birthday/i;
+const TBD_RE = /협의|to be (decided|discussed|determined)|tbd/i;
+const areaOf = (display: string): string => st('art.area', { place: display });
 const eventNoun = (t: string): string | undefined => EVENT_NOUNS.find(([, re]) => re.test(t))?.[0];
 
 /** Does a new proposal refer to the same gathering as the artifact? Same destination region and no conflicting event noun. */
@@ -75,10 +80,10 @@ function sameGathering(a: Artifact, text: string): boolean {
 
 async function askGatheringChoice(roomId: ID, a: Artifact, text: string): Promise<void> {
   await tachiSay(roomId, {
-    text: `“${a.title}” 기획서가 이미 있는데, 말씀하신 내용은 조금 달라 보여요. 기존 계획을 바꿀까요, 새 기획서를 만들까요?`,
+    text: st('art.choice', { title: a.title }),
     actions: [
-      { id: 'revise_gathering', label: '기존 계획을 바꿀게요', data: { artifactId: a.id, proposal: text } },
-      { id: 'new_gathering', label: '새 기획서를 만들어 주세요', style: 'primary', data: { proposal: text } },
+      { id: 'revise_gathering', label: st('art.btn.revise'), data: { artifactId: a.id, proposal: text } },
+      { id: 'new_gathering', label: st('art.btn.new'), style: 'primary', data: { proposal: text } },
     ],
   });
 }
@@ -92,31 +97,31 @@ async function mergeIntoArtifact(a: Artifact, roomId: ID, proposer: User, member
   const ids = new Set(members.map(m => m.id));
   const changes: string[] = [];
   const named = resolvePlace(text);
-  const dest = named ? `${named.display} 일대` : undefined;
-  if (named && dest && (!fresh.place || /협의/.test(fresh.place))) { fresh.place = dest; changes.push(`장소를 ${dest}로`); }
+  const dest = named ? areaOf(named.display) : undefined;
+  if (named && dest && (!fresh.place || TBD_RE.test(fresh.place))) { fresh.place = dest; changes.push(st('art.change.place', { place: dest })); }
   else if (forceDest && named && dest && !(fresh.place ?? '').includes(named.place.region)) {
     // explicit "revise": the destination/title/agenda follow the new proposal
-    fresh.place = dest; changes.push(`장소를 ${dest}로`);
-    if (d.title && d.title !== fresh.title) { fresh.title = d.title; changes.push('제목'); }
-    if (d.agenda?.length) { fresh.agenda = d.agenda.slice(0, 30); changes.push('일정'); }
+    fresh.place = dest; changes.push(st('art.change.place', { place: dest }));
+    if (d.title && d.title !== fresh.title) { fresh.title = d.title; changes.push(st('art.change.title')); }
+    if (d.agenda?.length) { fresh.agenda = d.agenda.slice(0, 30); changes.push(st('art.change.agenda')); }
   } else {
     const haveAgenda = new Set(fresh.agenda);
     const addAgenda = (d.agenda ?? []).filter(x => !haveAgenda.has(x));
-    if (addAgenda.length && (forceDest || !fresh.agenda.length)) { fresh.agenda = [...fresh.agenda, ...addAgenda].slice(0, 30); changes.push(`일정 ${addAgenda.length}개`); }
+    if (addAgenda.length && (forceDest || !fresh.agenda.length)) { fresh.agenda = [...fresh.agenda, ...addAgenda].slice(0, 30); changes.push(st('art.change.agendaN', { n: addAgenda.length })); }
   }
   const have = new Set(fresh.tasks.map(t => t.text));
   const addTasks = (d.tasks ?? []).filter(t => !have.has(t.text));
   for (const t of addTasks) fresh.tasks.push({ id: uid('task'), text: t.text, assigneeId: t.assigneeId && ids.has(t.assigneeId) ? t.assigneeId : undefined, done: false });
-  if (addTasks.length) changes.push(`할 일 ${addTasks.length}개`);
-  if (!fresh.background?.trim()) { fresh.background = `${proposer.name}님이 "${text.replace(/[!.]+$/, '')}"라고 제안했어요.`; changes.push('배경'); }
+  if (addTasks.length) changes.push(st('art.change.tasksN', { n: addTasks.length }));
+  if (!fresh.background?.trim()) { fresh.background = st('art.proposedBy', { name: proposer.name, text: text.replace(/[!.]+$/, '') }); changes.push(st('art.change.background')); }
   const line = `${proposer.name}: ${text.replace(/[!.]+$/, '')}`;
-  if (!(fresh.notes ?? '').includes(line)) { fresh.notes = [fresh.notes, `• ${line}`].filter(Boolean).join('\n').slice(0, 2000); changes.push('제안 메모'); }
+  if (!(fresh.notes ?? '').includes(line)) { fresh.notes = [fresh.notes, `• ${line}`].filter(Boolean).join('\n').slice(0, 2000); changes.push(st('art.change.note')); }
   // the proposal brings a birthday angle the plan did not have yet
-  if (/생신|생일/.test(text) && !/생신|생일/.test(`${fresh.title} ${fresh.purpose ?? ''}`)) {
-    const region = (fresh.place ?? '').replace(/\s*일대$/, '').trim();
-    fresh.title = `어머니 생신 · ${region && !/협의/.test(region) ? `${region} 가족 여행` : '가족 모임'}`;
-    fresh.purpose = '어머님 생신을 온 가족이 함께 축하하고, 예전 추억의 장소를 다시 걸으며 새 추억을 만들어요.';
-    changes.push('생신 일정');
+  if (BIRTHDAY_RE.test(text) && !BIRTHDAY_RE.test(`${fresh.title} ${fresh.purpose ?? ''}`)) {
+    const region = (fresh.place ?? '').replace(/\s*(일대|area)$/i, '').trim();
+    fresh.title = st('art.birthdayTitle', { tail: region && !TBD_RE.test(region) ? st('art.tripTail', { region }) : st('art.gatheringTail') });
+    fresh.purpose = st('art.birthdayPurpose');
+    changes.push(st('art.change.birthday'));
   }
   let m;
   if (changes.length) {
@@ -127,19 +132,19 @@ async function mergeIntoArtifact(a: Artifact, roomId: ID, proposer: User, member
     if (addTasks.length) refineTaskActions(fresh.id);
     m = await tachiSay(roomId, {
       kind: 'artifact',
-      text: `기존 모임 기획서에 반영했어요. (${changes.join(', ')})`,
+      text: st('art.merged', { changes: changes.join(', ') }),
       payload: { type: 'artifact', artifactId: fresh.id },
       actions: [
-        { id: 'start_scheduling', label: '일정 조율 시작', style: 'primary', data: { artifactId: fresh.id } },
-        { id: 'open_artifact', label: '기획서 열기', data: { artifactId: fresh.id } },
+        { id: 'start_scheduling', label: st('art.btn.schedule'), style: 'primary', data: { artifactId: fresh.id } },
+        { id: 'open_artifact', label: st('art.btn.open'), data: { artifactId: fresh.id } },
       ],
     }, ai);
   } else {
     m = await tachiSay(roomId, {
       kind: 'artifact',
-      text: '말씀하신 내용은 이미 기획서에 담겨 있어요. 바꾸고 싶은 부분을 알려 주세요.',
+      text: st('art.alreadyCovered'),
       payload: { type: 'artifact', artifactId: fresh.id },
-      actions: [{ id: 'open_artifact', label: '기획서 열기', data: { artifactId: fresh.id } }],
+      actions: [{ id: 'open_artifact', label: st('art.btn.open'), data: { artifactId: fresh.id } }],
     }, ai);
   }
   reactBots(roomId, m);
@@ -194,9 +199,9 @@ export async function createGathering(
   }));
   if (isStale()) throw new Error('stale');
   const d = ai.value;
-  if (!kinProposer) d.background = `${proposer.name}님이 "${text.replace(/[!.]+$/, '')}"라고 제안했어요.`;
+  if (!kinProposer) d.background = st('art.proposedBy', { name: proposer.name, text: text.replace(/[!.]+$/, '') });
   const dest = destinationRegions(text, trip);
-  if (dest.display && dest.regions.size && ![...dest.regions].some(r => (d.place ?? '').includes(r))) d.place = `${dest.display} 일대`;
+  if (dest.display && dest.regions.size && ![...dest.regions].some(r => (d.place ?? '').includes(r))) d.place = areaOf(dest.display);
   const t = nowIso();
   const memberIds = new Set(members.map(m => m.id));
   const art: Artifact = {
@@ -210,11 +215,11 @@ export async function createGathering(
   refineTaskActions(art.id);
   const m = await tachiSay(roomId, {
     kind: 'artifact',
-    text: `${art.title} 모임 기획서를 만들어 봤어요. 함께 다듬어 주세요.`,
+    text: st('art.created', { title: art.title }),
     payload: { type: 'artifact', artifactId: art.id },
     actions: [
-      { id: 'start_scheduling', label: '일정 조율 시작', style: 'primary', data: { artifactId: art.id } },
-      { id: 'open_artifact', label: '기획서 열기', data: { artifactId: art.id } },
+      { id: 'start_scheduling', label: st('art.btn.schedule'), style: 'primary', data: { artifactId: art.id } },
+      { id: 'open_artifact', label: st('art.btn.open'), data: { artifactId: art.id } },
     ],
   }, ai);
   reactBots(roomId, m);
@@ -286,5 +291,5 @@ export async function assistArtifact(userId: ID, artifactId: ID): Promise<void> 
   ctx.db.artifacts.put(normalizeTasks(fresh));
   emitArtifact(fresh);
   refineTaskActions(fresh.id);
-  await tachiSay(a.roomId, { text: ai.value.message || '할 일을 몇 가지 더 적어 두었어요.' }, ai);
+  await tachiSay(a.roomId, { text: ai.value.message || st('art.assistFallback') }, ai);
 }

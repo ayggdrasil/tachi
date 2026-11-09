@@ -1,22 +1,27 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, Plus } from 'lucide-react';
-import type { Room, User } from '../../../../shared/types';
+import { Check, ChevronDown, MessageCirclePlus, Plus } from 'lucide-react';
+import type { ID, Room, User } from '../../../../shared/types';
+import { useT } from '../../lib/i18n';
 import { Avatar } from '../../components/common/Avatar';
 import { ModelSwitcher } from '../../components/common/ModelSwitcher';
+import { RoomRow, relLabel, useRoomGroups } from './rooms';
 
 interface Props {
   me: User | null;
+  users: Record<ID, User>;
   family: User[];
   rooms: Room[];
   activeId: string | null;
   unread: Record<string, number>;
   onSelect: (id: string) => void;
   onNew: () => void;
+  onNewDm: () => void;
   onSwitchPersona: (id: string) => void;
   full?: boolean;
 }
 
-export function Sidebar({ me, family, rooms, activeId, unread, onSelect, onNew, onSwitchPersona, full }: Props) {
+export function Sidebar({ me, users, family, rooms, activeId, unread, onSelect, onNew, onNewDm, onSwitchPersona, full }: Props) {
+  const t = useT();
   const [menu, setMenu] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -30,30 +35,20 @@ export function Sidebar({ me, family, rooms, activeId, unread, onSelect, onNew, 
     return () => { document.removeEventListener('pointerdown', on); document.removeEventListener('keydown', key); };
   }, [menu]);
 
-  const byRecent = (a: Room, b: Room) => (b.lastMessageAt ?? b.createdAt).localeCompare(a.lastMessageAt ?? a.createdAt);
-  const groups = rooms.filter(r => r.type === 'family').sort(byRecent);
-  const sides = rooms.filter(r => r.type === 'side').sort(byRecent);
-
-  const row = (r: Room) => (
-    <li key={r.id}>
-      <button className={`fam-room ${r.id === activeId ? 'is-on' : ''}`} onClick={() => onSelect(r.id)} aria-current={r.id === activeId ? 'page' : undefined}>
-        <span className="fam-room-title">{r.title}</span>
-        {r.pollId && !r.title.includes('일정 조율') && <span className="badge">일정 조율</span>}
-        {unread[r.id] > 0 && <span className="fam-unread"><span aria-hidden>{unread[r.id]}</span><span className="sr-only">읽지 않은 메시지 {unread[r.id]}개</span></span>}
-      </button>
-    </li>
-  );
+  const { families, dms, sides } = useRoomGroups(rooms);
+  const meId = me?.id ?? null;
+  const row = (r: Room) => <RoomRow key={r.id} room={r} meId={meId} users={users} active={r.id === activeId} unread={unread[r.id] ?? 0} onSelect={onSelect} />;
 
   const Root = full ? 'main' : 'aside';
   return (
-    <Root className={`fam-side ${full ? 'is-full' : ''}`} aria-label="대화방 목록">
-      {full && <h1 className="sr-only">대화방 목록</h1>}
+    <Root className={`fam-side ${full ? 'is-full' : ''}`} aria-label={t('fam.roomList')}>
+      {full && <h1 className="sr-only">{t('fam.roomList')}</h1>}
       <div className="fam-side-head">
-        <span className="fam-mark">타치</span>
+        <span className="fam-mark">{t('app.name')}</span>
         <div className="fam-persona" ref={box}>
           <button ref={triggerRef} className="fam-persona-btn" onClick={() => setMenu(v => !v)} aria-expanded={menu} aria-controls="fam-persona-menu">
             {me && <Avatar user={me} size={22} />}
-            <span>{me ? `${me.shortName} · ${me.relation}` : '연결 중'}</span>
+            <span>{me ? `${me.shortName} · ${relLabel(me.relation, t)}` : t('fam.connecting')}</span>
             <ChevronDown size={14} strokeWidth={1.5} aria-hidden />
           </button>
           {menu && (
@@ -62,7 +57,7 @@ export function Sidebar({ me, family, rooms, activeId, unread, onSelect, onNew, 
                 <li key={u.id}>
                   <button aria-pressed={u.id === me?.id} className="fam-menu-item" onClick={() => { setMenu(false); onSwitchPersona(u.id); }}>
                     <Avatar user={u} size={22} />
-                    <span>{u.shortName} · {u.relation}</span>
+                    <span>{u.shortName} · {relLabel(u.relation, t)}</span>
                     {u.id === me?.id && <Check size={14} strokeWidth={1.5} aria-hidden />}
                   </button>
                 </li>
@@ -73,16 +68,23 @@ export function Sidebar({ me, family, rooms, activeId, unread, onSelect, onNew, 
       </div>
 
       <nav className="fam-side-scroll">
-        <h2 className="fam-sec">대화방</h2>
+        <h2 className="fam-sec">{t('fam.secRooms')}</h2>
         <ul className="fam-rooms">
-          {groups.map(row)}
+          {families.map(row)}
           <li>
-            <button className="fam-room fam-new" onClick={onNew}><Plus size={16} strokeWidth={1.5} aria-hidden /><span className="fam-room-title">새 대화방</span></button>
+            <button className="fam-room fam-new" onClick={onNew}><Plus size={16} strokeWidth={1.5} aria-hidden /><span className="fam-room-title">{t('fam.newRoom')}</span></button>
+          </li>
+        </ul>
+        <h2 className="fam-sec">{t('fam.secDms')}</h2>
+        <ul className="fam-rooms">
+          {dms.map(row)}
+          <li>
+            <button className="fam-room fam-new" onClick={onNewDm}><MessageCirclePlus size={16} strokeWidth={1.5} aria-hidden /><span className="fam-room-title">{t('fam.newDm')}</span></button>
           </li>
         </ul>
         {sides.length > 0 && (
           <>
-            <h2 className="fam-sec">타치와 1:1</h2>
+            <h2 className="fam-sec">{t('fam.secSides')}</h2>
             <ul className="fam-rooms">{sides.map(row)}</ul>
           </>
         )}

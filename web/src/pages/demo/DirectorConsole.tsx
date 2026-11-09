@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, ChevronLeft, ChevronRight, Clock, Loader2, Moon, Pause, Play, QrCode, RotateCcw, Sun } from 'lucide-react';
-import { DEMO_SCRIPT, DIRECTOR_ID, FAMILY_ROOM_ID, SENIOR_ROOM_ID, type DemoStep } from '../../../../shared/constants';
+import { demoScriptFor, DIRECTOR_ID, FAMILY_ROOM_ID, SENIOR_ROOM_ID, type DemoStep } from '../../../../shared/constants';
 import type { ProactiveKind, ModelKey, RecallCardPayload } from '../../../../shared/types';
 import { getState, initTachi, tachi, useTachi } from '../../lib/store';
+import { useT, useLocale } from '../../lib/i18n';
+import type { Locale } from '../../../../shared/types';
+import { Segmented } from '../../components/common/Segmented';
 import { getSocket } from '../../lib/socket';
 import { Avatar } from '../../components/common/Avatar';
 import { MemoryGraph } from '../../components/graph/MemoryGraph';
@@ -18,9 +21,9 @@ const LABEL_H = 28;
 const GAP = 24;
 const PAD = 24;
 
-const PROACTIVE: { kind: ProactiveKind; label: string }[] = [
-  { kind: 'morning', label: '아침 안부' }, { kind: 'memory', label: '추억 이야기' },
-  { kind: 'evening', label: '저녁 인사' }, { kind: 'ask_photo', label: '사진 요청' },
+const PROACTIVE: { kind: ProactiveKind; key: string }[] = [
+  { kind: 'morning', key: 'dir.pMorning' }, { kind: 'memory', key: 'dir.pMemory' },
+  { kind: 'evening', key: 'dir.pEvening' }, { kind: 'ask_photo', key: 'dir.pPhoto' },
 ];
 
 const STEP_TIMEOUT = 45000;
@@ -30,7 +33,7 @@ const LONG_KINDS = new Set(['memory_card', 'share_card', 'itinerary', 'schedule_
 
 type StepStat = 'running' | 'done' | 'timeout' | 'skipped';
 
-// completed steps that must not be sent again (replay only via 처음부터 재생)
+// completed steps that must not be sent again (replay only via "Replay from start")
 const NON_REPEATABLE = new Set(['photo', 'a-when', 'a-who', 'a-story', 'share', 'invite', 'trip', 'together', 'gathering', 'schedule', 'report']);
 
 /** Has the step's outcome already landed in the store? (used to settle a timed-out step without re-sending) */
@@ -60,6 +63,9 @@ function fmtElapsed(ms: number): string {
 }
 
 export default function DirectorConsole() {
+  const t = useT();
+  const locale = useLocale();
+  const script = useMemo(() => demoScriptFor(locale), [locale]);
   useEffect(() => { initTachi(DIRECTOR_ID); }, []);
 
   const status = useTachi(s => s.status);
@@ -101,7 +107,7 @@ export default function DirectorConsole() {
   const themeQ = `&theme=${theme}`;
   const error = useTachi(s => s.error);
 
-  const total = DEMO_SCRIPT.length;
+  const total = script.length;
   const cursorRef = useRef(cursor);
   cursorRef.current = cursor;
   const statRef = useRef(stat);
@@ -118,7 +124,7 @@ export default function DirectorConsole() {
   useTachi(s => s.rooms); useTachi(s => s.artifacts); // re-render when outcomes land (timeout hint)
 
   const runStep = useCallback((i: number) => {
-    const step = DEMO_SCRIPT[i];
+    const step = script[i];
     if (!step || runningRef.current) return;
     const prev = statRef.current[step.id];
     if (NON_REPEATABLE.has(step.id) && prev === 'done') {
@@ -145,7 +151,7 @@ export default function DirectorConsole() {
       const cands = opts.filter(o => o.available && o.key !== 'demo' && o.key !== ms?.active && o.healthy !== false);
       const pick = cands.find(o => o.key === step.modelKey) ?? cands[0];
       if (!pick) {
-        setSkip(d => ({ ...d, [step.id]: '바꿀 수 있는 다른 모델이 없어 건너뛰어요' }));
+        setSkip(d => ({ ...d, [step.id]: 'dir.skipNoModel' }));
         setStat(d => ({ ...d, [step.id]: 'skipped' }));
         setCursor(c => Math.max(c, i + 1));
         setDwell(true);
@@ -164,7 +170,7 @@ export default function DirectorConsole() {
           return;
         }
         // switch never observed: do not ask the question under the old model
-        setSkip(d => ({ ...d, [step.id]: '모델 교체가 확인되지 않아 건너뛰어요' }));
+        setSkip(d => ({ ...d, [step.id]: 'dir.skipNoSwap' }));
         setStat(d => ({ ...d, [step.id]: 'skipped' }));
         runningRef.current = null;
         setRunning(null);
@@ -189,12 +195,12 @@ export default function DirectorConsole() {
     } else {
       setStat(d => ({ ...d, [step.id]: 'done' }));
     }
-  }, [total]);
+  }, [total, script]);
 
   // completion watcher
   useEffect(() => {
     if (!running) return;
-    const step = DEMO_SCRIPT[running.i];
+    const step = script[running.i];
     const w = step?.waitFor;
     if (!step || !w) return;
     const list = messages[w.room === 'senior' ? SENIOR_ROOM_ID : FAMILY_ROOM_ID] ?? [];
@@ -208,24 +214,24 @@ export default function DirectorConsole() {
       if (running.i === total - 1) setEndedAt(Date.now());
       setDwell(true);
     }
-  }, [running, messages, total]);
+  }, [running, messages, total, script]);
 
   // timeout
   useEffect(() => {
     if (!running) return;
-    const step = DEMO_SCRIPT[running.i];
-    const t = window.setTimeout(() => {
+    const step = script[running.i];
+    const to = window.setTimeout(() => {
       setStat(d => ({ ...d, [step.id]: 'timeout' }));
       runningRef.current = null;
       setRunning(null);
       setModelTarget(null);
       setAuto(false);
     }, STEP_TIMEOUT);
-    return () => window.clearTimeout(t);
-  }, [running]);
+    return () => window.clearTimeout(to);
+  }, [running, script]);
 
   // dwell after completion
-  const lastDoneKind = DEMO_SCRIPT[cursor - 1]?.waitFor?.kind ?? null;
+  const lastDoneKind = script[cursor - 1]?.waitFor?.kind ?? null;
   useEffect(() => {
     if (!dwell) return;
     // Adaptive dwell: if the audience already watched Tachi think for a while (slow live model), move on sooner.
@@ -249,8 +255,8 @@ export default function DirectorConsole() {
     if (runningRef.current) return;
     const c = Math.max(0, cursorRef.current - 1);
     setCursor(c);
-    setStat(d => { const n = { ...d }; const s = DEMO_SCRIPT[c]; if (s && !NON_REPEATABLE.has(s.id)) delete n[s.id]; return n; });
-  }, []);
+    setStat(d => { const n = { ...d }; const s = script[c]; if (s && !NON_REPEATABLE.has(s.id)) delete n[s.id]; return n; });
+  }, [script]);
   const resetCursor = useCallback(() => {
     runningRef.current = null;
     startedRef.current = null;
@@ -311,6 +317,16 @@ export default function DirectorConsole() {
   const stale = status === 'ready' && cursor === 0 && !running && !reloading && !staleDismissed
     && ((demo?.clockOffsetMinutes ?? 0) !== 0 || (familyMsgs ?? []).some(m => !m.id.startsWith('seed-')) || (seniorMsgs ?? []).some(m => !m.id.startsWith('seed-')));
 
+  // product language switch: the server re-seeds in that language and tells clients to re-bootstrap ('reset');
+  // also catch the locale change itself so the cursor / frames never keep the other language's script
+  const localeRef = useRef(locale);
+  useEffect(() => {
+    if (localeRef.current === locale) return;
+    localeRef.current = locale;
+    resetCursor(); setReloading(true);
+  }, [locale, resetCursor]);
+  const switchLocale = (l: Locale) => { if (l !== locale && !running) tachi.setLocale(l); };
+
   // reset: wait for the director store to be ready again, then re-key frames
   useEffect(() => {
     const on = () => { resetCursor(); setReloading(true); };
@@ -358,7 +374,7 @@ export default function DirectorConsole() {
   }, []);
 
   const third = showGraph ? 'graph' : showSide ? 'side' : null;
-  const engineLabel = engine === 'kuzu' ? 'Kùzu 그래프 DB' : engine === 'memory' ? '메모리 그래프 (대체 모드)' : engine ? engine : '그래프 엔진 확인 중…';
+  const engineLabel = engine === 'kuzu' ? t('dir.engineKuzu') : engine === 'memory' ? t('dir.engineMemory') : engine ? engine : t('dir.engineChecking');
   const phones = 2 + (third === 'side' ? 1 : 0);
   const availH = box.h - PAD * 2 - 40 - LABEL_H;
   const fitScale = (w: number, extraH = 0) => Math.min(1, (availH - extraH) / PHONE_H, w / (phones * PHONE_W));
@@ -375,19 +391,19 @@ export default function DirectorConsole() {
   const phonesW = phones * PHONE_W * scale + GAP * (phones - 1);
 
   const graphSection = third === 'graph' && (
-    <section className={`dc-graph ${graphBelow ? 'is-below' : ''}`} style={graphBelow ? { width: phonesW, height: STRIP_H } : { width: graphW, height: graphBoxH + LABEL_H }} aria-label="기억 그래프">
-              <div className="dc-label">기억 그래프 · {engineLabel} · 연결 {edges.length}개{fresh.length > 0 ? ` · 방금 +${fresh.length}` : ''}</div>
+    <section className={`dc-graph ${graphBelow ? 'is-below' : ''}`} style={graphBelow ? { width: phonesW, height: STRIP_H } : { width: graphW, height: graphBoxH + LABEL_H }} aria-label={t('dir.graph')}>
+              <div className="dc-label">{t('dir.graph')} · {engineLabel} · {t('mp.links', { n: edges.length })}{fresh.length > 0 ? ` · ${t('dir.justNew', { n: fresh.length })}` : ''}</div>
               <div className="dc-graph-box" style={{ height: graphBoxH }}>
                 <MemoryGraph nodes={nodes} edges={edges} highlightIds={fresh} labelMode={graphBelow ? 'focus' : 'all'} height={graphBelow ? Math.max(100, graphBoxH - 8) : Math.max(160, graphBoxH - 56 - (recall ? 150 : 0))} interactive />
                 {recall ? (
-                  <div className="dc-recall" aria-label="회상 근거">
-                    <div className="dc-recall-h"><b>회상 근거</b><span className="caption muted"> · {recall.memory?.title}</span></div>
+                  <div className="dc-recall" aria-label={t('dir.recallBasis')}>
+                    <div className="dc-recall-h"><b>{t('dir.recallBasis')}</b><span className="caption muted"> · {recall.memory?.title}</span></div>
                     <div className="dc-chips">
-                      <span className="caption faint">키워드</span>
+                      <span className="caption faint">{t('dir.keywords')}</span>
                       {recall.matched.map(k => <span key={k} className="dc-chip">{k}</span>)}
                     </div>
                     <div className="dc-chips">
-                      <span className="caption faint">경로</span>
+                      <span className="caption faint">{t('dir.path')}</span>
                       {recall.path.nodes.map((n, i) => (
                         <span key={n.id + i} className="dc-chip-wrap">
                           <span className="dc-chip is-node">{n.name}</span>
@@ -397,27 +413,27 @@ export default function DirectorConsole() {
                     </div>
                     {recall.cypher && <pre className="dc-cypher mono">{recall.cypher}</pre>}
                   </div>
-                ) : <div className="dc-recall caption faint">‘불국사’ 회상 단계에서 매칭된 경로와 Cypher가 여기 나타나요.</div>}
+                ) : <div className="dc-recall caption faint">{t('dir.recallEmpty')}</div>}
               </div>
     </section>
   );
 
-  const statusLabel = status === 'ready' ? '연결됨' : status === 'error' ? '연결 오류' : '연결 중';
-  const modelLabel = models?.options.find(o => o.key === models.active)?.label ?? '확인 중';
+  const statusLabel = status === 'ready' ? t('dir.connected') : status === 'error' ? t('dir.connError') : t('dir.connecting');
+  const modelLabel = models?.options.find(o => o.key === models.active)?.label ?? t('dir.checking');
   const family = Object.values(users).filter(u => u.role !== 'ai' && u.id !== DIRECTOR_ID);
-  const nextStep = DEMO_SCRIPT[cursor];
+  const nextStep = script[cursor];
   const busy = !!running;
   const doneCount = Object.values(stat).filter(v => v === 'done' || v === 'skipped').length;
   const virtualClock = useMemo(() => fmtClock(demo?.clockOffsetMinutes ?? 0), [demo?.clockOffsetMinutes, clockTick]); // eslint-disable-line react-hooks/exhaustive-deps
   const elapsed = startedAt === null ? null : fmtElapsed((endedAt ?? nowMs) - startedAt);
 
-  if (status === 'error' && /키/.test(error ?? '')) {
+  if (status === 'error' && /키|key/i.test(error ?? '')) {
     return (
       <main className="dc-keyerr" role="alert">
         <div>
-          <h1>디렉터 키가 필요해요.</h1>
-          <p className="muted">서버 시작 화면에 표시된 주소로 열어 주세요.</p>
-          <p className="dc-keyerr-cta"><Link to="/" className="btn">처음으로</Link></p>
+          <h1>{t('dir.keyNeeded')}</h1>
+          <p className="muted">{t('dir.keyHint')}</p>
+          <p className="dc-keyerr-cta"><Link to="/" className="btn">{t('dir.home')}</Link></p>
         </div>
       </main>
     );
@@ -425,28 +441,35 @@ export default function DirectorConsole() {
 
   return (
     <div className="dc">
-      <aside className="dc-rail" aria-label="컨트롤 레일">
+      <aside className="dc-rail" aria-label={t('dir.rail')}>
         <header className="dc-status">
           <div className="dc-status-top">
-            <h1 className="dc-title"><Link to="/" className="dc-brand">타치 · 디렉터</Link></h1>
+            <h1 className="dc-title"><Link to="/" className="dc-brand">{t('dir.brand')}</Link></h1>
             <span className="dc-conn"><span className={`dc-dot ${status === 'ready' ? 'is-on' : ''}`} aria-hidden />{statusLabel}</span>
           </div>
-          <p className="caption muted">노드 {nodes.length} · 관계 {edges.length} · {modelLabel}</p>
+          <p className="caption muted">{t('dir.counts', { nodes: nodes.length, edges: edges.length })} · {modelLabel}</p>
         </header>
 
         <div className="dc-rail-scroll">
-          <section className="dc-sec" aria-label="화면 테마">
+          <section className="dc-sec" aria-label={t('dir.language')}>
+            <h2 className="dc-h">{t('dir.language')}</h2>
+            <Segmented<Locale> label={t('dir.language')} value={locale} onChange={switchLocale}
+              options={[{ value: 'en', label: 'English' }, { value: 'ko', label: '한국어' }]} />
+            <p className="caption faint dc-lang-note">{t('dir.languageNote')}</p>
+          </section>
+
+          <section className="dc-sec" aria-label={t('dir.theme')}>
             <div className="dc-sec-head">
-              <h2 className="dc-h">무대 테마</h2>
+              <h2 className="dc-h">{t('dir.theme')}</h2>
               <span className="dc-spacer" />
               <button className="chip" onClick={toggleTheme} aria-pressed={theme === 'dark'}>
-                {theme === 'dark' ? <Moon size={12} strokeWidth={1.5} /> : <Sun size={12} strokeWidth={1.5} />} {theme === 'dark' ? '다크' : '라이트'}
+                {theme === 'dark' ? <Moon size={12} strokeWidth={1.5} /> : <Sun size={12} strokeWidth={1.5} />} {theme === 'dark' ? t('dir.dark') : t('dir.light')}
               </button>
             </div>
           </section>
 
-          <section className="dc-sec" aria-label="모델">
-            <h2 className="dc-h">모델</h2>
+          <section className="dc-sec" aria-label={t('dir.model')}>
+            <h2 className="dc-h">{t('dir.model')}</h2>
             <ul className="dc-models">
               {(models?.options ?? []).map(o => (
                 <li key={o.key}>
@@ -455,45 +478,46 @@ export default function DirectorConsole() {
                     <span className="dc-model-check">{o.key === models?.active && <Check size={13} strokeWidth={2} />}</span>
                     <span className="dc-model-label">{o.label}</span>
                     <span className="dc-model-st caption">
-                      {!o.available ? <span className="faint">키 없음</span>
-                        : o.key === 'demo' ? <span className="faint">내장</span>
-                        : o.healthy === undefined ? <span className="faint">미확인</span>
+                      {!o.available ? <span className="faint">{t('dir.noKey')}</span>
+                        : o.key === 'demo' ? <span className="faint">{t('dir.builtin')}</span>
+                        : o.healthy === undefined ? <span className="faint">{t('dir.unchecked')}</span>
                         : o.healthy ? <span className="dc-ok">✓ {o.latencyMs != null ? `${o.latencyMs}ms` : ''}</span>
-                        : <span className="dc-bad">✕ 응답 없음</span>}
+                        : <span className="dc-bad">✕ {t('dir.noReply')}</span>}
                     </span>
                   </button>
                 </li>
               ))}
-              {!models && <li className="caption faint">모델 불러오는 중…</li>}
+              {!models && <li className="caption faint">{t('dir.modelsLoading')}</li>}
             </ul>
+            <ApiKeyForm />
           </section>
 
-          <section className="dc-sec" aria-label="시나리오">
+          <section className="dc-sec" aria-label={t('dir.scenario')}>
             <div className="dc-sec-head">
-              <h2 className="dc-h">시나리오</h2>
+              <h2 className="dc-h">{t('dir.scenario')}</h2>
               <span className="caption faint">{doneCount}/{total}</span>
-              {elapsed && <span className="caption faint dc-elapsed" title="데모 경과 시간">{elapsed}</span>}
+              {elapsed && <span className="caption faint dc-elapsed" title={t('dir.elapsed')}>{elapsed}</span>}
             </div>
             <div className="dc-run-row">
               <button className="chip dc-auto" aria-pressed={auto} onClick={() => setAuto(a => !a)} disabled={cursor >= total && !auto}>
-                {auto ? <Pause size={12} strokeWidth={1.5} /> : <Play size={12} strokeWidth={1.5} />} 자동 진행
+                {auto ? <Pause size={12} strokeWidth={1.5} /> : <Play size={12} strokeWidth={1.5} />} {t('dir.auto')}
               </button>
-              <button className="chip dc-replay" onClick={() => setConfirmReset(true)} disabled={busy} title="서버를 초기화하고 처음부터 재생 (R)"><RotateCcw size={12} strokeWidth={1.5} /> 처음부터 재생</button>
+              <button className="chip dc-replay" onClick={() => setConfirmReset(true)} disabled={busy} title={t('dir.replayTitle')}><RotateCcw size={12} strokeWidth={1.5} /> {t('dir.replay')}</button>
             </div>
             {stale && (
-              <p className="dc-stale caption" role="status">이전 시연 상태가 남아 있어요 ·{' '}
-                <button className="dc-link" onClick={() => setConfirmReset(true)}>처음부터 재생</button>
-                <button className="dc-link faint" onClick={() => setStaleDismissed(true)} aria-label="알림 닫기">닫기</button></p>
+              <p className="dc-stale caption" role="status">{t('dir.stale')} ·{' '}
+                <button className="dc-link" onClick={() => setConfirmReset(true)}>{t('dir.replay')}</button>
+                <button className="dc-link faint" onClick={() => setStaleDismissed(true)} aria-label={t('dir.dismiss')}>{t('fam.close')}</button></p>
             )}
-            <p className="dc-cursor caption faint">커서 이동
-              <button className="btn btn-icon dc-mini" onClick={back} disabled={busy || cursor === 0} aria-label="커서 이전 (←)"><ChevronLeft size={14} strokeWidth={1.5} /></button>
-              <button className="btn btn-icon dc-mini" onClick={runNext} disabled={busy || cursor >= total} aria-label="다음 단계 실행 (→)"><ChevronRight size={14} strokeWidth={1.5} /></button>
+            <p className="dc-cursor caption faint">{t('dir.cursor')}
+              <button className="btn btn-icon dc-mini" onClick={back} disabled={busy || cursor === 0} aria-label={t('dir.cursorPrev')}><ChevronLeft size={14} strokeWidth={1.5} /></button>
+              <button className="btn btn-icon dc-mini" onClick={runNext} disabled={busy || cursor >= total} aria-label={t('dir.cursorNext')}><ChevronRight size={14} strokeWidth={1.5} /></button>
             </p>
-            <p className="dc-clock caption muted"><Clock size={12} strokeWidth={1.5} aria-hidden /> 데모 시각 {virtualClock}
-              <button className="chip dc-live" onClick={() => tachi.demo.clock(null)} disabled={!demo?.clockOffsetMinutes}>실시간으로</button>
+            <p className="dc-clock caption muted"><Clock size={12} strokeWidth={1.5} aria-hidden /> {t('dir.demoTime')} {virtualClock}
+              <button className="chip dc-live" onClick={() => tachi.demo.clock(null)} disabled={!demo?.clockOffsetMinutes}>{t('dir.live')}</button>
             </p>
             <ol className="dc-steps">
-              {DEMO_SCRIPT.map((s, i) => {
+              {script.map((s, i) => {
                 const st = stat[s.id];
                 const isDone = st === 'done';
                 const isSkipped = st === 'skipped';
@@ -502,15 +526,15 @@ export default function DirectorConsole() {
                   <li key={s.id}>
                     <button className={`dc-step ${isNext ? 'is-next' : ''} ${isDone || isSkipped ? 'is-done' : ''} ${st === 'running' ? 'is-running' : ''}`}
                       disabled={busy}
-                      title={isDone && NON_REPEATABLE.has(s.id) ? '완료됨 · 다시 보내지 않아요 (처음부터 재생으로 초기화)' : undefined}
+                      title={isDone && NON_REPEATABLE.has(s.id) ? t('dir.doneTitle') : undefined}
                       onClick={e => { runStep(i); e.currentTarget.blur(); }} aria-current={isNext ? 'step' : undefined}>
                       <span className="dc-step-n">
-                        {st === 'running' ? <Loader2 size={13} strokeWidth={2} className="dc-spin" aria-label="진행 중" /> : isDone ? <Check size={13} strokeWidth={2} aria-label="완료" /> : isSkipped ? <span aria-label="건너뜀">–</span> : i + 1}
+                        {st === 'running' ? <Loader2 size={13} strokeWidth={2} className="dc-spin" aria-label={t('dir.running')} /> : isDone ? <Check size={13} strokeWidth={2} aria-label={t('dir.done')} /> : isSkipped ? <span aria-label={t('dir.skippedLabel')}>–</span> : i + 1}
                       </span>
                       <span className="dc-step-main">
-                        <span className="dc-step-label">{s.label}{isDone && NON_REPEATABLE.has(s.id) && !isNext && <span className="caption faint"> · 완료됨</span>}{isSkipped && <span className="caption faint"> · 건너뜀</span>}</span>
+                        <span className="dc-step-label">{s.label}{isDone && NON_REPEATABLE.has(s.id) && !isNext && <span className="caption faint"> · {t('dir.doneTag')}</span>}{isSkipped && <span className="caption faint"> · {t('dir.skippedLabel')}</span>}</span>
                         {(isNext || st === 'running' || st === 'timeout' || isSkipped) && (
-                          <span className="dc-step-hint">{st === 'running' ? (s.director === 'model' && modelTarget ? `→ ${modelTarget} · 응답 기다리는 중…` : '응답 기다리는 중…') : st === 'timeout' ? (outcomeExists(s.id) ? '이미 반영돼 있어요 · 눌러서 이어가기' : '시간 초과 · 다시 눌러 재시도') : isSkipped ? (skip[s.id] ?? '건너뛰었어요') : s.hint}</span>
+                          <span className="dc-step-hint">{st === 'running' ? (s.director === 'model' && modelTarget ? `→ ${modelTarget} · ${t('dir.waiting')}` : t('dir.waiting')) : st === 'timeout' ? (outcomeExists(s.id) ? t('dir.timeoutDone') : t('dir.timeoutRetry')) : isSkipped ? t(skip[s.id] ?? 'dir.skipDefault') : s.hint}</span>
                         )}
                       </span>
                     </button>
@@ -518,28 +542,28 @@ export default function DirectorConsole() {
                 );
               })}
             </ol>
-            <p className="dc-keys faint">→ 또는 Space 다음 · ← 커서 이전 · R 처음부터 재생{nextStep ? '' : ' · 끝!'}</p>
+            <p className="dc-keys faint">{t('dir.keys')}{nextStep ? '' : ` · ${t('dir.end')}`}</p>
           </section>
 
-          <section className="dc-sec" aria-label="타치">
-            <h2 className="dc-h">타치</h2>
+          <section className="dc-sec" aria-label={t('app.name')}>
+            <h2 className="dc-h">{t('app.name')}</h2>
             <div className="dc-grid2">
               {PROACTIVE.map(p => (
-                <button key={p.kind} className="btn dc-btn" onClick={() => tachi.demo.proactive(p.kind)}>{p.label}</button>
+                <button key={p.kind} className="btn dc-btn" onClick={() => tachi.demo.proactive(p.kind)}>{t(p.key)}</button>
               ))}
             </div>
             <div className="dc-grid2">
-              <button className="btn dc-btn" onClick={() => tachi.demo.report()}>리포트 보내기</button>
-              <button className="btn dc-btn" onClick={() => tachi.demo.closePoll()}>일정 확정하기</button>
-              <button className="btn dc-btn" onClick={() => tachi.demo.followups()} title="기한이 지난 할 일을 지금 챙겨요 (데모 시각 기준)">할 일 챙기기</button>
+              <button className="btn dc-btn" onClick={() => tachi.demo.report()}>{t('dir.sendReport')}</button>
+              <button className="btn dc-btn" onClick={() => tachi.demo.closePoll()}>{t('dir.closePoll')}</button>
+              <button className="btn dc-btn" onClick={() => tachi.demo.followups()} title={t('dir.followupsHint')}>{t('dir.followups')}</button>
             </div>
           </section>
 
-          <section className="dc-sec" aria-label="가족 봇">
+          <section className="dc-sec" aria-label={t('dir.bots')}>
             <div className="dc-sec-head">
-              <h2 className="dc-h">가족 봇</h2>
+              <h2 className="dc-h">{t('dir.bots')}</h2>
               <span className="dc-spacer" />
-              <button role="switch" aria-checked={!!demo?.botsEnabled} aria-label="가족 봇 켜기" className={`dc-switch ${demo?.botsEnabled ? 'is-on' : ''}`}
+              <button role="switch" aria-checked={!!demo?.botsEnabled} aria-label={t('dir.botsOn')} className={`dc-switch ${demo?.botsEnabled ? 'is-on' : ''}`}
                 onClick={() => tachi.demo.bots(!demo?.botsEnabled)}><span /></button>
             </div>
             <ul className="dc-presence">
@@ -549,7 +573,7 @@ export default function DirectorConsole() {
                   <li key={u.id} className="dc-p">
                     <Avatar user={u} size={22} hollow={!human} />
                     <span className="caption">{u.shortName}</span>
-                    <span className="dc-p-st faint">{human ? '사람' : '봇'}</span>
+                    <span className="dc-p-st faint">{human ? t('dir.human') : t('dir.bot')}</span>
                   </li>
                 );
               })}
@@ -557,34 +581,34 @@ export default function DirectorConsole() {
           </section>
 
 
-          <section className="dc-sec" aria-label="기기 연결">
+          <section className="dc-sec" aria-label={t('dir.devices')}>
             <div className="dc-sec-head">
-              <h2 className="dc-h">기기 연결</h2>
+              <h2 className="dc-h">{t('dir.devices')}</h2>
               <span className="dc-spacer" />
-              <button className="btn dc-btn" onClick={() => setQr(true)}><QrCode size={14} strokeWidth={1.5} /> QR 보기</button>
+              <button className="btn dc-btn" onClick={() => setQr(true)}><QrCode size={14} strokeWidth={1.5} /> {t('dir.showQr')}</button>
             </div>
-            <p className="caption faint">{lan?.urls[0] ?? '주소 확인 중…'} · /join에서 역할을 고르세요</p>
+            <p className="caption faint">{lan?.urls[0] ?? t('dir.addrChecking')} · {t('dir.pickRole')}</p>
           </section>
         </div>
 
         <footer className="dc-rail-foot">
-          <button className="btn dc-btn dc-reset" onClick={() => setConfirmReset(true)}>데모 초기화</button>
+          <button className="btn dc-btn dc-reset" onClick={() => setConfirmReset(true)}>{t('dir.reset')}</button>
         </footer>
       </aside>
 
-      <main className="dc-stage" ref={stageRef} aria-label="무대">
+      <main className="dc-stage" ref={stageRef} aria-label={t('dir.stage')}>
         <div className="dc-toggles">
-          <button className="chip" aria-pressed={showSide && !showGraph} onClick={() => { setManualStage(true); setShowGraph(false); setShowSide(v => !v || showGraph); }}>민준 · 사이드 챗</button>
-          <button className="chip" aria-pressed={showGraph} onClick={() => { setManualStage(true); setShowGraph(v => !v); }}>기억 그래프</button>
+          <button className="chip" aria-pressed={showSide && !showGraph} onClick={() => { setManualStage(true); setShowGraph(false); setShowSide(v => !v || showGraph); }}>{t('dir.sideToggle', { name: users.minjun?.shortName ?? 'Minjun' })}</button>
+          <button className="chip" aria-pressed={showGraph} onClick={() => { setManualStage(true); setShowGraph(v => !v); }}>{t('dir.graph')}</button>
         </div>
         <div className={`dc-body ${graphBelow ? 'is-below' : ''}`}>
         <div className="dc-frames" style={{ gap: GAP }}>
-          <Phone scale={scale} label="어머니 · 시니어 앱" name="김순자" src={`/senior?as=mom&embed=1${themeQ}`} k={frameKey} />
-          <Phone scale={scale} label="딸 지은 · 가족방" name="김지은" src={`/family?as=jieun&embed=1${themeQ}`} k={frameKey} />
+          <Phone scale={scale} label={t('dir.phoneMom', { name: users.mom?.shortName ?? '' })} name={users.mom?.name ?? ''} src={`/senior?as=mom&embed=1${themeQ}`} k={frameKey} />
+          <Phone scale={scale} label={t('dir.phoneJieun', { name: users.jieun?.shortName ?? '' })} name={users.jieun?.name ?? ''} src={`/family?as=jieun&embed=1${themeQ}`} k={frameKey} />
           {third === 'side' && (
-            <Phone scale={scale} label="민준 · 사이드 챗" name="박민준" k={frameKey}
+            <Phone scale={scale} label={t('dir.sideToggle', { name: users.minjun?.shortName ?? 'Minjun' })} name={users.minjun?.name ?? ''} k={frameKey}
               src={(sideRoomId ? `/family?as=minjun&embed=1&room=${encodeURIComponent(sideRoomId)}` : '/family?as=minjun&embed=1') + themeQ}
-              caption={sideRoomId ? undefined : '일정 조율이 시작되면 사이드 챗이 열려요'} />
+              caption={sideRoomId ? undefined : t('dir.sideWait')} />
           )}
           {!graphBelow && graphSection}
         </div>
@@ -593,17 +617,17 @@ export default function DirectorConsole() {
       </main>
 
       {confirmReset && (
-        <Dialog title="데모를 처음 상태로 되돌릴까요?" onClose={() => setConfirmReset(false)} width={400}
-          footer={<><button className="btn" onClick={() => setConfirmReset(false)}>취소</button><button className="btn btn-primary" onClick={doReset}>초기화</button></>}>
-          <p className="caption muted">대화, 추억, 그래프가 시드 상태로 돌아가요. 두 화면도 새로 고쳐집니다.</p>
+        <Dialog title={t('dir.resetTitle')} onClose={() => setConfirmReset(false)} width={400}
+          footer={<><button className="btn" onClick={() => setConfirmReset(false)}>{t('fam.cancel')}</button><button className="btn btn-primary" onClick={doReset}>{t('dir.resetDo')}</button></>}>
+          <p className="caption muted">{t('dir.resetBody')}</p>
         </Dialog>
       )}
       {qr && (
-        <Dialog title="기기 연결" onClose={() => setQr(false)} width={380}>
+        <Dialog title={t('dir.devices')} onClose={() => setQr(false)} width={380}>
           <div className="dc-qr">
-            {lan?.qr ? <img src={lan.qr} alt="접속용 QR 코드" width={220} height={220} /> : <p className="caption faint">QR을 불러오지 못했어요.</p>}
+            {lan?.qr ? <img src={lan.qr} alt={t('app.qrAlt')} width={220} height={220} /> : <p className="caption faint">{t('dir.qrFail')}</p>}
             {lan?.urls.map(u => <p key={u} className="mono">{u}</p>)}
-            <p className="caption muted">같은 Wi‑Fi에서 스캔한 뒤 /join에서 역할을 고르세요.</p>
+            <p className="caption muted">{t('dir.qrHint')}</p>
           </div>
         </Dialog>
       )}
@@ -623,5 +647,44 @@ function Phone({ scale, label, name, src, k, caption }: { scale: number; label: 
       </div>
       {caption && <figcaption className="dc-cap caption muted">{caption}</figcaption>}
     </figure>
+  );
+}
+
+
+/** Operator BYO key: the key goes to the server over the Director socket and lives in process memory only. */
+function ApiKeyForm() {
+  const t = useT();
+  const [provider, setProvider] = useState<'openai' | 'anthropic'>('openai');
+  const [key, setKey] = useState('');
+  const [pending, setPending] = useState(false);
+  const [note, setNote] = useState('');
+  const submit = async (value: string) => {
+    setPending(true); setNote('');
+    const r = await tachi.setApiKey(provider, value);
+    setPending(false);
+    if (!r.ok) { setNote(t('dir.key.fail', { error: r.error ?? '?' })); return; }
+    setKey('');
+    const ms = getState().models;
+    const label = ms?.options.find(o => o.key === ms.active)?.label ?? '';
+    setNote(value ? t('dir.key.ok', { model: label }) : t('dir.key.cleared'));
+  };
+  return (
+    <form className="dc-key" onSubmit={e => { e.preventDefault(); if (key.trim()) void submit(key.trim()); }}>
+      <h3 className="dc-key-h caption">{t('dir.key.title')}</h3>
+      <div className="dc-key-prov" role="group" aria-label={t('dir.key.title')}>
+        {(['openai', 'anthropic'] as const).map(p => (
+          <button key={p} type="button" className="chip" aria-pressed={provider === p} onClick={() => setProvider(p)}>
+            {p === 'openai' ? 'OpenAI' : 'Anthropic'}
+          </button>
+        ))}
+      </div>
+      <div className="dc-key-row">
+        <input className="input" type="password" autoComplete="off" spellCheck={false} value={key}
+          onChange={e => setKey(e.target.value)} placeholder={t('dir.key.placeholder')} aria-label={t('dir.key.title')} />
+        <button className="btn btn-primary" type="submit" disabled={pending || !key.trim()}>{t('dir.key.connect')}</button>
+        <button className="btn btn-ghost" type="button" disabled={pending} onClick={() => void submit('')}>{t('dir.key.clear')}</button>
+      </div>
+      <p className="caption faint" role="status">{note || t('dir.key.hint')}</p>
+    </form>
   );
 }

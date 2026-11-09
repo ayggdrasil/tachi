@@ -44,7 +44,7 @@ export function memoryToDelta(m: Memory): GraphDelta {
   }
   if (m.year || m.era) {
     const id = `era:${m.year ?? m.era}`;
-    nodes.push({ id, label: 'Era', name: m.year ? `${m.year}년` : m.era!, props: { year: m.year ?? 0 } });
+    nodes.push({ id, label: 'Era', name: m.year ? (/[가-힣]/.test(`${m.title}${m.era ?? ''}`) ? `${m.year}년` : `${m.year}`) : m.era!, props: { year: m.year ?? 0 } });
     link('IN_ERA', mid, id);
   }
   if (m.event) { const id = `event:${m.event}`; nodes.push({ id, label: 'Event', name: m.event }); link('ABOUT', mid, id); }

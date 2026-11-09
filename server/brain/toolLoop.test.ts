@@ -9,7 +9,7 @@ import { openDb, type Db } from '../db';
 import { createGraphStore } from '../graph/index';
 import type { GraphStore } from '../graph/contract';
 import { toolsFor, type ToolContext } from '../tools';
-import { agentSystemPrompt, runAgentLoop, type AgentTurnFn } from './agent';
+import { agentSystemPrompt, runAgentLoop, type AgentTurnFn } from './toolLoop';
 import { createBrain } from './index';
 import { resetCircuit } from './llm';
 import { planOffline, reminderText } from './planner';

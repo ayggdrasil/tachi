@@ -1,10 +1,14 @@
 import { useMemo, useState } from 'react';
+import type { Room } from '../../../../shared/types';
 import { useTachi, tachi } from '../../lib/store';
+import { useT } from '../../lib/i18n';
+import { relLabel } from './rooms';
 import { Avatar } from '../../components/common/Avatar';
 import { Dialog } from './Dialog';
 import './family.css';
 
-export function NewRoomDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (roomId: string) => void }) {
+export function NewRoomDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (room: Room) => void }) {
+  const t = useT();
   const users = useTachi(s => s.users);
   const meId = useTachi(s => s.meId);
   const [title, setTitle] = useState('');
@@ -20,28 +24,28 @@ export function NewRoomDialog({ onClose, onCreated }: { onClose: () => void; onC
     setBusy(true); setErr('');
     try {
       const room = await tachi.createRoom(title.trim(), [...picked]);
-      onCreated(room.id);
+      onCreated(room);
       onClose();
     } catch {
-      setErr('대화방을 만들지 못했어요. 잠시 후 다시 시도해 주세요.');
+      setErr(t('fam.newRoomFail'));
       setBusy(false);
     }
   };
 
   return (
-    <Dialog title="새 대화방" onClose={onClose}
-      footer={<><button className="btn" onClick={onClose}>취소</button><button className="btn btn-primary" onClick={create} disabled={!title.trim() || busy}>만들기</button></>}>
-      <label className="caption muted" htmlFor="fam-newroom-title">대화방 이름</label>
+    <Dialog title={t('fam.newRoom')} onClose={onClose}
+      footer={<><button className="btn" onClick={onClose}>{t('fam.cancel')}</button><button className="btn btn-primary" onClick={create} disabled={!title.trim() || busy}>{t('fam.create')}</button></>}>
+      <label className="caption muted" htmlFor="fam-newroom-title">{t('fam.roomName')}</label>
       <input id="fam-newroom-title" data-autofocus className="input fam-mb" value={title} onChange={e => setTitle(e.target.value)}
-        placeholder="예: 어머니 생신 준비" onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) void create(); }} />
-      <p className="caption muted">함께할 가족</p>
+        placeholder={t('fam.roomNamePh')} onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) void create(); }} />
+      <p className="caption muted">{t('fam.withWho')}</p>
       <ul className="fam-contacts">
         {people.map(u => (
           <li key={u.id}>
             <label className="fam-contact fam-check">
               <input type="checkbox" checked={picked.has(u.id)} onChange={() => toggle(u.id)} />
               <Avatar user={u} size={32} />
-              <span className="fam-contact-main"><span className="fam-contact-name">{u.name} <span className="muted">· {u.relation === '본인' ? '어머니' : u.relation}</span></span></span>
+              <span className="fam-contact-main"><span className="fam-contact-name">{u.name} <span className="muted">· {relLabel(u.relation, t)}</span></span></span>
             </label>
           </li>
         ))}

@@ -114,3 +114,16 @@ for (const engine of ['kuzu', 'memory'] as const) {
     } finally { delete process.env.TACHI_GRAPH_ENGINE; rmSync(dir, { recursive: true, force: true }); }
   });
 }
+
+test('english memories: case-insensitive search (memory engine)', async () => {
+  process.env.TACHI_GRAPH_ENGINE = 'memory';
+  const g = createGraphStore({ dataDir: mkdtempSync(join(tmpdir(), 'tachi-graph-en-')) });
+  await g.init();
+  await g.upsertMemory({ ...m1, id: 'e1', title: 'Spring 1984, family trip to Bulguksa Temple in Gyeongju', story: 'Minjun kept running away at Dabotap Pagoda.', era: '1980s', season: 'spring', place: 'Bulguksa Temple, Gyeongju', people: [{ name: 'Youngsu Park', relation: 'husband' }], event: 'family trip', emotions: ['joy'], tags: ['Dabotap Pagoda'] });
+  assert.equal((await g.search(['bulguksa']))[0]?.memoryId, 'e1');
+  assert.equal((await g.search(['youngsu']))[0]?.memoryId, 'e1');
+  assert.equal((await g.search(['running away']))[0]?.memoryId, 'e1');
+  assert.equal((await g.search(["Bulguksa's"]))[0]?.memoryId, 'e1');
+  assert.ok((await g.nodeNames()).includes('1984'));
+  delete process.env.TACHI_GRAPH_ENGINE;
+});

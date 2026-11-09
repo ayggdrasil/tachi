@@ -2,7 +2,7 @@
 // results into a warm Korean answer. Also composes the answer when a live loop failed after a state-changing tool ran.
 import { resolvePlace } from '../data/places';
 import type { ToolAudience } from '../tools';
-import type { AgentStep } from './agent';
+import type { AgentStep } from './toolLoop';
 import { parseClock, parseWhen } from '../tools/time';
 
 export interface PlannedCall { name: string; input: Record<string, unknown> }

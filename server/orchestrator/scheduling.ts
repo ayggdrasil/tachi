@@ -1,5 +1,7 @@
 // Gathering schedule coordination (4.7): poll, per-member side rooms, live progress, result.
-import { FAMILY_ROOM_ID, SENIOR_ID, SENIOR_ROOM_ID, TACHI_ID, buildCandidateSlots, dateLabel, pad2 } from '../../shared/constants';
+import { FAMILY_ROOM_ID, SENIOR_ID, SENIOR_ROOM_ID, TACHI_ID, pad2 } from '../../shared/constants';
+import { st } from '../i18n';
+import { candidateSlots, dateL } from './locale';
 import type { Artifact, ID, Message, Poll, Room, ScheduleProgressPayload, ScheduleRequestPayload, ScheduleResultPayload, Slot } from '../../shared/types';
 import { ctx } from './ctx';
 import {
@@ -23,13 +25,13 @@ function progressPayload(p: Poll): ScheduleProgressPayload {
   return { type: 'schedule_progress', pollId: p.id, responded, waiting: p.participantIds.filter(id => !p.responses[id]) };
 }
 
-type ProgressStage = '응답 마감' | '후보 제안' | '확정';
+type ProgressStage = 'closed' | 'candidate' | 'confirmed';
 function refreshProgress(p: Poll, stage?: ProgressStage): void {
   const m = p.progressMessageId ? ctx.db.messages.get(p.progressMessageId) : undefined;
   if (!m) return;
   const pl = progressPayload(p);
   m.payload = pl;
-  m.text = `일정 응답 ${pl.responded.length}/${p.participantIds.length}${p.status === 'closed' && stage ? ` · ${stage}` : ''}`;
+  m.text = `${st('sched.progress', { n: pl.responded.length, total: p.participantIds.length })}${p.status === 'closed' && stage ? ` · ${st(`sched.stage.${stage}`)}` : ''}`;
   updateMessage(m);
 }
 
@@ -48,7 +50,7 @@ export async function startScheduling(familyRoomId: ID, asker: { id: ID }, opts:
   const family = ctx.db.rooms.get(familyRoomId);
   if (!family) return;
   if (openPoll(familyRoomId)) {
-    await tachiSay(familyRoomId, { text: '지금 일정을 조율하고 있어요. 조금만 기다려 주세요.' });
+    await tachiSay(familyRoomId, { text: st('sched.alreadyRunning') });
     return;
   }
   let artifact: Artifact | undefined;
@@ -57,14 +59,14 @@ export async function startScheduling(familyRoomId: ID, asker: { id: ID }, opts:
     if (!picked || picked.roomId !== familyRoomId) throw new Error('artifact not in this room');
     artifact = picked;
   } else artifact = latestOpenArtifact(familyRoomId);
-  const title = artifact?.title ?? '가족 모임';
+  const title = artifact?.title ?? st('sched.defaultTitle');
   const participants = family.memberIds.filter(id => id !== TACHI_ID && getUser(id));
-  const slots = opts.slots ?? buildCandidateSlots(now());
+  const slots = opts.slots ?? candidateSlots(now());
   const poll: Poll = {
     id: uid('poll'), artifactId: artifact?.id, familyRoomId, title, slots, participantIds: participants, sideRoomIds: {}, responses: {},
     status: 'open', createdAt: nowIso(),
   };
-  for (const id of participants) poll.sideRoomIds[id] = id === SENIOR_ID ? SENIOR_ROOM_ID : sideRoomFor(id, `일정 조율 · ${title}`, poll.id).id;
+  for (const id of participants) poll.sideRoomIds[id] = id === SENIOR_ID ? SENIOR_ROOM_ID : sideRoomFor(id, st('sched.roomTitle', { title }), poll.id).id;
   ctx.db.polls.put(poll);
   if (artifact) {
     artifact.dateStatus = 'polling';
@@ -75,9 +77,9 @@ export async function startScheduling(familyRoomId: ID, asker: { id: ID }, opts:
     emitArtifact(artifact);
   }
 
-  await tachiSay(familyRoomId, { text: opts.repoll ? '다른 날짜로 다시 한 분 한 분께 여쭤볼게요.' : '가족 한 분 한 분께 따로 여쭤볼게요.' });
+  await tachiSay(familyRoomId, { text: opts.repoll ? st('sched.repollIntro') : st('sched.intro') });
   const progress = post(familyRoomId, {
-    senderId: TACHI_ID, kind: 'schedule_progress', text: `일정 응답 0/${participants.length}`, payload: progressPayload(poll),
+    senderId: TACHI_ID, kind: 'schedule_progress', text: st('sched.progress', { n: 0, total: participants.length }), payload: progressPayload(poll),
   });
   poll.progressMessageId = progress.id;
   ctx.db.polls.put(poll);
@@ -87,11 +89,11 @@ export async function startScheduling(familyRoomId: ID, asker: { id: ID }, opts:
     const roomId = poll.sideRoomIds[id];
     const u = getUser(id)!;
     const text = id === SENIOR_ID
-      ? `어머님, 가족 모임 날짜를 정하려고 해요. 괜찮은 시간을 골라 주세요.`
-      : `${u.shortName}님, '${title}' 날짜를 여쭤볼게요. 가능한 시간을 모두 골라 주세요.`;
+      ? st('sched.askMom')
+      : st('sched.askOther', { name: u.shortName, title });
     await tachiSay(roomId, { text });
     const payload: ScheduleRequestPayload = { type: 'schedule_request', pollId: poll.id, artifactTitle: title, slots };
-    post(roomId, { senderId: TACHI_ID, kind: 'schedule_request', text: `${title} · 가능한 시간을 골라 주세요`, payload });
+    post(roomId, { senderId: TACHI_ID, kind: 'schedule_request', text: st('sched.requestText', { title }), payload });
   }));
   scheduleBotAnswers(poll);
   void asker;
@@ -116,8 +118,8 @@ export async function submitAvailability(pollId: ID, userId: ID, slotIds: ID[], 
 
   const labels = valid.map(id => poll.slots.find(s => s.id === id)?.label).filter(Boolean);
   const ack = valid.length
-    ? `${userId === SENIOR_ID ? '알겠어요, 어머님.' : '고맙습니다!'} ${labels.length <= 2 ? labels.join(', ') + '로 ' : ''}가족에게 전해 둘게요.`
-    : `알겠어요. 이번에는 어렵다고 전해 둘게요.`;
+    ? st('sched.ack', { lead: userId === SENIOR_ID ? st('sched.ack.mom') : st('sched.ack.other'), labels: labels.length <= 2 ? st('sched.ack.labels', { labels: labels.join(', ') }) : '' })
+    : st('sched.ackNone');
   if (roomId) await tachiSay(roomId, { text: ack });
 
   const fresh = ctx.db.polls.get(pollId);
@@ -137,7 +139,7 @@ function bestSlot(poll: Poll): { slot: Slot; available: ID[] } {
 
 async function announceConfirmed(poll: Poll, slot: Slot): Promise<void> {
   await Promise.all([...new Set(Object.values(poll.sideRoomIds))].map(roomId =>
-    tachiSay(roomId, { text: `${slot.label}에 가족이 모여요.` })));
+    tachiSay(roomId, { text: st('sched.gatherAt', { label: slot.label }) })));
 }
 
 export async function closePoll(pollId: ID): Promise<void> {
@@ -153,7 +155,7 @@ export async function closePoll(pollId: ID): Promise<void> {
   poll.resultSlotId = best.id;
   ctx.db.polls.put(poll);
   emitPoll(poll);
-  refreshProgress(poll, unanimous ? '확정' : unanswered.length ? '응답 마감' : '후보 제안');
+  refreshProgress(poll, unanimous ? 'confirmed' : unanswered.length ? 'closed' : 'candidate');
 
   const artifact = poll.artifactId ? ctx.db.artifacts.get(poll.artifactId) : undefined;
   if (artifact) {
@@ -170,17 +172,17 @@ export async function closePoll(pollId: ID): Promise<void> {
     unanimous, confirmed: unanimous, unanswered,
   };
   const res = unanimous
-    ? await tachiSay(poll.familyRoomId, { kind: 'schedule_result', text: `${best.label}로 정했어요. (${available.length}/${total}명 가능)`, payload })
+    ? await tachiSay(poll.familyRoomId, { kind: 'schedule_result', text: st('sched.decided', { label: best.label, n: available.length, total }), payload })
     : await tachiSay(poll.familyRoomId, {
       kind: 'schedule_result',
-      text: `가장 많이 가능한 후보예요 · ${available.length}/${total}명 (${best.label})${unanswered.length ? ` · 미응답 ${unanswered.length}명` : ''} · 아직 확정 전이에요`,
+      text: st('sched.candidate', { n: available.length, total, label: best.label, unanswered: unanswered.length ? st('sched.candidate.unanswered', { k: unanswered.length }) : '' }),
       payload,
       actions: [
-        { id: 'confirm_slot', label: '이 시간으로 확정', style: 'primary', data: { pollId, slotId: best.id } },
-        { id: 'repoll', label: '다시 조율', data: { pollId } },
+        { id: 'confirm_slot', label: st('sched.btn.confirm'), style: 'primary', data: { pollId, slotId: best.id } },
+        { id: 'repoll', label: st('sched.btn.repoll'), data: { pollId } },
       ],
     });
-  reactBots(poll.familyRoomId, res, unanimous ? { kind: 'schedule_result', text: `${best.label}로 일정이 확정됐어요` } : { kind: 'text', text: `일정 후보가 제안됐어요 (${best.label}) · 아직 확정되지 않았어요` });
+  reactBots(poll.familyRoomId, res, unanimous ? { kind: 'schedule_result', text: st('sched.react.confirmed', { label: best.label }) } : { kind: 'text', text: st('sched.react.candidate', { label: best.label }) });
   if (unanimous) {
     await announceConfirmed(poll, best);
     if (artifact) replanTaskDueDates(artifact.id); // due dates follow the confirmed slot (never throws)
@@ -202,9 +204,9 @@ export async function handleScheduleAction(userId: ID, msg: Message, actionId: s
     const slotId = typeof data?.slotId === 'string' ? data.slotId : res.slot.id;
     const slot = poll.slots.find(x => x.id === slotId) ?? res.slot;
     msg.payload = { ...res, slot, confirmed: true };
-    msg.text = `${slot.label}로 확정했어요. (${res.available.length}/${poll.participantIds.length}명 가능)`;
+    msg.text = st('sched.confirmedText', { label: slot.label, n: res.available.length, total: poll.participantIds.length });
     markActionDone(msg);
-    refreshProgress(poll, '확정');
+    refreshProgress(poll, 'confirmed');
     poll.resultSlotId = slot.id;
     ctx.db.polls.put(poll);
     emitPoll(poll);
@@ -218,7 +220,7 @@ export async function handleScheduleAction(userId: ID, msg: Message, actionId: s
       ctx.db.artifacts.put(artifact);
       emitArtifact(artifact);
     }
-    reactBots(poll.familyRoomId, msg, { kind: 'schedule_result', text: `${slot.label}로 일정이 확정됐어요` });
+    reactBots(poll.familyRoomId, msg, { kind: 'schedule_result', text: st('sched.react.confirmed', { label: slot.label }) });
     await announceConfirmed(poll, slot);
     if (artifact) replanTaskDueDates(artifact.id);
   } else if (actionId === 'repoll') {
@@ -226,7 +228,7 @@ export async function handleScheduleAction(userId: ID, msg: Message, actionId: s
     const shifted: Slot[] = poll.slots.map((sl, i) => {
       const d = new Date(sl.startsAt);
       d.setDate(d.getDate() + 7);
-      return { id: `slot-${i}`, startsAt: d.toISOString(), label: `${dateLabel(d)} ${pad2(d.getHours())}:00` };
+      return { id: `slot-${i}`, startsAt: d.toISOString(), label: `${dateL(d)} ${pad2(d.getHours())}:00` };
     });
     await startScheduling(poll.familyRoomId, { id: userId }, { slots: shifted, repoll: true, artifactId: poll.artifactId });
   }
@@ -253,7 +255,7 @@ export async function handleSideMessage(room: Room, userId: ID, text?: string): 
   if (await tryTaskReply(room, userId, text)) return; // 완료 / 도움 필요 / 나중에 to a to-do reminder
   const poll = room.pollId ? ctx.db.polls.get(room.pollId) : undefined;
   if (!poll || poll.status !== 'open') {
-    await tachiSay(room.id, { text: '일정은 이미 정해졌어요. 가족방에서 확인해 보세요.' });
+    await tachiSay(room.id, { text: st('sched.alreadySet') });
     return;
   }
   const ai = await withTyping(room.id, () => ctx.brain.parseAvailability(text, poll.slots));
@@ -262,17 +264,28 @@ export async function handleSideMessage(room: Room, userId: ID, text?: string): 
     return;
   }
   if (!ai.value.length) {
-    await tachiSay(room.id, { text: '어느 시간이 괜찮으신지 한 번만 더 알려 주실래요? 예를 들어 "일요일 점심"처럼요.' }, ai);
+    await tachiSay(room.id, { text: st('sched.reask') }, ai);
     return;
   }
   await submitAvailability(poll.id, userId, ai.value);
 }
 
-const NEGATIVE_RE = /(다|모두|전부|아무\s*때도)\s*(안|어려|못)|안 돼요?$|못 가/;
-const AVAIL_RE = /(토요일|일요일|토|일|주말|\d+\s*일|이번|다음\s*주|아무\s*때|언제든|다 괜찮|다 좋)/;
-const stripMeal = (t: string) => t.replace(/(오늘|내일)?\s*(아침|점심|저녁)\s*(먹|드|식사|뭐)\S*/g, '');
-const ALL_AVAIL_RE = /(다|전부|모두|언제(나|든|라도)?|아무\s*(때|날)(나|든)?|어느\s*(때|날)(나|든)?)\s*(돼|되|가능|괜찮|좋|상관)|아무\s*(때|날)나|상관\s*없/;
-const SLOT_WORD_RE = /(점심|저녁|오전|오후|아침)/;
+const NEGATIVE_RE = new RegExp([
+  /(다|모두|전부|아무\s*때도)\s*(안|어려|못)|안 돼요?$|못 가/.source,
+  /\b(can'?t|cannot|can not|won'?t|unable to)\b[^.?!]*\b(make|come|go|attend|do)\b|\bnot (available|free)\b|\bnone of (them|those|the)\b|\bno (time|day)s? (works?|is good)\b|\b(too )?busy\b/.source,
+].join('|'), 'i');
+const AVAIL_RE = new RegExp([
+  /(토요일|일요일|토|일|주말|\d+\s*일|이번|다음\s*주|아무\s*때|언제든|다 괜찮|다 좋)/.source,
+  /\b(sat(urday)?|sun(day)?|weekend|this (week|weekend)|next (week|weekend)|any ?time|whenever|any day|all (of them )?(work|are fine|are good)|\d{1,2}(st|nd|rd|th))\b/.source,
+].join('|'), 'i');
+const stripMeal = (t: string) => t
+  .replace(/(오늘|내일)?\s*(아침|점심|저녁)\s*(먹|드|식사|뭐)\S*/g, '')
+  .replace(/\b(have you|did you|had|ate|eaten|eating|having|what('?s| is| for))\b[^.?!]*\b(breakfast|lunch|dinner)\b[^.?!]*/gi, '');
+const ALL_AVAIL_RE = new RegExp([
+  /(다|전부|모두|언제(나|든|라도)?|아무\s*(때|날)(나|든)?|어느\s*(때|날)(나|든)?)\s*(돼|되|가능|괜찮|좋|상관)|아무\s*(때|날)나|상관\s*없/.source,
+  /\b(any ?time|any day|whenever|all (of them )?(work|are fine|are good|is fine)|everything works|i'?m (free|flexible)|doesn'?t matter|don'?t mind)\b/.source,
+].join('|'), 'i');
+const SLOT_WORD_RE = new RegExp(/(점심|저녁|오전|오후|아침)/.source + '|' + /\b(lunch|dinner|morning|afternoon|evening|noon)\b/.source, 'i');
 
 /** True while the schedule_request is the latest thing in the senior's room (a direct reply to it). */
 function directReply(poll: Poll): boolean {

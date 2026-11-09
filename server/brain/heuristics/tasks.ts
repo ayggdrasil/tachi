@@ -1,6 +1,7 @@
 // Offline task classification: which action Tachi can take for a gathering to-do.
 import type { BookingCategory, ReportOpenTask, TaskActionKind } from '../../../shared/types';
 import type { TaskClassification } from '../contract';
+import { getLocale } from '../locale';
 
 export type { TaskClassification };
 
@@ -31,12 +32,18 @@ export function classifyTask(text: string): TaskClassification {
 export const TASK_KINDS: TaskActionKind[] = ['booking_link', 'reminder', 'none'];
 export const BOOKING_CATEGORIES: BookingCategory[] = ['restaurant', 'lodging', 'train', 'car', 'other'];
 
-/** '남은 할 일 2개 · KTX·차량 예약(민준) 외 1개' — the report line about open to-dos ('' when none). */
+/** '남은 할 일 2개 · KTX·차량 예약(민준) 외 1개' / '2 open tasks · Book KTX (Minjun) + 1 more' — the report line about open to-dos ('' when none). */
 export function openTasksLine(tasks: ReportOpenTask[], people: Record<string, string> = {}): string {
   if (!tasks.length) return '';
+  const en = getLocale() === 'en';
   const first = tasks[0];
   const who = first.assigneeId ? people[first.assigneeId] ?? '' : '';
-  const label = `${first.text.replace(/\s*\(.*?\)\s*/g, ' ').trim()}${who ? `(${who})` : ''}`;
+  const base = first.text.replace(/\s*\(.*?\)\s*/g, ' ').trim();
   const blocked = tasks.filter(t => t.status === 'blocked').length;
+  if (en) {
+    const n = tasks.length;
+    return `${n} open task${n > 1 ? 's' : ''} · ${base}${who ? ` (${who})` : ''}${n > 1 ? ` + ${n - 1} more` : ''}${blocked ? ` · ${blocked} need${blocked > 1 ? '' : 's'} help` : ''}`;
+  }
+  const label = `${base}${who ? `(${who})` : ''}`;
   return `남은 할 일 ${tasks.length}개 · ${label}${tasks.length > 1 ? ` 외 ${tasks.length - 1}개` : ''}${blocked ? ` · 도움이 필요한 일 ${blocked}개` : ''}`;
 }

@@ -1,3 +1,4 @@
+import { getLocale } from '../brain/locale';
 // Korean places gazetteer + itinerary templates (demo-grade, hand-curated).
 export type PlaceKind = 'temple' | 'heritage' | 'nature' | 'beach' | 'market' | 'city' | 'food' | 'museum' | 'park' | 'village';
 
@@ -12,11 +13,17 @@ export interface Place {
   seniorNote: string;        // senior-friendly note
   nearby: string[];          // place ids
   travelFromSeoul: string;   // 'KTX 2시간 + 택시 20분'
+  /** English data (the Korean fields above stay canonical: `region` is the stable key used across the app). */
+  nameEn: string;
+  aliasesEn: string[];
+  regionEn: string;
+  seniorNoteEn: string;
+  travelEn: string;
 }
 
 const P = (id: string, name: string, region: string, lat: number, lng: number, kind: PlaceKind, travelFromSeoul: string,
   seniorNote: string, nearby: string[], aliases: string[] = []): Place =>
-  ({ id, name, aliases, region, lat, lng, kind, seniorNote, nearby, travelFromSeoul });
+  ({ id, name, aliases, region, lat, lng, kind, seniorNote, nearby, travelFromSeoul, nameEn: '', aliasesEn: [], regionEn: '', seniorNoteEn: '', travelEn: '' });
 
 const KTX_GJ = 'KTX 신경주역까지 약 2시간 + 택시 25분';
 const KTX_BS = 'KTX 부산역까지 약 2시간 40분';
@@ -74,16 +81,96 @@ export const PLACES: Place[] = [
   P('namhae', '남해', '남해', 34.8375, 127.8924, 'nature', '고속버스 약 4시간', '독일마을과 바래길이 아름다워요.', []),
 ];
 
+// ── English gazetteer data (attached to the Korean entries by id) ───────────
+const KTX_GJ_EN = 'KTX to Singyeongju Station (about 2 hours) + 25 min by taxi';
+const KTX_BS_EN = 'KTX to Busan Station (about 2 hr 40 min)';
+const EN: Record<string, [name: string, region: string, aliases: string[], travel: string, note: string]> = {
+  'gyeongju-bulguksa': ['Bulguksa Temple', 'Gyeongju', ['Bulguksa', 'Bulguk Temple', 'Bulguk-sa', 'Pulguksa'], KTX_GJ_EN, 'The area in front of Dabotap and Seokgatap pagodas is flat and easy to walk. Take the steps up to the main hall slowly.'],
+  'gyeongju-seokguram': ['Seokguram Grotto', 'Gyeongju', ['Seokguram', 'Seokguram Hermitage'], KTX_GJ_EN, 'A shuttle bus goes up, and only the last stretch is a gentle walk.'],
+  'gyeongju-cheomseongdae': ['Cheomseongdae Observatory', 'Gyeongju', ['Cheomseongdae', 'Cheomseong-dae'], KTX_GJ_EN, 'A flat walking path, easy for wheelchairs too.'],
+  'gyeongju-daereungwon': ['Daereungwon Tomb Complex', 'Gyeongju', ['Daereungwon', 'Cheonmachong', 'Daereung-won'], KTX_GJ_EN, 'Flat paths with plenty of benches.'],
+  'gyeongju-bomun': ['Bomun Lake', 'Gyeongju', ['Bomun', 'Bomun Resort', 'Bomun Lake Resort'], KTX_GJ_EN, 'The lakeside path is flat and lovely for a slow walk.'],
+  'gyeongju-donggung': ['Donggung Palace and Wolji Pond', 'Gyeongju', ['Wolji Pond', 'Anapji', 'Anapji Pond', 'Donggung and Wolji', 'Donggung'], KTX_GJ_EN, 'The night view is beautiful in the evening, and the path is flat.'],
+  'gyeongju-hwangridan': ['Hwangnidan-gil', 'Gyeongju', ['Hwangridan-gil', 'Hwangridan', 'Hwangnidan', 'Hwangnam-dong'], KTX_GJ_EN, 'Lots of little alleys to browse and tea houses to rest in.'],
+  'gyeongju': ['Gyeongju', 'Gyeongju', ['Silla'], KTX_GJ_EN, 'The thousand-year-old capital. Mostly flat, which is great for older travelers.'],
+  'busan-haeundae': ['Haeundae Beach', 'Busan', ['Haeundae', 'Haeundae Sea'], KTX_BS_EN, 'The promenade beside the sand is flat. Avoid the midday sun.'],
+  'busan-dongbaek': ['Dongbaek Island', 'Busan', ['Dongbaekseom'], KTX_BS_EN, 'A gentle loop trail with lovely sea views.'],
+  'busan-gwangalli': ['Gwangalli Beach', 'Busan', ['Gwangalli', 'Gwangan Bridge', 'Gwangandaegyo'], KTX_BS_EN, 'The beach road is flat, with many cafes.'],
+  'busan-jagalchi': ['Jagalchi Market', 'Busan', ['Jagalchi'], KTX_BS_EN, 'An indoor market that works in the rain, though the floor can be slippery.'],
+  'busan-gamcheon': ['Gamcheon Culture Village', 'Busan', ['Gamcheon Village', 'Gamcheon'], KTX_BS_EN, 'The hills are steep. Use the village bus.'],
+  'busan-taejongdae': ['Taejongdae Park', 'Busan', ['Taejongdae'], KTX_BS_EN, 'The Danubi tram lets you go around comfortably.'],
+  'busan': ['Busan', 'Busan', ['Pusan'], KTX_BS_EN, 'A city known for sea views and fresh seafood.'],
+  'seoul-myeongdong-cathedral': ['Myeongdong Cathedral', 'Seoul', ['Myeongdong'], 'About 30 min by subway (Line 2 + Line 4)', 'The entrance has a slight slope, but the sanctuary is a quiet place to rest.'],
+  'seoul-sinchon': ['Sinchon', 'Seoul', ['Sinchon Station', 'Ewha'], 'Subway Line 2, Sinchon Station', 'A busy university district. Rest at a cafe.'],
+  'seoul-namsan': ['Namsan', 'Seoul', ['Namsan Tower', 'N Seoul Tower', 'Seoul Tower'], 'About 40 min by subway + cable car', 'Take the cable car up and spare your knees.'],
+  'seoul-deoksugung': ['Deoksugung Palace', 'Seoul', ['Deoksugung'], 'Subway Line 1, City Hall Station', 'The stone-wall walkway is flat.'],
+  'seoul-gyeongbokgung': ['Gyeongbokgung Palace', 'Seoul', ['Gyeongbokgung'], 'Subway Line 3, Gyeongbokgung Station', 'The palace grounds are large. Rest along the way.'],
+  'seoul-changgyeonggung': ['Changgyeonggung Palace', 'Seoul', ['Changgyeonggung'], 'Subway Line 4, Hyehwa Station + bus', 'A quiet, peaceful stroll.'],
+  'seoul-hangang': ['Hangang Park', 'Seoul', ['Han River', 'Hangang', 'Yeouido'], 'Subway + a short walk', 'The riverside path is flat with plenty of benches.'],
+  'seoul': ['Seoul', 'Seoul', [], '-', ''],
+  'jeju-seongsan': ['Seongsan Ilchulbong', 'Jeju', ['Ilchulbong', 'Sunrise Peak', 'Seongsan Sunrise Peak'], '1 hour by plane + 1 hour by rental car', 'Many steps up to the summit. Looking up from below is lovely too.'],
+  'jeju-seopjikoji': ['Seopjikoji', 'Jeju', [], '1 hour by plane + 1 hour by rental car', 'The coastal path is gentle.'],
+  'jeju-udo': ['Udo Island', 'Jeju', ['Udo'], '1 hour by plane + rental car + 15 min by ferry', 'You need a ferry, so check the weather.'],
+  'jeju-hallasan': ['Hallasan', 'Jeju', ['Mount Halla', 'Halla Mountain'], '1 hour by plane + 1 hour by rental car', 'The summit hike is tough. Try the walks near Yeongsil instead.'],
+  'jeju': ['Jeju', 'Jeju', ['Jeju Island', 'Jejudo'], '1 hour by plane', 'A rental car makes it easy.'],
+  'gangneung-gyeongpo': ['Gyeongpo Beach', 'Gangneung', ['Gyeongpodae', 'Gyeongpo Lake', 'Gyeongpo'], 'About 2 hours by KTX to Gangneung Station', 'The lakeside path is flat.'],
+  'gangneung-anmok': ['Anmok Beach', 'Gangneung', ['Anmok', 'Coffee Street'], 'About 2 hours by KTX to Gangneung Station', 'Coffee Street is a nice place to rest.'],
+  'gangneung-ojukheon': ['Ojukheon House', 'Gangneung', ['Ojukheon'], 'About 2 hours by KTX to Gangneung Station', 'The paths are flat.'],
+  'gangneung': ['Gangneung', 'Gangneung', [], 'About 2 hours by KTX to Gangneung Station', 'Famous for its sea and coffee.'],
+  'sokcho-seorak': ['Seoraksan', 'Sokcho', ['Mount Seorak', 'Seorak Mountain', 'Seoraksan National Park', 'Seorak'], 'About 2 hr 30 min by express bus', 'You can reach Gwongeumseong by cable car.'],
+  'sokcho': ['Sokcho', 'Sokcho', [], 'About 2 hr 30 min by express bus', 'Great for sea views and the market.'],
+  'jeonju-hanok': ['Jeonju Hanok Village', 'Jeonju', ['Hanok Village'], 'About 1 hr 40 min by KTX', 'The alleys are flat. Rest at a hanok tea house.'],
+  'jeonju': ['Jeonju', 'Jeonju', [], 'About 1 hr 40 min by KTX', 'Famous for bibimbap and hanok houses.'],
+  'yeosu-night': ['Yeosu Night Sea', 'Yeosu', ['Yeosu Night Sea View', 'Odongdo'], 'About 3 hours by KTX', 'The night-view walkway is flat.'],
+  'yeosu': ['Yeosu', 'Yeosu', [], 'About 3 hours by KTX', 'Beautiful night views over the sea.'],
+  'chuncheon-nami': ['Nami Island', 'Chuncheon', ['Namiseom'], 'About 1 hour by ITX + a ferry', 'The paths on the island are flat, and it is famous for autumn leaves.'],
+  'chuncheon': ['Chuncheon', 'Chuncheon', [], 'About 1 hour by ITX', 'Famous for dakgalbi and lakes.'],
+  'andong-hahoe': ['Hahoe Folk Village', 'Andong', ['Hahoe Village', 'Hahoe'], 'About 2 hours by KTX to Andong Station + bus', 'The village paths are flat dirt roads.'],
+  'andong': ['Andong', 'Andong', [], 'About 2 hours by KTX', 'Known for jjimdak and a traditional village.'],
+  'tongyeong': ['Tongyeong', 'Tongyeong', [], 'About 3 hr 30 min by express bus', 'A cable car goes up Mireuksan.'],
+  'namhae': ['Namhae', 'Namhae', [], 'About 4 hours by express bus', 'The German Village and Barae trail are lovely.'],
+};
+for (const p of PLACES) {
+  const e = EN[p.id];
+  if (e) { p.nameEn = e[0]; p.regionEn = e[1]; p.aliasesEn = e[2]; p.travelEn = e[3]; p.seniorNoteEn = e[4]; }
+  else { p.nameEn = p.name; p.regionEn = p.region; p.travelEn = p.travelFromSeoul; p.seniorNoteEn = p.seniorNote; }
+}
+
+/** Locale-aware labels (the Korean fields stay the canonical keys). */
+export const placeName = (p: Place): string => (getLocale() === 'en' ? p.nameEn : p.name);
+export const placeRegion = (p: Place): string => (getLocale() === 'en' ? p.regionEn : p.region);
+export const placeNote = (p: Place): string => (getLocale() === 'en' ? p.seniorNoteEn : p.seniorNote);
+export const placeTravel = (p: Place): string => (getLocale() === 'en' ? p.travelEn : p.travelFromSeoul);
+/** Region label for a canonical (Korean) region key. */
+export function regionLabel(region: string): string {
+  if (getLocale() !== 'en') return region;
+  return PLACES.find(p => p.region === region)?.regionEn ?? region;
+}
+
 const byId = new Map(PLACES.map(p => [p.id, p]));
 export function placeById(id: string | undefined): Place | undefined { return id ? byId.get(id) : undefined; }
 
-/** Match places in free text: names & aliases, longest match wins; overlapping shorter matches dropped. */
+const escRe = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** Case-insensitive, word-bounded match of an English name; returns [start, len] of the first hit. */
+function findEn(text: string, name: string): [number, number] | undefined {
+  const m = new RegExp(`(?<![A-Za-z])${escRe(name).replace(/\s+/g, '[\\s-]+')}(?![A-Za-z])`, 'i').exec(text);
+  return m ? [m.index, m[0].length] : undefined;
+}
+
+/** Match places in free text (Korean or English names & aliases): longest match wins; overlapping shorter matches dropped. */
 export function findPlaces(text: string): Place[] {
   const hits: { p: Place; start: number; len: number }[] = [];
   for (const p of PLACES) {
     for (const n of [p.name, ...p.aliases]) {
       const i = text.indexOf(n);
       if (i >= 0) hits.push({ p, start: i, len: n.length });
+    }
+    if (/[A-Za-z]/.test(text)) {
+      for (const n of [p.nameEn, ...p.aliasesEn]) {
+        if (!n || n === p.name) continue;
+        const h = findEn(text, n);
+        if (h) hits.push({ p, start: h[0], len: h[1] });
+      }
     }
   }
   hits.sort((a, b) => b.len - a.len);
@@ -98,13 +185,18 @@ export function findPlaces(text: string): Place[] {
   return out.sort((a, b) => a.start - b.start).map(o => o.p);
 }
 
-/** Best specific place (non-city) first, e.g. 경주 + 불국사 → 불국사. Display name: '경주 불국사'. */
+/** Best specific place (non-city) first, e.g. 경주 + 불국사 → 불국사. Display: '경주 불국사' (ko) / 'Bulguksa Temple, Gyeongju' (en). */
 export function resolvePlace(text: string): { place: Place; display: string } | undefined {
   const found = findPlaces(text);
   if (!found.length) return undefined;
   const specific = found.find(p => p.kind !== 'city');
   const city = found.find(p => p.kind === 'city');
   const place = specific ?? found[0];
+  if (getLocale() === 'en') {
+    let display = place.nameEn;
+    if (specific && city && city.region === specific.region && !specific.nameEn.startsWith(city.nameEn) && specific.nameEn !== city.nameEn) display = `${specific.nameEn}, ${city.nameEn}`;
+    return { place, display };
+  }
   let display = place.name;
   if (specific && city && city.region === specific.region && !specific.name.startsWith(city.name) && specific.name !== city.name) {
     display = `${city.name} ${specific.name}`;
@@ -161,6 +253,80 @@ export const ITINERARY_TEMPLATES: Record<string, ItineraryTemplate> = {
   },
 };
 
+export const ITINERARY_TEMPLATES_EN: Record<string, ItineraryTemplate> = {
+  경주: {
+    region: 'Gyeongju', destination: 'Gyeongju',
+    highlights: ['Bulguksa Temple and Dabotap Pagoda', 'A stroll through Daereungwon', 'Donggung Palace and Wolji Pond at night', 'Bomun Lake'],
+    days: [
+      { label: 'Day 1', stops: [
+        { time: '08:30', title: 'Depart Seoul Station', description: 'Ride the KTX in comfort.', travel: 'KTX 2h 10m', note: 'Bring your medicine, taken on your usual schedule.' },
+        { time: '11:00', title: 'Arrive at Singyeongju Station', description: 'Then a hearty Gyeongju set meal for lunch.', travel: '20 min by taxi', note: 'We will book a restaurant with seated dining.' },
+        { time: '13:00', placeId: 'gyeongju-bulguksa', title: 'Bulguksa Temple', description: 'Take a photo in front of Dabotap and Seokgatap pagodas again.', travel: '15 min by taxi', note: 'Mostly flat · wheelchair rental available · take stairs slowly' },
+        { time: '15:30', placeId: 'gyeongju-bomun', title: 'Walk around Bomun Lake', description: 'Stroll slowly along the cherry tree path.', travel: '15 min by taxi', note: '30-minute rest on a bench' },
+        { time: '18:00', placeId: 'gyeongju-donggung', title: 'Donggung Palace and Wolji Pond at night', description: 'Enjoy the evening lights.', travel: '15 min by taxi', note: 'Flat path · bring a light jacket' },
+      ] },
+      { label: 'Day 2', stops: [
+        { time: '09:30', title: 'A slow morning at the hotel', description: 'Have breakfast, take your medicine, then head out.', note: 'An unhurried schedule.' },
+        { time: '10:30', placeId: 'gyeongju-daereungwon', title: 'Walk through Daereungwon', description: 'A flat path among the ancient tombs.', travel: '10 min by taxi', note: 'Plenty of benches' },
+        { time: '12:00', placeId: 'gyeongju-hwangridan', title: 'Lunch on Hwangnidan-gil', description: 'Gyeongju bread and a rest at a tea house.', travel: '5 min on foot', note: 'Seated cafe confirmed' },
+        { time: '14:00', placeId: 'gyeongju-cheomseongdae', title: 'Cheomseongdae', description: 'One last family photo in front of Cheomseongdae!', travel: '10 min on foot', note: 'Flat walking path' },
+        { time: '15:30', title: 'Head home from Singyeongju Station', description: 'Catch the KTX home.', travel: '25 min by taxi + 2 hours by KTX', note: 'If you are tired, recline your seat.' },
+      ] },
+    ],
+    tips: ['Bring your medicine, taken on your usual schedule.', 'Take the stairs to the main hall at Bulguksa slowly, holding the railing.', 'Wheelchairs can be rented at the Bulguksa entrance.', 'We built in a seated rest every two hours.'],
+  },
+  부산: {
+    region: 'Busan', destination: 'Busan',
+    highlights: ['Haeundae Beach', 'A walk around Dongbaek Island', 'Gwangalli at night', 'Fresh sashimi at Jagalchi Market'],
+    days: [
+      { label: 'Day 1', stops: [
+        { time: '08:00', title: 'Depart Seoul Station', description: 'Ride the KTX in comfort.', travel: 'KTX 2h 40m', note: 'Bring your medicine, taken on your usual schedule.' },
+        { time: '10:50', title: 'Arrive at Busan Station', description: 'Head straight to lunch.', travel: '10 min by subway' },
+        { time: '11:30', placeId: 'busan-jagalchi', title: 'Lunch at Jagalchi Market', description: 'Fresh sashimi for lunch.', travel: '10 min by subway', note: 'We will pick an indoor, seated restaurant.' },
+        { time: '14:00', placeId: 'busan-haeundae', title: 'Haeundae Beach', description: 'Walk slowly along the shore.', travel: '30 min by taxi', note: 'Flat promenade · many benches' },
+        { time: '16:00', placeId: 'busan-dongbaek', title: 'Dongbaek Island loop', description: 'A gentle walk all the way around.', travel: '10 min on foot', note: 'Rests included' },
+        { time: '18:30', title: 'Dinner in Haeundae', description: 'Grilled clams or a warm rice soup.', note: 'Seated restaurant' },
+      ] },
+      { label: 'Day 2', stops: [
+        { time: '09:30', title: 'A slow morning', description: 'Take your medicine and head out at an easy pace.' },
+        { time: '10:30', placeId: 'busan-gwangalli', title: 'Gwangalli Beach', description: 'Stroll with Gwangan Bridge in view.', travel: '20 min by taxi', note: 'Flat ground' },
+        { time: '12:30', title: 'Lunch at Gwangalli', description: 'How about a bowl of milmyeon?', note: '' },
+        { time: '14:30', placeId: 'busan-taejongdae', title: 'Taejongdae tram', description: 'See the coastal cliffs without walking much.', travel: '30 min by taxi', note: 'Take the Danubi tram' },
+        { time: '16:30', title: 'Head home from Busan Station', description: 'Ride the KTX back.', travel: '30 min by taxi + 2 hr 40 min by KTX' },
+      ] },
+    ],
+    tips: ['Bring your medicine, taken on your usual schedule.', 'The sea breeze is cool, so bring a jacket.', 'We left out Gamcheon Culture Village this time because of the hills.', 'We built in rest breaks every two hours.'],
+  },
+};
+
+export function genericTemplateEn(destination: string, place?: Place): ItineraryTemplate {
+  const near = place ? place.nearby.map(placeById).filter((p): p is Place => !!p) : [];
+  const names = near.length ? near.map(n => n.nameEn) : [`Downtown ${destination}`, `${destination} market`, `${destination} park`];
+  const pick = (i: number) => names[i % names.length];
+  const travel = place?.travelEn && place.travelEn !== '-' ? place.travelEn : 'Public transport';
+  return {
+    region: destination, destination,
+    highlights: names.slice(0, 4),
+    days: [
+      { label: 'Day 1', stops: [
+        { time: '09:00', title: 'Depart Seoul Station', description: 'Travel in comfort.', travel, note: 'Bring your medicine, taken on your usual schedule.' },
+        { time: '12:00', title: `Arrive at ${destination}`, description: 'Then a hearty local meal for lunch.', note: 'Seated restaurant' },
+        { time: '14:00', placeId: near[0]?.id, title: pick(0), description: 'Take a slow look around.', travel: '15 min by taxi', note: place?.seniorNoteEn || 'Mostly flat paths' },
+        { time: '16:30', placeId: near[1]?.id, title: pick(1), description: 'Sightsee at a relaxed pace.', travel: '15 min by taxi', note: 'Benches checked' },
+        { time: '18:30', title: 'Dinner and hotel', description: 'Rest early.' },
+      ] },
+      { label: 'Day 2', stops: [
+        { time: '09:30', title: 'A slow morning', description: 'Take your medicine and head out at an easy pace.' },
+        { time: '10:30', placeId: near[2]?.id, title: pick(2), description: 'Take a morning walk.', travel: '15 min by taxi', note: 'No rushing' },
+        { time: '12:30', title: 'Lunch', description: 'A meal at a local favorite.' },
+        { time: '14:30', title: 'Family photos', description: 'Take some family pictures.' },
+        { time: '16:00', title: 'Head home', description: 'Travel back home.', travel },
+      ] },
+    ],
+    tips: ['Bring your medicine, taken on your usual schedule.', 'We will guide you along routes with few stairs.', 'We built in rest breaks every two hours.', 'We will check in advance whether wheelchairs can be rented.'],
+  };
+}
+
 /** Generic template built from a destination name (used for any other region). */
 export function genericTemplate(destination: string, place?: Place): ItineraryTemplate {
   const near = place ? place.nearby.map(placeById).filter((p): p is Place => !!p) : [];
@@ -193,6 +359,7 @@ export function genericTemplate(destination: string, place?: Place): ItineraryTe
 export function templateFor(destination: string): ItineraryTemplate {
   const found = findPlaces(destination)[0];
   const region = found?.region ?? destination;
+  if (getLocale() === 'en') return ITINERARY_TEMPLATES_EN[region] ?? genericTemplateEn(found?.regionEn ?? destination, found);
   return ITINERARY_TEMPLATES[region] ?? genericTemplate(found?.region ?? destination, found);
 }
 

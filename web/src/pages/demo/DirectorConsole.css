@@ -100,3 +100,13 @@
 .dc-graph.is-below .dc-graph-box { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); border-radius: var(--radius-lg); }
 .dc-graph.is-below .dc-recall { margin: 0; border-top: 0; border-left: 1px solid var(--border); overflow: auto; align-content: start; }
 .dc-graph.is-below .dc-cypher { max-height: 48px; }
+.dc-lang-note { margin-top: var(--space-6); }
+.dc-lang-note { margin-top: var(--space-6); }
+.dc-lang-note { text-wrap: balance; }
+
+/* Operator BYO API key */
+.dc-key { display: grid; gap: var(--space-8); margin-top: var(--space-12); padding-top: var(--space-12); border-top: 1px solid var(--border); }
+.dc-key-h { font-weight: var(--weight-semibold); }
+.dc-key-prov { display: flex; gap: var(--space-6); }
+.dc-key-row { display: flex; gap: var(--space-6); }
+.dc-key-row .input { flex: 1; min-width: 0; }

@@ -1,5 +1,5 @@
-// Agent-loop integration: offline planner flows, reminder delivery on the ticker, privacy, and the live loop with a mocked
-// provider (success, fallback to the state machine).   npx tsx server/scripts/agent.test.ts
+// LLM senior agent path with a stubbed brain: the model decides, the orchestrator persists / shows / shares.
+//   npx tsx server/scripts/agent.test.ts
 import '../util/env';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -7,132 +7,127 @@ import path from 'node:path';
 import { io as connect, type Socket } from 'socket.io-client';
 import { FAMILY_ROOM_ID, SENIOR_ROOM_ID } from '../../shared/constants';
 import type { Bootstrap, ClientToServerEvents, Message, ServerToClientEvents } from '../../shared/types';
+import type { AIResult, Brain, SeniorAgentInput, SeniorAgentTurn } from '../brain/contract';
+import { createBrain } from '../brain/index';
 import { createApp } from '../orchestrator/app';
-import { tick } from '../orchestrator/proactive';
-import { resetCircuit } from '../brain/llm';
-import { setWallClock } from '../util/misc';
 
-for (const k of ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'TACHI_DEFAULT_MODEL']) delete process.env[k];
-type Client = { id: string; sock: Socket<ServerToClientEvents, ClientToServerEvents>; boot: Bootstrap; msgs: Message[] };
 let failures = 0;
 const check = (ok: boolean, label: string) => { console.log(`${ok ? '  PASS' : '  FAIL'}  ${label}`); if (!ok) failures++; };
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 async function waitFor<T>(label: string, fn: () => T | undefined | false, timeoutMs = 15000): Promise<T | undefined> {
   const t0 = Date.now();
-  while (Date.now() - t0 < timeoutMs) { const v = fn(); if (v) return v; await sleep(50); }
+  while (Date.now() - t0 < timeoutMs) { const v = fn(); if (v) return v; await sleep(60); }
   check(false, `timeout waiting for ${label}`);
   return undefined;
 }
-async function client(url: string, id: string): Promise<Client> {
-  const sock = connect(url, { transports: ['websocket'], forceNew: true }) as Client['sock'];
-  const c = { id, sock, msgs: [] as Message[] } as Client;
-  sock.on('message:new', m => c.msgs.push(m));
-  sock.on('message:update', m => { const i = c.msgs.findIndex(x => x.id === m.id); if (i >= 0) c.msgs[i] = m; });
-  await new Promise<void>(r => sock.on('connect', () => r()));
-  c.boot = await new Promise<Bootstrap>((res, rej) => sock.emit('hello', { userId: id }, b => ('error' in b ? rej(new Error(b.error)) : res(b))));
-  return c;
-}
+
+// ── stub brain: the real offline brain, but "live" with a scripted agent ──
+const inputs: SeniorAgentInput[] = [];
+let script: (i: SeniorAgentInput) => { turn: SeniorAgentTurn; fallback?: boolean } = () => ({ turn: { reply: 'ok', quickReplies: [], actions: [] } });
+const real = createBrain();
+const brain: Brain = {
+  ...real,
+  isLive: () => true,
+  async seniorAgentTurn(i: SeniorAgentInput): Promise<AIResult<SeniorAgentTurn>> {
+    inputs.push(i);
+    const r = script(i);
+    return { value: r.turn, model: 'Stub LLM', fallback: !!r.fallback, source: r.fallback ? 'heuristic' : 'llm' };
+  },
+};
 
 async function main() {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tachi-agent-'));
-  const { listen, close, ctx } = await createApp({ port: 0, dataDir, paceMs: 20, quiet: true });
-  const url = `http://localhost:${await listen(0)}`;
-  ctx.brain.setActiveModel('demo');
-  const mom = await client(url, 'mom');
-  const jieun = await client(url, 'jieun');
-  const tachiAfter = (c: Client, roomId: string, n: number) => c.msgs.filter(m => m.roomId === roomId && m.senderId === 'tachi').slice(n);
-  const ask = async (c: Client, roomId: string, text: string, label: string, match?: (m: Message) => boolean) => {
-    const n = c.msgs.filter(m => m.roomId === roomId && m.senderId === 'tachi').length;
-    c.sock.emit('message:send', { roomId, text });
-    return waitFor(label, () => tachiAfter(c, roomId, n).find(m => m.kind === 'text' && (!match || match(m))));
-  };
+  const { listen, close, ctx } = await createApp({ port: 0, dataDir, paceMs: 40, quiet: true, locale: 'en', brain });
+  const port = await listen(0);
+  const url = `http://localhost:${port}`;
+  const sock = connect(url, { transports: ['websocket'], forceNew: true }) as Socket<ServerToClientEvents, ClientToServerEvents>;
+  const msgs: Message[] = [];
+  sock.on('message:new', m => msgs.push(m));
+  sock.on('message:update', m => { const i = msgs.findIndex(x => x.id === m.id); if (i >= 0) msgs[i] = m; });
+  await new Promise<void>(r => sock.on('connect', () => r()));
+  const boot = await new Promise<Bootstrap>((res, rej) => sock.emit('hello', { userId: 'mom' }, b => ('error' in b ? rej(new Error(b.error)) : res(b))));
+  msgs.push(...Object.values(boot.messages).flat());
+  const say = (text?: string, photoUrl?: string) => sock.emit('message:send', { roomId: SENIOR_ROOM_ID, text, photoUrl });
+  const since = (t0: number, roomId = SENIOR_ROOM_ID) => msgs.filter(m => m.roomId === roomId && Date.parse(m.createdAt) >= t0);
 
-  // ── offline (demo brain): planner-shaped requests use the tools ─────────────
-  const r1 = await ask(mom, SENIOR_ROOM_ID, '내일 아침 8시에 혈압약 먹으라고 알려줘', 'reminder reply');
-  check(!!r1 && /혈압약 드시기/.test(r1.text) && /알려 드릴게요/.test(r1.text), `senior reminder created (${r1?.text})`);
-  check(!!r1?.meta?.toolsUsed?.includes('알림 등록'), 'reply carries toolsUsed');
-  check(ctx.db.reminders.all().some(r => r.text === '혈압약 드시기' && r.createdBy === 'mom'), 'reminder stored');
+  // 1) a photo → LLM first question (vision input), draft started with the photo
+  script = i => ({ turn: { reply: 'What a lovely photo! Where was it taken?', quickReplies: ['At the market', 'At home'], actions: [{ type: 'update_draft', draft: { title: 'Market day' } }] }, fallback: false });
+  let t0 = Date.now();
+  say(undefined, '/demo-photos/gyeongju-1984.jpg');
+  const q1 = await waitFor('LLM first question', () => since(t0).find(m => m.senderId === 'tachi' && m.text.startsWith('What a lovely photo')));
+  check(!!q1 && q1.meta?.source === 'llm' && q1.meta?.model === 'Stub LLM' && q1.quickReplies?.length === 2, 'photo gets an LLM first question with chips and LLM attribution');
+  check(inputs.at(-1)?.photo?.url === '/demo-photos/gyeongju-1984.jpg' && inputs.at(-1)?.locale === 'en', 'agent input carries the photo and locale');
+  check(ctx.db.memories.all().filter(m => m.status !== 'saved').length === 0 && ctx.db.memories.all().length === 3, 'no memory is created by merely starting a draft');
 
-  const r2 = await ask(mom, SENIOR_ROOM_ID, '경주 불국사 가는 길 알려줘', 'route reply');
-  check(!!r2 && /불국사까지/.test(r2.text) && !!r2.meta?.toolsUsed?.includes('길찾기'), `senior route answer (${r2?.text})`);
+  // 2) a story turn → draft updated, still nothing saved; the model sees the draft + prior turns
+  script = () => ({ turn: { reply: 'And who was with you?', quickReplies: [], actions: [{ type: 'update_draft', draft: { place: 'Namdaemun Market, Seoul', year: 1984, people: [{ name: 'Youngsu Park', relation: 'husband' }] } }] } });
+  t0 = Date.now();
+  say('It was the old Namdaemun market, 1984.');
+  await waitFor('draft question', () => since(t0).find(m => m.senderId === 'tachi' && m.text === 'And who was with you?'));
+  check(ctx.db.memories.all().length === 3, 'still nothing saved while the story is being collected');
+  check(inputs.at(-1)?.draft?.photoUrl === '/demo-photos/gyeongju-1984.jpg' && !!inputs.at(-1)?.history.some(h => h.role === 'assistant' && h.text.includes('lovely photo')), 'input has the draft (photo) and the recent turns');
+  check((inputs.at(-1)?.memories.length ?? 0) > 0 && inputs.at(-1)?.allMemoryTitles.length === 3, 'input has memories and all titles');
 
-  const r3 = await ask(jieun, FAMILY_ROOM_ID, '타치, 불국사 근처에 가볼 만한 곳 있어?', 'family places reply', m => !!m.meta?.toolsUsed);
-  check(!!r3 && /근처에는/.test(r3.text), `family places answer (${r3?.text})`);
+  // 3) the model decides the memory is complete → save_memory persists it exactly like a finished interview
+  script = () => ({ turn: {
+    reply: 'What a wonderful memory. I will keep it safe.', quickReplies: [],
+    actions: [{ type: 'save_memory', memory: {
+      title: 'Spring 1984, shopping at Namdaemun Market', story: 'In spring 1984 Youngsu and I walked through Namdaemun Market and bought tangerines for the children.',
+      summary: 'A spring day of tangerines at Namdaemun Market.', year: 1984, season: 'Spring', place: 'Namdaemun Market, Seoul',
+      people: [{ name: 'Youngsu Park', relation: 'husband' }], event: 'Shopping', emotions: ['Happiness'], tags: ['tangerines'],
+    } }],
+  } });
+  t0 = Date.now();
+  say('We bought tangerines for the kids and Youngsu carried them all the way home.');
+  const card = await waitFor('memory_card', () => since(t0).find(m => m.kind === 'memory_card'));
+  const saved = ctx.db.memories.all().find(m => m.title === 'Spring 1984, shopping at Namdaemun Market');
+  check(!!saved && saved.status === 'saved' && saved.visibility === 'private' && saved.ownerId === 'mom', 'memory persisted in SQLite, private');
+  check(saved?.photoUrl === '/demo-photos/gyeongju-1984.jpg', "the draft's photo is attached");
+  check(!!card && !!card.actions?.some(a => a.id === 'share_memory') && !!card.actions?.some(a => a.id === 'skip_share'), 'memory_card with consent buttons posted');
+  check(card?.payload?.type === 'memory_card' && card.payload.graphDelta.nodes.length > 0, 'memory_card carries the graph delta');
+  const hits = await ctx.graph.search(['Namdaemun'], { limit: 3 });
+  check(hits.some(h => h.memoryId === saved?.id), 'graph updated: the new memory is searchable');
+  check(since(t0).some(m => m.senderId === 'tachi' && /share it with the family/i.test(m.text)), 'consent prompt posted');
+  check(!ctx.db.kv.get(`agent-draft:${SENIOR_ROOM_ID}`), 'draft cleared after saving');
+  check(!since(t0, FAMILY_ROOM_ID).some(m => m.kind === 'share_card'), 'nothing reached the family before consent');
 
-  const momBefore = mom.msgs.length;
-  const r4 = await ask(jieun, FAMILY_ROOM_ID, '타치, 엄마한테 내일 오후 3시에 병원 가시라고 알려줘', 'family reminder reply', m => !!m.meta?.toolsUsed);
-  check(!!r4 && /병원 가기/.test(r4.text), `family-set reminder (${r4?.text})`);
-  const announce = await waitFor('mom announcement', () => mom.msgs.slice(momBefore).find(m => m.senderId === 'tachi' && /지은 님 부탁/.test(m.text)));
-  check(!!announce, 'mom is told who set the reminder');
+  // 4) share_memory goes through doShare (consent card flow)
+  script = () => ({ turn: { reply: 'Sending it to the family now.', quickReplies: [], actions: [{ type: 'share_memory', memoryId: saved!.id }] } });
+  t0 = Date.now();
+  say('Yes please, send it.');
+  await waitFor('share_card', () => since(t0, FAMILY_ROOM_ID).find(m => m.kind === 'share_card'));
+  check(ctx.db.memories.get(saved!.id)?.visibility === 'family', 'share_memory shared via the existing doShare');
 
-  // demo-script texts are untouched by the agent
-  const r5 = await ask(jieun, FAMILY_ROOM_ID, '타치, 엄마 오늘 아침에 무슨 얘기 하셨어?', 'private refusal');
-  check(!!r5 && !r5.meta?.toolsUsed, 'demo private-question step is not routed to the agent');
+  // 5) show_memory → recall_card; unknown ids are ignored
+  script = () => ({ turn: { reply: 'Here is that day.', quickReplies: [], actions: [{ type: 'show_memory', memoryId: 'mem-haeundae-1988' }, { type: 'show_memory', memoryId: 'mem-nope' }, { type: 'launch_rocket' } as never] } });
+  t0 = Date.now();
+  say('Tell me about the beach again.');
+  const recall = await waitFor('recall_card', () => since(t0).find(m => m.kind === 'recall_card'));
+  check(recall?.payload?.type === 'recall_card' && recall.payload.memoryId === 'mem-haeundae-1988', 'show_memory posts a recall_card for that memory');
+  await sleep(400);
+  check(since(t0).filter(m => m.kind === 'recall_card').length === 1, 'unknown memory ids / actions are ignored');
 
-  // delivery on the ticker (demo clock jumps to tomorrow 08:01)
-  const t = new Date(); t.setDate(t.getDate() + 1); t.setHours(8, 1, 0, 0);
-  setWallClock(() => t.getTime());
-  const nDeliv = mom.msgs.length;
-  await tick();
-  const delivered = await waitFor('reminder delivery', () => mom.msgs.slice(nDeliv).find(m => m.senderId === 'tachi' && /알려 드리기로 한 시간/.test(m.text) && /혈압약/.test(m.text)));
-  check(!!delivered, 'due reminder delivered in mom\'s chat');
-  await tick();
-  await sleep(200);
-  check(mom.msgs.slice(nDeliv).filter(m => /알려 드리기로 한 시간/.test(m.text) && /혈압약/.test(m.text)).length === 1, 'delivered exactly once');
-  setWallClock(null);
+  // 6) a hallucinated duplicate save is not stored twice
+  const before = ctx.db.memories.all().length;
+  script = () => ({ turn: { reply: 'Saved.', quickReplies: [], actions: [{ type: 'save_memory', memory: { title: 'Spring 1984, shopping at Namdaemun Market', story: 'In spring 1984 Youngsu and I walked through Namdaemun Market.', summary: 'dup', people: [], emotions: [], tags: [] } }] } });
+  t0 = Date.now();
+  say('anything');
+  await waitFor('dup turn', () => since(t0).find(m => m.senderId === 'tachi' && m.text === 'Saved.'));
+  await sleep(300);
+  check(ctx.db.memories.all().length === before, 'duplicate save_memory is ignored');
 
-  // ── live (mocked Anthropic over fetch) ──────────────────────────────────────
-  process.env.ANTHROPIC_API_KEY = 'test-key';
-  process.env.TACHI_ANTHROPIC_BASE_URL = 'http://mock.anthropic.local';
-  resetCircuit();
-  ctx.brain.setActiveModel('claude-haiku');
-  const realFetch = globalThis.fetch;
-  const toolBodies: Record<string, unknown>[] = [];
-  let mode: 'ok' | 'down' = 'ok';
-  let step = 0;
-  const reply = (content: unknown[], stop = 'end_turn') => new Response(JSON.stringify({ stop_reason: stop, content }), { status: 200 });
-  globalThis.fetch = (async (u: unknown, init?: RequestInit) => {
-    if (!String(u).startsWith('http://mock.anthropic.local')) return realFetch(u as string, init);
-    const body = JSON.parse(String(init?.body ?? '{}'));
-    if (!body.tools) return reply([{ type: 'text', text: '{}' }]); // non-agent brain calls: unusable JSON → their heuristics answer
-    toolBodies.push(body);
-    if (mode === 'down') return new Response('overloaded', { status: 529 });
-    step++;
-    if (step === 1) return reply([{ type: 'thinking', thinking: '', signature: 's' }, { type: 'tool_use', id: 'tu_1', name: 'graph_search', input: { keywords: ['해운대', '결혼식', '명동성당'] } }], 'tool_use');
-    if (step === 2) return reply([{ type: 'text', text: '1988년 여름 해운대 가족 피서 이야기가 있어요.' }]);
-    return reply([{ type: 'text', text: '{"verified": true, "answer": "1988년 여름, 온 가족이 해운대로 피서를 가셨던 추억이 있어요. 수박 맛을 아직도 그리워하세요."}' }]);
-  }) as typeof fetch;
-  try {
-    const l1 = await ask(jieun, FAMILY_ROOM_ID, '타치, 엄마 해운대 추억 얘기 좀 해줘', 'live agent answer', m => m.meta?.source === 'llm' || !!m.meta?.toolsUsed);
-    check(!!l1 && l1.meta?.source === 'llm' && l1.meta?.model === 'Claude Haiku 5.5', `live agent answered (${l1?.meta?.model}/${l1?.meta?.source})`);
-    check(!!l1?.meta?.toolsUsed?.includes('추억 그래프'), 'live answer lists the graph tool');
-    check(!!l1?.meta?.memoryIdsUsed?.includes('mem-haeundae-1988') && !!l1?.meta?.categoriesUsed?.includes('memory'), 'provenance attached for privacy retraction');
-    check(toolBodies.length === 3, `three model turns: tool, draft, verify (${toolBodies.length})`);
-    const second = JSON.stringify(toolBodies[1]?.messages ?? '');
-    check(second.includes('tool_result') && second.includes('해운대') && !second.includes('명동성당 결혼식'), 'tool_result sent back; private memory never reaches the model');
-    check(second.includes('"signature":"s"'), 'assistant thinking block echoed verbatim');
+  // 7) fallback result → the offline heuristic pipeline answers instead (unchanged behavior)
+  script = () => ({ turn: { reply: 'FALLBACK TEXT', quickReplies: [], actions: [] }, fallback: true });
+  t0 = Date.now();
+  say('Good morning!');
+  const fb = await waitFor('heuristic reply', () => since(t0).find(m => m.senderId === 'tachi'));
+  check(!!fb && fb.text !== 'FALLBACK TEXT' && fb.meta?.model !== 'Stub LLM', `fallback → offline pipeline replies: ${fb?.text.slice(0, 50)}`);
 
-    // provider down → existing state-machine answer (no tools line)
-    mode = 'down';
-    const before = toolBodies.length;
-    const l2 = await ask(jieun, FAMILY_ROOM_ID, '타치, 엄마 옛날 사진 이야기 해줘', 'fallback answer');
-    check(toolBodies.length > before, 'agent was attempted');
-    check(!!l2 && !l2.meta?.toolsUsed, `fell back to the existing family answer (${l2?.text.slice(0, 40)})`);
-
-    // demo health question never goes to the agent, even live
-    mode = 'ok'; resetCircuit();
-    const n3 = toolBodies.length;
-    await ask(jieun, FAMILY_ROOM_ID, '타치, 엄마 요즘 혈압은 괜찮으셔?', 'health answer');
-    check(toolBodies.length === n3, 'health question keeps the privacy-checked state-machine path');
-  } finally {
-    globalThis.fetch = realFetch;
-    delete process.env.ANTHROPIC_API_KEY; delete process.env.TACHI_ANTHROPIC_BASE_URL;
-  }
-
-  mom.sock.close(); jieun.sock.close();
+  sock.close();
   await close();
   fs.rmSync(dataDir, { recursive: true, force: true });
-  console.log(failures ? `\nAGENT FAILED (${failures})` : '\nAGENT OK');
+  console.log(failures ? `\nAGENT TEST FAILED (${failures})` : '\nAGENT TEST OK');
   process.exit(failures ? 1 : 0);
 }
+
 main().catch(e => { console.error(e); process.exit(1); });

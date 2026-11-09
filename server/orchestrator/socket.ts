@@ -10,6 +10,9 @@ import {
 import { handleAction, handleIncoming } from './messages';
 import { assistArtifact, artifactTask, updateArtifact } from './artifacts';
 import { createRoom, inviteContact } from './rooms';
+import { getOrCreateDm } from './dm';
+import { getLocale, isLocale } from './locale';
+import { st } from '../i18n';
 import { fireProactive, postReport } from './proactive';
 import { forceClosePoll } from './scheduling';
 import { executeTask, normalizeTasks, runFollowUps, setTaskStatus } from './tasks';
@@ -18,14 +21,14 @@ import { nowIso } from '../util/misc';
 import { resetDemo } from './reset';
 import { sleep, warn } from '../util/misc';
 
-const BUSY = '데모를 다시 준비하는 중이에요. 잠시 후 다시 해 주세요.';
+const busy = (): string => st('err.busy');
 
 /** Run a handler body under the current demo generation; refuses while reseeding. */
 const safe = (name: string, fn: () => unknown | Promise<unknown>, sock?: Sock) => {
-  if (ctx.resetting) { sock?.emit('toast', { text: BUSY }); return; }
+  if (ctx.resetting) { sock?.emit('toast', { text: busy() }); return; }
   runWithGen(ctx.gen, () => Promise.resolve().then(fn)).catch(e => {
     warn(`${name} failed:`, e);
-    sock?.emit('toast', { text: '요청을 처리하지 못했어요. 다시 시도해 주세요.' });
+    sock?.emit('toast', { text: st('err.retry') });
   });
 };
 
@@ -72,7 +75,7 @@ function setMemoryVisibility(userId: string, memoryId: string, visibility: Visib
 /** Director-only demo commands. */
 function requireDirector(sock: Sock): boolean {
   if (sock.data.userId === DIRECTOR_ID) return true;
-  sock.emit('toast', { text: '디렉터만 쓸 수 있는 기능이에요.' });
+  sock.emit('toast', { text: st('err.directorOnly') });
   return false;
 }
 
@@ -80,9 +83,9 @@ function requireDirector(sock: Sock): boolean {
 export async function preflightModel(key?: ModelKey): Promise<void> {
   const gen = ctx.gen;
   try {
-    const st = ctx.brain.getModelState();
-    const target = key ?? st.active;
-    const opt = st.options.find(o => o.key === target);
+    const ms = ctx.brain.getModelState();
+    const target = key ?? ms.active;
+    const opt = ms.options.find(o => o.key === target);
     if (!opt || opt.provider === 'mock' || !opt.available) return;
     const r = await ctx.brain.preflight(target);
     if (gen !== ctx.gen) return;
@@ -90,7 +93,7 @@ export async function preflightModel(key?: ModelKey): Promise<void> {
     ctx.io.emit('model:update', after);
     if (!r.ok && after.active === target) {
       warn(`preflight failed for ${target}: ${r.error ?? '?'}`);
-      ctx.io.to(userChannel(DIRECTOR_ID)).emit('toast', { text: '선택한 모델이 응답하지 않아 오프라인 브레인으로 대신 답해요' });
+      ctx.io.to(userChannel(DIRECTOR_ID)).emit('toast', { text: st('toast.modelDown') });
     }
   } catch (e) { warn('preflight crashed:', e); }
 }
@@ -110,19 +113,19 @@ export function attachSocketHandlers(io: IO): void {
           for (let i = 0; ctx.resetting && i < 100; i++) await sleep(50);
           const userId = p?.userId;
           if (typeof userId !== 'string' || (userId !== DIRECTOR_ID && (!ctx.db.users.get(userId) || userId === 'tachi'))) {
-            ack({ error: `알 수 없는 사용자예요: ${String(userId)}` });
+            ack({ error: st('err.unknownUser', { id: String(userId) }) });
             return;
           }
           const dirKey = process.env.TACHI_DIRECTOR_KEY;
           if (userId === DIRECTOR_ID && dirKey && p.key !== dirKey) {
-            ack({ error: '디렉터 키가 필요해요.' });
+            ack({ error: st('err.directorKey') });
             return;
           }
           // optional owner credential for the senior persona (demo default: unset = open)
           const seniorKey = process.env.TACHI_SENIOR_KEY;
           if (userId === SENIOR_ID && seniorKey && p.key !== seniorKey && !(dirKey && p.key === dirKey)) {
             warn('hello refused: senior key missing/wrong');
-            ack({ error: '어머니 화면을 열려면 키가 필요해요.' });
+            ack({ error: st('err.seniorKey') });
             return;
           }
           if (sock.data.userId && sock.data.userId !== userId) release(sock);
@@ -135,7 +138,7 @@ export function attachSocketHandlers(io: IO): void {
           ack(await buildBootstrap(userId));
         } catch (e) {
           warn('hello failed:', e);
-          ack({ error: '연결하지 못했어요. 다시 시도해 주세요.' });
+          ack({ error: st('err.connect') });
         }
       });
     });
@@ -149,12 +152,12 @@ export function attachSocketHandlers(io: IO): void {
     sock.on('action', (p, ack) => {
       const reply = (r: { ok: boolean; error?: string; message?: string }) => { if (typeof ack === 'function') ack(r); };
       const u = uid();
-      if (!u || !p) { reply({ ok: false, error: '먼저 연결해 주세요.' }); return; }
-      if (ctx.resetting) { sock.emit('toast', { text: BUSY }); reply({ ok: false, error: BUSY }); return; }
+      if (!u || !p) { reply({ ok: false, error: st('err.connectFirst') }); return; }
+      if (ctx.resetting) { sock.emit('toast', { text: busy() }); reply({ ok: false, error: busy() }); return; }
       runWithGen(ctx.gen, () => handleAction(u, p)).then(reply).catch(e => {
         warn('action failed:', e);
-        sock.emit('toast', { text: '요청을 처리하지 못했어요. 다시 시도해 주세요.' });
-        reply({ ok: false, error: '요청을 처리하지 못했어요.' });
+        sock.emit('toast', { text: st('err.retry') });
+        reply({ ok: false, error: st('err.generic') });
       });
     });
     sock.on('typing', p => { const u = uid(); if (u && p?.roomId) sock.to(roomChannel(p.roomId)).emit('typing', { roomId: p.roomId, userId: u }); });
@@ -162,8 +165,22 @@ export function attachSocketHandlers(io: IO): void {
     sock.on('room:create', (p, ack) => {
       const u = uid();
       if (typeof ack !== 'function') return;
-      if (!u || u === DIRECTOR_ID || ctx.resetting) { ack({ error: '방을 만들 수 없어요.' }); return; }
-      try { ack(createRoom(u, p?.title, p?.memberIds)); } catch (e) { warn('room:create', e); ack({ error: '방을 만들지 못했어요.' }); }
+      if (!u || u === DIRECTOR_ID || ctx.resetting) { ack({ error: st('room.cannotCreate') }); return; }
+      try { ack(createRoom(u, p?.title, p?.memberIds)); } catch (e) { warn('room:create', e); ack({ error: st('room.createFailed') }); }
+    });
+    sock.on('room:dm', (p, ack) => {
+      const u = uid();
+      if (typeof ack !== 'function') return;
+      if (!u || u === DIRECTOR_ID || ctx.resetting || typeof p?.userId !== 'string') { ack({ error: st('dm.unavailable') }); return; }
+      try { ack(getOrCreateDm(u, p.userId)); } catch (e) { warn('room:dm', e); ack({ error: st('dm.unavailable') }); }
+    });
+    sock.on('locale:set', p => {
+      const u = uid();
+      if (!u || !isLocale(p?.locale)) return;
+      if (!(u === DIRECTOR_ID || u === SENIOR_ID)) { sock.emit('toast', { text: st('err.localeOwnerOnly') }); return; }
+      const next = p.locale;
+      if (next === getLocale()) return; // nothing to switch (never wipe the demo for a no-op)
+      safe('locale:set', () => resetDemo(next), sock); // re-seeds everything in the new language, then emits 'reset'
     });
     sock.on('room:invite', p => {
       const u = uid();
@@ -177,16 +194,16 @@ export function attachSocketHandlers(io: IO): void {
     sock.on('artifact:task:execute', (p, ack) => {
       const reply = (r: { ok: boolean; error?: string; message?: string }) => { if (typeof ack === 'function') ack(r); };
       const u = uid();
-      if (!u || !p || typeof p.artifactId !== 'string' || typeof p.taskId !== 'string') { reply({ ok: false, error: '잘못된 요청이에요.' }); return; }
-      if (ctx.resetting) { sock.emit('toast', { text: BUSY }); reply({ ok: false, error: BUSY }); return; }
+      if (!u || !p || typeof p.artifactId !== 'string' || typeof p.taskId !== 'string') { reply({ ok: false, error: st('err.badRequest') }); return; }
+      if (ctx.resetting) { sock.emit('toast', { text: busy() }); reply({ ok: false, error: busy() }); return; }
       const room = ctx.db.rooms.get(ctx.db.artifacts.get(p.artifactId)?.roomId ?? '');
       const run = () => executeTask(u, p.artifactId, p.taskId, p.kind);
       // serialize with the artifact's room so Tachi's lines keep their order
-      const job = room ? new Promise<{ ok: boolean; error?: string; message?: string }>(res => { void enqueue(room.id, async () => { res(await run()); }).then(() => res({ ok: false, error: '취소됐어요.' })); }) : runWithGen(ctx.gen, run);
+      const job = room ? new Promise<{ ok: boolean; error?: string; message?: string }>(res => { void enqueue(room.id, async () => { res(await run()); }).then(() => res({ ok: false, error: st('err.cancelledReset') })); }) : runWithGen(ctx.gen, run);
       job.then(r => { if (!r.ok && r.message) sock.emit('toast', { text: r.message }); reply(r); }).catch(e => {
         warn('artifact:task:execute failed:', e);
-        sock.emit('toast', { text: '요청을 처리하지 못했어요. 다시 시도해 주세요.' });
-        reply({ ok: false, error: '요청을 처리하지 못했어요.' });
+        sock.emit('toast', { text: st('err.retry') });
+        reply({ ok: false, error: st('err.generic') });
       });
     });
     sock.on('artifact:task:status', p => {
@@ -224,12 +241,37 @@ export function attachSocketHandlers(io: IO): void {
       if (!requireDirector(sock)) return;
       safe('model:set', () => {
         const wanted = ctx.brain.getModelState().options.find(o => o.key === p?.key);
-        if (!wanted || !wanted.available) { sock.emit('toast', { text: '사용할 수 없는 모델이에요.' }); return; }
+        if (!wanted || !wanted.available) { sock.emit('toast', { text: st('toast.modelUnavailable') }); return; }
         const state = ctx.brain.setActiveModel(p.key);
         ctx.db.kv.set('model', state.active);
         io.emit('model:update', state);
         void preflightModel(p.key); // never blocks the switch
       }, sock);
+    });
+
+    sock.on('model:apikey', (p, ack) => {
+      const done = typeof ack === 'function' ? ack : () => {};
+      if (!requireDirector(sock)) { done({ ok: false, error: 'director only' }); return; }
+      const provider = p?.provider;
+      const key = typeof p?.key === 'string' ? p.key.trim() : '';
+      if (provider !== 'anthropic' && provider !== 'openai') { done({ ok: false, error: 'bad provider' }); return; }
+      if (key && (key.length < 20 || key.length > 400 || /\s/.test(key))) { done({ ok: false, error: 'bad key' }); return; }
+      const envName = provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY';
+      // memory only: never written to the DB, kv, logs or any client payload
+      if (key) process.env[envName] = key; else delete process.env[envName];
+      let state = ctx.brain.getModelState();
+      const prefer: ModelKey[] = provider === 'anthropic' ? ['claude-sonnet', 'claude-haiku'] : ['gpt-terra', 'gpt-luna'];
+      const current = state.options.find(o => o.key === state.active);
+      if (key) {
+        const pick = prefer.find(k => state.options.some(o => o.key === k && o.available));
+        if (pick) state = ctx.brain.setActiveModel(pick);
+      } else if (current && !current.available) {
+        state = ctx.brain.setActiveModel('demo');
+      }
+      ctx.db.kv.set('model', state.active);
+      io.emit('model:update', state);
+      void preflightModel(state.active);
+      done({ ok: true });
     });
 
     sock.on('demo:invite', p => {
@@ -241,12 +283,12 @@ export function attachSocketHandlers(io: IO): void {
     sock.on('demo:reset', () => { if (requireDirector(sock)) safe('demo:reset', () => resetDemo(), sock); });
     sock.on('demo:bots', p => { if (requireDirector(sock)) safe('demo:bots', () => { patchDemo({ botsEnabled: !!p?.enabled }); }, sock); });
     sock.on('demo:clock', p => {
-      if (requireDirector(sock)) safe('demo:clock', () => { if (!setDemoClock(p?.time ?? null)) sock.emit('toast', { text: '시간 형식이 올바르지 않아요 (HH:MM).' }); }, sock);
+      if (requireDirector(sock)) safe('demo:clock', () => { if (!setDemoClock(p?.time ?? null)) sock.emit('toast', { text: st('toast.badClock') }); }, sock);
     });
     sock.on('demo:closePoll', () => {
       if (!requireDirector(sock)) return;
       safe('demo:closePoll', async () => {
-        if (!(await forceClosePoll())) sock.emit('toast', { text: '진행 중인 일정 조율이 없어요.' });
+        if (!(await forceClosePoll())) sock.emit('toast', { text: st('toast.noPoll') });
       }, sock);
     });
     sock.on('demo:followups', () => {

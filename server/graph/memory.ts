@@ -73,7 +73,8 @@ export class MemoryBackend implements Backend {
       const mem = s.label === 'Memory' ? s : t.label === 'Memory' ? t : undefined;
       const ent = mem === s ? t : s;
       if (!mem || ent.label === 'Memory') continue;
-      if (ent.name.length >= 2 && (ent.name.includes(keyword) || keyword.includes(ent.name))) out.push({ node: ent, memoryId: String(mem.props?.memoryId), edge: e });
+      const en = ent.name.toLowerCase(), kw = keyword.toLowerCase();
+      if (ent.name.length >= 2 && (en.includes(kw) || kw.includes(en))) out.push({ node: ent, memoryId: String(mem.props?.memoryId), edge: e });
     }
     return out;
   }
@@ -82,8 +83,9 @@ export class MemoryBackend implements Backend {
     for (const n of this.nodes.values()) {
       if (n.label !== 'Memory') continue;
       const id = String(n.props?.memoryId);
-      if (String(n.props?.title ?? n.name).includes(keyword)) out.push({ memoryId: id, field: 'title' });
-      else if (String(n.props?.story ?? '').includes(keyword)) out.push({ memoryId: id, field: 'story' });
+      const kw = keyword.toLowerCase();
+      if (String(n.props?.title ?? n.name).toLowerCase().includes(kw)) out.push({ memoryId: id, field: 'title' });
+      else if (String(n.props?.story ?? '').toLowerCase().includes(kw)) out.push({ memoryId: id, field: 'story' });
     }
     return out;
   }
