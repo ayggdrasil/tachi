@@ -102,3 +102,4 @@
 .dc-graph.is-below .dc-cypher { max-height: 48px; }
 .dc-lang-note { margin-top: var(--space-6); }
 .dc-lang-note { margin-top: var(--space-6); }
+.dc-lang-note { text-wrap: balance; }

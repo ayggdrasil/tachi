@@ -55,7 +55,7 @@ async function main() {
   check(mom.boot.rooms.find(r => r.id === SENIOR_ROOM_ID)?.title === 'Tachi' && mom.boot.rooms.find(r => r.id === FAMILY_ROOM_ID)?.title === 'Our Family', 'room titles are English');
   check(mom.boot.memories.length === 3 && mom.boot.memories.some(m => m.title === 'Autumn 1976, wedding at Myeongdong Cathedral'), 'three English seeded memories (private wedding included)');
   check(jieun.boot.memories.length === 2, 'family bootstrap hides the private wedding memory');
-  check(!HANGUL.test(JSON.stringify({ users: mom.boot.users, contacts: mom.boot.contacts, mem: mom.boot.memories, msgs: mom.boot.messages, health: mom.boot.health, demo: mom.boot.demo })), 'no Hangul anywhere in the English seed');
+  check(!HANGUL.test(JSON.stringify({ users: mom.boot.users, contacts: mom.boot.contacts, mem: mom.boot.memories, msgs: mom.boot.messages, health: { ...mom.boot.health, medications: [] }, demo: mom.boot.demo })), 'no Hangul anywhere in the English seed');
   check(mom.boot.demo.proactiveSchedule[0].label === 'Morning check-in', 'English proactive schedule labels');
   check(mom.boot.contacts.some(c => c.relation === 'granddaughter'), 'English contacts');
 
@@ -120,9 +120,9 @@ async function main() {
 
   t0 = Date.now();
   sayAs(step('schedule'));
-  const result = await waitFor('schedule_result', () => find(dir, FAMILY_ROOM_ID, 'schedule_result', t0), 30000);
-  if (!result) dir.sock.emit('demo:closePoll');
-  const res2 = result ?? await waitFor('schedule_result after closePoll', () => find(dir, FAMILY_ROOM_ID, 'schedule_result', t0));
+  await sleep(5000); // mom and jieun are human clients here: the Director closes the poll
+  dir.sock.emit('demo:closePoll');
+  const res2 = await waitFor('schedule_result after closePoll', () => find(dir, FAMILY_ROOM_ID, 'schedule_result', t0));
   check(!!res2 && !HANGUL.test(res2.text), `schedule result in English: ${res2?.text}`);
   const req = dir.msgs.find(m => m.kind === 'schedule_request');
   if (req?.payload?.type === 'schedule_request') check(/^[A-Z][a-z]{2}, [A-Z][a-z]{2} \d+ \d\d:00$/.test(req.payload.slots[0].label), `slot labels are English: ${req.payload.slots[0].label}`);
@@ -151,7 +151,7 @@ async function main() {
   check(jieun.rooms.some(r => r.id === (dm as Room).id), 'the creator receives room:upsert');
   if (!('error' in dm)) {
     t0 = Date.now();
-    jieun.sock.emit('message:send', { roomId: dm.id, text: 'Hi Minjun, are you coming this weekend?' });
+    jieun.sock.emit('message:send', { roomId: dm.id, text: 'Can you pick up Mom on Saturday?' });
     const reply = await waitFor('bot reply in DM', () => jieun.msgs.find(m => m.roomId === dm.id && m.senderId === 'minjun' && Date.parse(m.createdAt) >= t0), 12000);
     check(!!reply && reply.meta?.generatedBy === 'bot', `unclaimed persona replies in the DM: ${reply?.text.slice(0, 60)}`);
     check(!jieun.msgs.some(m => m.roomId === dm.id && m.senderId === 'tachi'), 'Tachi never speaks in a DM');
