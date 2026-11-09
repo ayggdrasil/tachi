@@ -90,11 +90,18 @@ function applyBootstrap(b: Bootstrap) {
 let wired = false;
 let currentUser: ID | null = null;
 
+let helloSeq = 0;
 function hello() {
   if (!currentUser) return;
+  const seq = ++helloSeq;
   set({ status: 'connecting' });
-  getSocket().emit('hello', { userId: currentUser, assisted: isEmbedded() }, res => {
-    if ('error' in res) set({ status: 'error', error: res.error });
+  // No ack within 8s → recoverable error state (the retry button calls initTachi(id, true)).
+  const timer = setTimeout(() => { if (seq === helloSeq && state.status === 'connecting') set({ status: 'error', error: '서버 응답이 없어요' }); }, 8000);
+  getSocket().timeout(8000).emit('hello', { userId: currentUser, assisted: isEmbedded(), key: directorKey() }, (err: Error | null, res: Bootstrap | { error: string }) => {
+    clearTimeout(timer);
+    if (seq !== helloSeq) return;
+    if (err) set({ status: 'error', error: '서버 응답이 없어요' });
+    else if ('error' in res) set({ status: 'error', error: res.error });
     else applyBootstrap(res);
   });
 }
@@ -105,6 +112,7 @@ function wire() {
   const s = getSocket();
   s.on('connect', hello);
   s.on('disconnect', () => set({ status: 'connecting' }));
+  s.on('connect_error', () => { if (state.status !== 'ready') set({ status: 'error', error: '서버에 연결하지 못했어요' }); });
   s.on('reset', hello);
   s.on('message:new', m => set(st => ({
     messages: { ...st.messages, [m.roomId]: [...(st.messages[m.roomId] ?? []).filter(x => x.id !== m.id), m] },
@@ -145,14 +153,14 @@ function wire() {
   }, 1000);
 }
 
-/** Connect this page as a persona. Safe to call repeatedly; switching persona re-bootstraps. */
-export function initTachi(userId: ID) {
+/** Connect this page as a persona. Safe to call repeatedly; switching persona re-bootstraps; `force` retries after an error. */
+export function initTachi(userId: ID, force = false) {
   wire();
-  if (currentUser === userId && state.status !== 'idle') return;
+  if (currentUser === userId && state.status !== 'idle' && !(force || state.status === 'error')) return;
   currentUser = userId;
   const s = getSocket();
   if (s.connected) hello();
-  else set({ status: 'connecting' });
+  else { set({ status: 'connecting' }); s.connect(); }
 }
 
 // ── Commands ────────────────────────────────────────────────────────────────
@@ -190,6 +198,7 @@ export const tachi = {
     bots(enabled: boolean) { getSocket().emit('demo:bots', { enabled }); },
     closePoll() { getSocket().emit('demo:closePoll'); },
     say(userId: ID, roomId: ID, text?: string, photoUrl?: string) { getSocket().emit('demo:say', { userId, roomId, text, photoUrl }); },
+    clock(time: string | null) { getSocket().emit('demo:clock', { time }); },
   },
 };
 
@@ -204,4 +213,9 @@ export function resolvePersona(fallback?: ID): ID | null {
   try { return localStorage.getItem('tachi.persona') ?? fallback ?? null; } catch { return fallback ?? null; }
 }
 export function rememberPersona(id: ID) { try { localStorage.setItem('tachi.persona', id); } catch { /* private mode */ } }
+/** Optional director key from `?key=` (remembered for the session) — only needed when the server sets TACHI_DIRECTOR_KEY. */
+export function directorKey(): string | undefined {
+  const q = new URLSearchParams(window.location.search).get('key');
+  try { if (q) sessionStorage.setItem('tachi.key', q); return q ?? sessionStorage.getItem('tachi.key') ?? undefined; } catch { return q ?? undefined; }
+}
 export function isEmbedded(): boolean { return new URLSearchParams(window.location.search).get('embed') === '1'; }

@@ -1,0 +1,102 @@
+# GPT review — round 1 (gpt-6.1-sol, reasoning xhigh)
+
+**Scores:** demo_readiness 7 · senior_ux 6 · family_ux 6 · ai_behavior 5 · robustness 4 · design_fidelity 8 · overall 6
+
+The captures demonstrate a working offline journey from photo interview through recall, travel planning, family scheduling, and a daily report. The graphite-on-paper system is unusually consistent, and the senior chat's main text and primary actions are appropriately large. However, automatic scrolling hides key memory-card and itinerary content, while the Director's side-chat control does not actually open a side chat. Privacy promises fail on declined sharing, private-memory reports, and unprotected server access. Fixed-delay playback and uncancelled in-flight work also make the otherwise convincing demo vulnerable to slow real models and mid-flow resets.
+
+- **F1 [high] demo** `web/src/pages/demo/DirectorConsole.tsx`
+  - Problem: Playback advances before a step has succeeded, so real-provider latency can destroy the 90-second sequence.
+  - Evidence: runStep marks a step done immediately after emitting its command. Auto-run waits fixed intervals of 4.5–9 seconds, but server/brain/llm.ts allows each provider call 25 seconds. Per-room queues preserve senior-message order, but family health, gathering, scheduling, and report commands can proceed before the senior flow finishes. Most flows also call tachiSay only after awaiting the model, so its typing indicator starts too late.
+  - Fix: Give each Director step an acknowledged completion condition, such as interview question posted, memory saved, itinerary posted, or poll closed. Advance only after that condition, disable duplicate submissions while running, and provide a short demo-specific model deadline with a circuit breaker to the offline brain. Emit processing feedback before starting provider work.
+- **F2 [high] senior-ux** `web/src/components/chat/MessageList.tsx`
+  - Problem: The automatic bottom scroll hides the information the audience is supposed to see when large cards arrive.
+  - Evidence: 05-senior-a-story.png shows the bottom of the story, graph, and sharing buttons, but not the saved photo, title, place, or people. 08-senior-trip.png starts at the final 18:00 stop and tips, hiding the itinerary title, day selector, and earlier stops. MessageList scrolls to scrollHeight whenever a new message arrives and again when an image loads.
+  - Fix: Use compact initial memory and itinerary cards with the headline and essential fields visible together. On structured-card arrival, reveal the card's beginning rather than its bottom, retain a reachable sticky action area, and put the full story or complete itinerary behind an explicit expansion.
+- **F3 [high] demo** `web/src/pages/demo/DirectorConsole.tsx`
+  - Problem: The '민준 · 사이드 챗' control opens another family-room screen, not the scheduling side chat.
+  - Evidence: The third Phone uses /family?as=minjun&embed=1 without a room identifier. FamilyApp selects room-family by default and never switches to a newly created side room. In 11-family-schedule.png the audience sees the completed counter and result, but no member-level availability conversation.
+  - Fix: Resolve the open poll's sideRoomIds.minjun and pass it to the embedded family screen through a supported room query parameter. Add a visible '내 일정 답하기' entry on the progress card so the daughter can reach her own side chat without backing out to the room list.
+- **F4 [high] demo** `web/src/pages/demo/DirectorConsole.tsx`
+  - Problem: The opening scenario is dependent on the presenter's host clock instead of reliably delivering the scripted morning memory greeting.
+  - Evidence: The proactive scenario calls tachi.demo.proactive() without a kind. server/orchestrator/proactive.ts chooses morning, memory, or evening from the current hour; an evening presentation therefore starts with dinner and medication copy instead of the memory-based opening. 01-senior-proactive.png and 12-family-report.png also expose 01:42/01:43 rather than the scripted morning/afternoon times.
+  - Fix: Pass 'morning' explicitly for the opening scenario. Introduce a deterministic demo clock and use it consistently for message timestamps, session timestamps, and reports, while retaining real-time behavior outside demo mode.
+- **F5 [high] demo** `server/orchestrator/senior.ts`
+  - Problem: Sharing followed quickly by recall can schedule duplicate trip offers and overwrite the pending confirmation.
+  - Evidence: doShare schedules offerTrip with later(1500). doRecall independently schedules another offer when no trip exists yet. offerTrip awaits suggestTrip before creating the Trip and has no duplicate or current-state guard; both callbacks run outside the room queue and each eventually sets pending to its own trip.
+  - Fix: Reserve one offer per memory before awaiting generation, enqueue delivery through the senior room queue, and cancel obsolete offers when an interview or another confirmation becomes active. Add a regression test that sends recall immediately after the family share card arrives and asserts exactly one suggested trip.
+- **F6 [critical] server** `server/orchestrator/senior.ts`
+  - Problem: Choosing '나만 간직할게요' does not make the memory private, despite the confirmation claiming that it does.
+  - Evidence: finalizeMemory saves with getPrivacy().memory, which defaults to 'family', and emits the full memory before asking about sharing. skipShare only clears pending state, marks actions done, and says '이 추억은 어머님만 간직할게요'; it never changes visibility. 05-senior-a-story.png shows '가족 공개' already selected at the consent step.
+  - Fix: Make declining sharing persist visibility='private', update the graph and authorized viewers, and verify the memory is absent from family bootstrap and Q&A. Prefer keeping new interview results private until the senior explicitly chooses family visibility or confirms sharing.
+- **F7 [high] ai** `server/brain/heuristics/ko.ts`
+  - Problem: The pending-confirmation parser can interpret an unrelated sentence as permission to share a memory.
+  - Evidence: YES_RE includes an unbounded '^어' alternative. While share_confirm is pending, '어제 무릎이 아팠어' matches yes before health or other intent classification, and handleSeniorText calls doShare. Conversely, the exact decline wording '나만 간직할게요' is not recognized by NO_RE.
+  - Fix: Restrict consent to explicit, bounded affirmative utterances, recognize the displayed decline wording, and check negation before acceptance. Unrelated health, recall, and location questions must not consume a sharing confirmation. Test these exact utterances.
+- **F8 [critical] server** `server/orchestrator/app.ts`
+  - Problem: A LAN visitor can bypass the privacy boundary entirely, including reading private graph content and invoking privileged demo operations.
+  - Evidence: GET /api/graph returns ctx.graph.subgraph() without identity or visibility filtering; Memory graph props contain full stories, including the seeded private wedding memory. In socket.ts, hello accepts 'director' without credentials, and demo:say, demo:reset, and other demo handlers have no Director authorization check, even for sockets that have not completed hello.
+  - Fix: Require an authenticated viewer for data endpoints and filter the graph by that viewer's effective memory visibility. Protect Director commands with an operator credential and server-side role checks. Keep the unrestricted persona picker and impersonation tools behind an explicit trusted demo mode.
+- **F9 [high] server** `server/orchestrator/family.ts`
+  - Problem: Private memories can leak through session summaries and daily reports even when direct memory lookup is filtered.
+  - Evidence: doRecall logs '${mem.title} 이야기를 다시 떠올리셨어요' as category 'memory' for every memory, including the private wedding seed. buildFamilyContext.recentSessions and composeReport filter only by category privacy, not by the referenced memory's visibility. Recalling '명동성당' while memory-category privacy remains public therefore makes its private title eligible for family context and reports.
+  - Fix: Add memoryId and effective visibility to memory-related session logs. Apply the memory's privacy override when building family sessions, report rows, and highlights, masking both title and summary. Test recalling the private wedding memory followed by a family report.
+- **F10 [high] server** `server/orchestrator/bootstrap.ts`
+  - Problem: Revoking visibility leaves previously generated cards and graph data accessible, including to a fresh family connection.
+  - Evidence: Bootstrap copies every message in an accessible room without sanitizing payloads. Existing health_card and share_card snapshots retain their original sensitive contents after privacy changes. setMemoryVisibility emits a redacted memory stub but no graph removal, while the client graph store only merges deltas; existing story-bearing Memory nodes remain cached.
+  - Fix: Create a viewer-aware message projection for bootstrap and live updates. On privacy changes, redact or retract affected health, memory, and report payloads and replace the family's visible graph rather than only merging additions. Verify a newly connected family client cannot retrieve revoked data.
+- **F11 [high] server** `server/orchestrator/core.ts`
+  - Problem: Category privacy is applied inconsistently across Q&A, panels, and transmitted data.
+  - Evidence: buildFamilyContext refuses memory questions when privacy.memory is private, but buildBootstrap and memoryFor still return memories whose per-memory visibility is family, and MomPanel displays them without checking category privacy. Separately, healthFor returns the entire HealthSummary when health is public, including its mood array even when the separate mood category is private.
+  - Fix: Define one effective-visibility rule for category settings and per-memory overrides, then reuse it in bootstrap, emitters, panels, Q&A, and artifacts. Project HealthSummary by category so private mood values are not transmitted merely because blood pressure is public.
+- **F12 [high] server** `server/orchestrator/reset.ts`
+  - Problem: Reset does not cancel already running or queued work, so old responses can repopulate the freshly seeded demo.
+  - Evidence: resetDemo increments gen and clears the queue map, but enqueue's existing promise chains continue executing. tachiSay posts after its sleep without checking generation, and model completions and finalizeMemory also lack generation checks. The generation guard exists only at the start of later callbacks. The Director reloads frames after a fixed 700 ms rather than reset completion.
+  - Fix: Capture a generation token for every queued operation and recheck it after asynchronous boundaries before writes or emits. Abort provider calls on reset, block new mutations while reseeding, and refresh frames only after an acknowledged reset completion. Test reset during extraction and itinerary generation.
+- **F13 [high] ai** `server/orchestrator/senior.ts`
+  - Problem: Blood-pressure acknowledgements can dangerously reassure low readings and minimize extreme high readings.
+  - Evidence: logHealth has only one condition: systolic >=140 or diastolic >=90. An accepted input such as 80/50 receives '안정적이라 다행이에요'; 200/120 receives '조금 높으니 오늘은 푹 쉬시고, 계속 높으면 병원에…'. Both inputs fall within seniorIntent's accepted numeric ranges.
+  - Fix: Validate physiologically inconsistent entries and explicitly handle low and severely elevated readings. Avoid declaring a reading stable from this binary threshold; use medically reviewed escalation copy and direct severe readings or concerning symptoms to urgent professional assessment.
+- **F14 [high] family-ux** `server/orchestrator/scheduling.ts`
+  - Problem: Scheduling confirms a gathering even when there is no common slot, potentially excluding the senior, while the card claims unanimity.
+  - Evidence: closePoll always chooses the highest-count slot and marks the artifact confirmed, including when every count is zero or mom is unavailable. ScheduleResultCard always labels the result '모두 가능한 시간', and side confirmations always say the family will gather at that time. The successful 11-family-schedule.png does not exercise this conflict path.
+  - Fix: Require the senior's availability and an explicit confirmation policy before finalizing. When no common slot exists, show '가장 많이 가능한 후보 · X/Y명' with conflicts and unanswered members, then request another candidate or human approval instead of issuing a confirmed gathering.
+- **F15 [medium] family-ux** `web/src/components/cards/GatheringCards.tsx`
+  - Problem: A family member cannot clearly answer that none of the proposed times work.
+  - Evidence: ScheduleRequestCard disables 보내기 when sel.length is zero. Although submitAvailability accepts an empty response, handleSideMessage treats an empty parse result as misunderstanding and asks again. There is no '모두 어려워요' action.
+  - Fix: Add an explicit '모두 어려워요' response that submits an empty availability list and counts as answered. Distinguish a recognized negative availability response from an unrecognized sentence in the free-text path.
+- **F16 [medium] senior-ux** `web/src/components/chat/MessageList.tsx`
+  - Problem: The generated conversational recall reply is never displayed, and the core memory and itinerary cards cannot be read aloud.
+  - Evidence: MessageList renders m.text and SpeakButton only for kind='text'. doRecall stores brain.recallReply in a recall_card message's text, but RecallCard renders only the memory excerpt and graph evidence. 07-senior-recall.png therefore shows a truncated stored story rather than the generated warm recall response, with no speaker control for the card.
+  - Fix: Render the recall reply as a brief introduction above the structured card, without duplicating share/report summaries. Add a senior read-aloud control for memory stories and the selected itinerary day, using a human-readable summary rather than Cypher.
+- **F17 [medium] design** `web/src/components/cards/cards.css`
+  - Problem: The recall explanation path overflows the phone viewport.
+  - Evidence: 07-senior-recall.png shows the path pill running past the right edge around '—TAKEN_AT…'. .cd-hop uses white-space: nowrap and has no width constraint, so wrapping the parent flex container cannot wrap this single long hop.
+  - Fix: Render path endpoints as wrapping or stacked elements, constrain them to the card width, and use Korean relation labels in senior mode. Keep the raw Cypher in an expandable technical detail instead of letting the evidence row extend off-screen.
+- **F18 [medium] design** `web/src/components/graph/MemoryGraph.tsx`
+  - Problem: The graph's labels overlap enough to obscure the build's main memory-graph proof.
+  - Evidence: 05-senior-a-story.png compresses 12 nodes and 11 edges into a 190px graph, with the memory title and surrounding entity labels colliding. The simulation's collision force considers small node radii, not label dimensions, and rendering clamps positions without resolving collisions. Labels are only 11–12px.
+  - Fix: Use a compact, deterministic memory-centered layout with a few clearly labeled entity groups for the chat card, plus an explicit full-graph view. Account for label bounds in the full layout and provide a readable textual node/relationship list for senior users.
+- **F19 [medium] design** `web/src/components/health/HealthSummaryView.css`
+  - Problem: The two-column health statistics layout breaks the steps heading into a vertical stack on the target phone.
+  - Evidence: 09-family-health.png displays '걸 / 음 / 수' beside 3,600. .hs-grid keeps two columns while .hs-head places the heading and a white-space: nowrap numeric value on one flex row, leaving insufficient heading width.
+  - Fix: Stack the statistic label above its value at narrow card widths, or switch the health statistics to one column. Preserve the complete '걸음 수' label and keep units and date context together.
+- **F20 [medium] ai** `server/orchestrator/bots.ts`
+  - Problem: Generated family messages and automatic availability answers are presented as ordinary human-authored statements.
+  - Evidence: botSpeak discards AI provenance and posts only senderId and text. 06-family-share.png shows 민준 saying he remembers running away; 10-family-gathering.png shows booking commitments; neither has a bot marker. Assisted scheduling also posts automatically under mom's identity, as visible in 11-senior-schedule.png, while only the Director rail discloses bot status.
+  - Fix: Attach explicit generated/delegated provenance to bot reactions and assisted schedule answers, and display a small 'AI 가족 봇' or '데모 자동 응답' label in the conversation. Keep human messages visually distinct from these generated commitments.
+- **F21 [medium] ai** `server/brain/index.ts`
+  - Problem: Some messages claim the selected real model answered even when no provider call occurred.
+  - Evidence: run returns opt.label with fallback=false when no llm function is supplied. Privacy refusals use this path. startInterview also returns the heuristic startTurn when loadImage fails, and completed interviewTurn returns its deterministic turn inside the provider branch, both retaining real-provider attribution.
+  - Fix: Record the actual response source separately from the selected model. Label local privacy rules and deterministic interview transitions truthfully, and mark heuristic substitution as such when a requested provider operation did not run.
+- **F22 [medium] senior-ux** `server/brain/heuristics/intents.ts`
+  - Problem: The itinerary's primary actions do not have equivalent free-text behavior.
+  - Evidence: SeniorIntent has no share_trip or make_gathering intent. Saying '여행 계획을 가족에게 보내줘' matches ask_share first, which shares the last memory rather than the itinerary. Saying the displayed '가족과 함께 가기' wording does not invoke makeGathering.
+  - Fix: Track the active itinerary as conversational context and add explicit itinerary-sharing and gathering intents that resolve to its tripId. Route those intents through the same handlers as the card buttons and test the exact displayed button wording.
+- **F23 [medium] a11y** `web/src/pages/senior/senior.css`
+  - Problem: Senior mode does not consistently enforce the specified control-size and contrast floors.
+  - Evidence: .sa-icon-btn is 48×48px, .ml-info-btn is 32×32px, and the senior SpeakButton is 48×48px rather than at least 56px. The recall Cypher uses the faint #8f8f8f color at 11px, below the required Mid Ash text floor; this is visible in 07-senior-recall.png.
+  - Fix: Give non-chip senior controls at least 56×56px hit areas, even when their visible icons remain smaller. Override senior secondary text to at least #5d5d5d and make technical details optional rather than relying on tiny, faint text.
+- **F24 [medium] server** `web/src/lib/store.ts`
+  - Problem: The senior error screen's '다시 시도' button cannot actually retry the same persona.
+  - Evidence: SeniorApp calls initTachi(persona) from the retry button, but initTachi immediately returns when currentUser is unchanged and status is anything other than idle, including error. hello also has no acknowledgement timeout, so some failures can remain in connecting indefinitely.
+  - Fix: Allow an explicit forced hello when status is error, add acknowledgement timeout and connect_error handling, and expose a recoverable connection state. Test that clicking 다시 시도 emits a new hello after a failed attempt.

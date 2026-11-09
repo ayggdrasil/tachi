@@ -73,6 +73,10 @@ export interface MessageMeta {
   proactive?: boolean;    // Tachi started the conversation
   sessionId?: ID;
   category?: PrivacyCategory;
+  /** provenance for non-human-authored lines: an AI family bot, or a stand-in answer for a presenter-driven persona */
+  generatedBy?: 'bot' | 'assisted';
+  /** what actually produced the text: a live LLM, the offline demo brain, or a deterministic rule (privacy refusal, flow transition) */
+  source?: 'llm' | 'heuristic' | 'rule';
 }
 
 export interface Message {
@@ -207,6 +211,9 @@ export interface ScheduleResultPayload {
   available: ID[];
   unavailable: ID[];
   artifactId?: ID;
+  unanimous?: boolean;              // every participant (incl. the senior) can make it
+  confirmed?: boolean;              // false → best candidate only; needs a human '이 시간으로 확정' or re-poll
+  unanswered?: ID[];
 }
 
 // ── Memories & graph ────────────────────────────────────────────────────────
@@ -271,6 +278,7 @@ export interface SessionLog {
   category: PrivacyCategory;
   summary: string;
   reported: boolean;
+  memoryId?: ID;                    // memory-related sessions: masked in reports when that memory is private
 }
 
 // ── Trips ───────────────────────────────────────────────────────────────────
@@ -376,7 +384,7 @@ export interface Bootstrap {
 
 // ── Socket events ───────────────────────────────────────────────────────────
 export interface ClientToServerEvents {
-  hello: (p: { userId: ID; assisted?: boolean /* embedded in the Director stage: bots may fill in schedule answers */ }, ack: (b: Bootstrap | { error: string }) => void) => void;
+  hello: (p: { userId: ID; assisted?: boolean /* embedded in the Director stage: bots may fill in schedule answers */; key?: string /* director key when TACHI_DIRECTOR_KEY is set */ }, ack: (b: Bootstrap | { error: string }) => void) => void;
   'message:send': (p: { roomId: ID; text?: string; photoUrl?: string }) => void;
   action: (p: { roomId: ID; messageId: ID; actionId: string; data?: Record<string, unknown> }) => void;
   typing: (p: { roomId: ID }) => void;
@@ -394,6 +402,7 @@ export interface ClientToServerEvents {
   'demo:bots': (p: { enabled: boolean }) => void;
   'demo:closePoll': () => void;                                // force-close the open poll
   'demo:say': (p: { userId: ID; roomId: ID; text?: string; photoUrl?: string }) => void; // director speaks as any persona
+  'demo:clock': (p: { time: string | null }) => void;          // set the virtual clock to today HH:MM (null = real time); director only
 }
 
 export interface ServerToClientEvents {

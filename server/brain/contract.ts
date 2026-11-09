@@ -6,7 +6,11 @@ import type {
 } from '../../shared/types';
 
 /** Every AI result carries which model produced it and whether the heuristic fallback answered. */
-export interface AIResult<T> { value: T; model: string; fallback: boolean }
+export interface AIResult<T> {
+  value: T; model: string; fallback: boolean;
+  /** what actually produced the value (truthful attribution): live LLM, offline heuristic, or deterministic rule */
+  source?: 'llm' | 'heuristic' | 'rule';
+}
 
 export interface ChatTurn { role: 'user' | 'assistant'; text: string }
 
@@ -52,12 +56,14 @@ export type SeniorIntent =
   | { type: 'trip'; destination?: string }
   | { type: 'health_log'; systolic?: number; diastolic?: number; note?: string }
   | { type: 'ask_share' }                        // "가족한테 보내줘"
+  | { type: 'share_trip' }                       // "여행 계획 가족한테 보내줘" (itinerary context)
+  | { type: 'make_gathering' }                   // "가족과 함께 가기" / "애들이랑 같이 가자" (itinerary context)
   | { type: 'yes' } | { type: 'no' }             // answers to pending questions
   | { type: 'smalltalk' };
 
 export interface SeniorIntentContext {
   knownNodeNames: string[];      // graph node names (places, people, events, eras) for keyword spotting
-  pending?: 'share_confirm' | 'trip_confirm' | null;
+  pending?: 'share_confirm' | 'trip_confirm' | 'itinerary' | null; // 'itinerary' = an itinerary was just shown
 }
 
 // ── Family ─────────────────────────────────────────────────────────────────
