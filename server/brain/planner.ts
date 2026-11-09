@@ -92,7 +92,9 @@ export function composeFromSteps(steps: AgentStep[], audience: ToolAudience): st
         const label = (d.range as J).label as string;
         const whose = audience === 'senior' && users.length === 1 && users[0] === '어머니' ? '' : users.length === 1 && users[0] === '어머니' ? honor(audience) : `${users.join('·')} `;
         if (!evs.length) lines.push(`${label} ${whose}일정은 비어 있어요.`);
-        else lines.push(`${label} ${whose}일정은 ${evs.slice(0, 3).map(e => `${e.when} ${e.title}${e.location && !e.private ? `(${e.location})` : ''}`).join(', ')}${evs.length > 3 ? ` 외 ${evs.length - 3}건` : ''}이에요.`);
+        const oneDay = label === '오늘' || /^\d+월 \d+일\([^)]\)$/.test(label);
+        const when = (e: J) => (oneDay ? String(e.when).replace(/^\d+월 \d+일\([^)]\)\s*/, '') : String(e.when));
+        if (evs.length) lines.push(`${label} ${whose}일정은 ${evs.slice(0, 3).map(e => `${when(e)} ${e.title}${e.location && !e.private && !String(e.title).includes(String(e.location)) ? `(${e.location})` : ''}`).join(', ')}${evs.length > 3 ? ` 외 ${evs.length - 3}건` : ''}이에요.`);
         break;
       }
       case 'calendar_invite':
