@@ -531,6 +531,7 @@ export default function DirectorConsole() {
             <div className="dc-grid2">
               <button className="btn dc-btn" onClick={() => tachi.demo.report()}>리포트 보내기</button>
               <button className="btn dc-btn" onClick={() => tachi.demo.closePoll()}>일정 확정하기</button>
+              <button className="btn dc-btn" onClick={() => tachi.demo.followups()} title="기한이 지난 할 일을 지금 챙겨요 (데모 시각 기준)">할 일 챙기기</button>
             </div>
           </section>
 

@@ -8,6 +8,7 @@ import {
 import { emitArtifact, latestOpenArtifact } from './artifacts';
 import { reactBots, scheduleBotAnswers } from './bots';
 import { nowIso, uid } from '../util/misc';
+import { onGatheringConfirmed, tryTaskReply } from './tasks';
 
 function openPoll(familyRoomId: ID): Poll | undefined {
   return ctx.db.polls.all().filter(p => p.familyRoomId === familyRoomId && p.status === 'open').at(-1);
@@ -180,7 +181,10 @@ export async function closePoll(pollId: ID): Promise<void> {
       ],
     });
   reactBots(poll.familyRoomId, res, unanimous ? { kind: 'schedule_result', text: `${best.label}로 일정이 확정됐어요` } : { kind: 'text', text: `일정 후보가 제안됐어요 (${best.label}) · 아직 확정되지 않았어요` });
-  if (unanimous) await announceConfirmed(poll, best);
+  if (unanimous) {
+    await announceConfirmed(poll, best);
+    if (artifact) await onGatheringConfirmed(artifact.id); // calendar invites + due dates (never throws)
+  }
 }
 
 /** Family-room actions on a non-unanimous result card: confirm_slot / repoll. */
@@ -216,6 +220,7 @@ export async function handleScheduleAction(userId: ID, msg: Message, actionId: s
     }
     reactBots(poll.familyRoomId, msg, { kind: 'schedule_result', text: `${slot.label}로 일정이 확정됐어요` });
     await announceConfirmed(poll, slot);
+    if (artifact) await onGatheringConfirmed(artifact.id);
   } else if (actionId === 'repoll') {
     markActionDone(msg);
     const shifted: Slot[] = poll.slots.map((sl, i) => {
@@ -245,6 +250,7 @@ export async function handlePickSlots(userId: ID, msg: Message, data?: Record<st
 
 export async function handleSideMessage(room: Room, userId: ID, text?: string): Promise<void> {
   if (!text) return;
+  if (await tryTaskReply(room, userId, text)) return; // 완료 / 도움 필요 / 나중에 to a to-do reminder
   const poll = room.pollId ? ctx.db.polls.get(room.pollId) : undefined;
   if (!poll || poll.status !== 'open') {
     await tachiSay(room.id, { text: '일정은 이미 정해졌어요. 가족방에서 확인해 보세요.' });

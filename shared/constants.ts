@@ -77,6 +77,21 @@ export const PROACTIVE_SCHEDULE: { time: string; kind: ProactiveKind; label: str
 ];
 export const DAILY_REPORT_TIME = '21:00';
 
+/**
+ * To-do follow-up policy (demo-clock minutes). An open task with an assignee is followed up politely:
+ * 1) reminder DM `firstAfterMin` after it got an owner (or 24h before its due time, whichever is earlier),
+ * 2) a second nudge `repeatAfterMin` later, 3) `escalateAfterMin` later Tachi tells the family room it is still open and offers
+ * to reassign. '나중에' postpones the next step by `snoozeMin`; '도움 필요' escalates right away; done stops everything.
+ */
+export const TASK_FOLLOWUP = { firstAfterMin: 120, repeatAfterMin: 240, escalateAfterMin: 240, snoozeMin: 180, dueLeadMin: 1440, maxLevel: 3 } as const;
+
+/** Default lengths used when Tachi derives a due time / calendar entry from a confirmed gathering slot. */
+export const TASK_DUE = { bookingLeadDays: 3, otherLeadDays: 1, undatedDays: 3, eventHours: 3 } as const;
+
+export const TASK_STATUS_LABEL: Record<'todo' | 'in_progress' | 'done' | 'blocked', string> = {
+  todo: '할 일', in_progress: '진행 중', done: '완료', blocked: '도움 필요',
+};
+
 /** Deterministic bot availability preferences by slot index (see buildCandidateSlots). Intersection → index 2. */
 export const BOT_SLOT_PREFS: Record<string, number[]> = {
   mom: [0, 1, 2, 3, 4, 5],

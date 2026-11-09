@@ -10,6 +10,8 @@ const RESULT: Record<string, string> = {
   share_memory: '가족에게 공유했어요', skip_share: '나만 간직해요',
   accept_trip: '좋아요, 가보기로 했어요', decline_trip: '다음에 하기로 했어요',
   share_trip: '가족에게 보냈어요', make_gathering: '가족과 함께 가기로 했어요',
+  task_done: '완료로 표시했어요', task_help: '가족에게 도움을 요청했어요', task_later: '나중에 다시 알려 드릴게요',
+  task_booked: '예약 완료로 표시했어요', task_take: '담당을 바꿨어요',
 };
 
 /** Card actions: idle → pending (spinner) → sent (stays disabled until the server marks it done) → or failed (retry). */

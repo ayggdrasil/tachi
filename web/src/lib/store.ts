@@ -4,7 +4,7 @@ import { useSyncExternalStore } from 'react';
 import type {
   Artifact, ArtifactPatch, Bootstrap, Contact, DemoState, GraphDelta, GraphEdge, GraphNode, HealthSummary, ID,
   Memory, Message, ModelKey, ModelState, Poll, Presence, PrivacyCategory, PrivacySettings, ProactiveKind, Room,
-  Trip, User, Visibility,
+  TaskActionKind, TaskStatus, Trip, User, Visibility,
 } from '../../../shared/types';
 import { getSocket, uploadPhoto } from './socket';
 
@@ -195,6 +195,14 @@ export const tachi = {
     getSocket().emit('artifact:task', { artifactId, op, ...opts });
   },
   assistArtifact(artifactId: ID) { getSocket().emit('artifact:assist', { artifactId }); },
+  /** Run a to-do's action (invite / booking link / reminder). Resolves with the server's answer (or a timeout) so buttons can recover. */
+  executeTask(artifactId: ID, taskId: ID, kind?: TaskActionKind): Promise<{ ok: boolean; error?: string; message?: string }> {
+    return new Promise(resolve => {
+      (getSocket().timeout(20000) as unknown as { emit: (ev: 'artifact:task:execute', p: unknown, cb: (err: Error | null, r?: { ok: boolean; error?: string; message?: string }) => void) => void })
+        .emit('artifact:task:execute', { artifactId, taskId, kind }, (err, r) => resolve(err ? { ok: false, error: '응답이 늦어요' } : (r ?? { ok: true })));
+    });
+  },
+  setTaskStatus(artifactId: ID, taskId: ID, status: TaskStatus) { getSocket().emit('artifact:task:status', { artifactId, taskId, status }); },
   setPrivacy(category: PrivacyCategory, visibility: Visibility) { getSocket().emit('privacy:set', { category, visibility }); },
   setMemoryVisibility(memoryId: ID, visibility: Visibility) { getSocket().emit('memory:visibility', { memoryId, visibility }); },
   setModel(key: ModelKey) { getSocket().emit('model:set', { key }); },
@@ -207,6 +215,7 @@ export const tachi = {
     say(userId: ID, roomId: ID, text?: string, photoUrl?: string) { getSocket().emit('demo:say', { userId, roomId, text, photoUrl }); },
     clock(time: string | null) { getSocket().emit('demo:clock', { time }); },
     invite(roomId: ID, contactId: ID) { getSocket().emit('demo:invite', { roomId, contactId }); },
+    followups() { getSocket().emit('demo:followups'); },
   },
 };
 

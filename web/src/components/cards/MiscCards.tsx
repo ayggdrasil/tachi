@@ -2,6 +2,8 @@ import { Lock } from 'lucide-react';
 import type { HealthCardPayload, ReportPayload } from '../../../../shared/types';
 import { HealthSummaryView } from '../health/HealthSummaryView';
 import type { CardProps } from './types';
+import { useTachi } from '../../lib/store';
+import { TaskStatusChip } from './TaskCards';
 import './cards.css';
 
 export function HealthCard({ message, variant }: CardProps) {
@@ -32,10 +34,30 @@ export function ReportCard({ message }: CardProps) {
       </ul>
       {p.moodLabel && <p className="cd-row"><span className="cd-label">기분</span><span className="badge">{p.moodLabel}</span></p>}
       {p.highlight && <p className="cd-warm">{p.highlight}</p>}
+      {p.openTasks && p.openTasks.length > 0 && <OpenTasks tasks={p.openTasks} line={p.tasksLine} />}
     </article>
   );
 }
 
 export function SystemLine({ message }: CardProps) {
   return <p className="cd-system">{message.text}</p>;
+}
+
+function OpenTasks({ tasks, line }: { tasks: NonNullable<ReportPayload['openTasks']>; line?: string }) {
+  const users = useTachi(s => s.users);
+  return (
+    <section className="cd-opentasks" aria-label="남은 할 일">
+      <p className="cd-cap-top">{line || `남은 할 일 ${tasks.length}개`}</p>
+      <ul>
+        {tasks.map(t => (
+          <li key={t.taskId}>
+            <TaskStatusChip status={t.status} compact />
+            <span>{t.text}</span>
+            {t.assigneeId && users[t.assigneeId] && <span className="cd-meta">· {users[t.assigneeId].shortName}</span>}
+            {t.followUpCount > 0 && <span className="cd-meta">· 알림 {t.followUpCount}번</span>}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }

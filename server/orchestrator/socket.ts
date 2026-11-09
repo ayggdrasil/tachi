@@ -4,7 +4,7 @@ import type { Memory, ModelKey, ProactiveKind, Visibility } from '../../shared/t
 import { ctx, type IO, type Sock } from './ctx';
 import { buildBootstrap } from './bootstrap';
 import {
-  applyMemoryVisibility, emitPresence, getPrivacy, patchDemo, resyncFamilyViewers, rotateHiddenPhotos, roomChannel, runWithGen, seesAll,
+  applyMemoryVisibility, emitPresence, enqueue, getPrivacy, patchDemo, resyncFamilyViewers, rotateHiddenPhotos, roomChannel, runWithGen, seesAll,
   setDemoClock, userChannel,
 } from './core';
 import { handleAction, handleIncoming } from './messages';
@@ -12,6 +12,9 @@ import { assistArtifact, artifactTask, updateArtifact } from './artifacts';
 import { createRoom, inviteContact } from './rooms';
 import { fireProactive, postReport } from './proactive';
 import { forceClosePoll } from './scheduling';
+import { executeTask, normalizeTasks, runFollowUps, setTaskStatus } from './tasks';
+import { emitArtifact } from './artifacts';
+import { nowIso } from '../util/misc';
 import { resetDemo } from './reset';
 import { sleep, warn } from '../util/misc';
 
@@ -171,6 +174,37 @@ export function attachSocketHandlers(io: IO): void {
     sock.on('artifact:update', p => { const u = uid(); if (u && p) safe('artifact:update', () => updateArtifact(u, p.artifactId, p.patch), sock); });
     sock.on('artifact:task', p => { const u = uid(); if (u && p) safe('artifact:task', () => artifactTask(u, p), sock); });
     sock.on('artifact:assist', p => { const u = uid(); if (u && p) safe('artifact:assist', () => assistArtifact(u, p.artifactId), sock); });
+    sock.on('artifact:task:execute', (p, ack) => {
+      const reply = (r: { ok: boolean; error?: string; message?: string }) => { if (typeof ack === 'function') ack(r); };
+      const u = uid();
+      if (!u || !p || typeof p.artifactId !== 'string' || typeof p.taskId !== 'string') { reply({ ok: false, error: '잘못된 요청이에요.' }); return; }
+      if (ctx.resetting) { sock.emit('toast', { text: BUSY }); reply({ ok: false, error: BUSY }); return; }
+      const room = ctx.db.rooms.get(ctx.db.artifacts.get(p.artifactId)?.roomId ?? '');
+      const run = () => executeTask(u, p.artifactId, p.taskId, p.kind);
+      // serialize with the artifact's room so Tachi's lines keep their order
+      const job = room ? new Promise<{ ok: boolean; error?: string; message?: string }>(res => { void enqueue(room.id, async () => { res(await run()); }).then(() => res({ ok: false, error: '취소됐어요.' })); }) : runWithGen(ctx.gen, run);
+      job.then(r => { if (!r.ok && r.message) sock.emit('toast', { text: r.message }); reply(r); }).catch(e => {
+        warn('artifact:task:execute failed:', e);
+        sock.emit('toast', { text: '요청을 처리하지 못했어요. 다시 시도해 주세요.' });
+        reply({ ok: false, error: '요청을 처리하지 못했어요.' });
+      });
+    });
+    sock.on('artifact:task:status', p => {
+      const u = uid();
+      if (!u || !p) return;
+      safe('artifact:task:status', () => {
+        const a = ctx.db.artifacts.get(p.artifactId);
+        const room = a && ctx.db.rooms.get(a.roomId);
+        const t = a?.tasks.find(x => x.id === p.taskId);
+        if (!a || !room || !t || !(u === DIRECTOR_ID || room.memberIds.includes(u))) return;
+        if (!['todo', 'in_progress', 'done', 'blocked'].includes(p.status)) return;
+        setTaskStatus(t, p.status, u === DIRECTOR_ID ? 'tachi' : u);
+        a.updatedBy = u === DIRECTOR_ID ? 'director' : u;
+        a.updatedAt = nowIso();
+        ctx.db.artifacts.put(normalizeTasks(a));
+        emitArtifact(a);
+      }, sock);
+    });
 
     sock.on('privacy:set', p => {
       const u = uid();
@@ -213,6 +247,13 @@ export function attachSocketHandlers(io: IO): void {
       if (!requireDirector(sock)) return;
       safe('demo:closePoll', async () => {
         if (!(await forceClosePoll())) sock.emit('toast', { text: '진행 중인 일정 조율이 없어요.' });
+      }, sock);
+    });
+    sock.on('demo:followups', () => {
+      if (!requireDirector(sock)) return;
+      safe('demo:followups', async () => {
+        const n = await runFollowUps();
+        sock.emit('toast', { text: n ? `할 일 ${n}건을 챙겼어요.` : '지금 챙길 할 일이 없어요.' });
       }, sock);
     });
     sock.on('demo:say', p => {

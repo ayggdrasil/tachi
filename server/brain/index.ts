@@ -1,7 +1,9 @@
 // Tachi brain: real LLM when an API key + model is active, deterministic demo heuristics otherwise.
 import type { ArtifactTask, ItineraryPayload, MemoryPerson, ModelOption, PrivacyCategory, TripStop } from '../../shared/types';
 import { findPlaces, placeById, resolvePlace, templateFor } from '../data/places';
-import type { AIResult, Brain, ExtractedMemory, FamilyAnswer, GatheringDraft, SeniorIntent } from './contract';
+import type { AIResult, Brain, ExtractedMemory, FamilyAnswer, GatheringDraft, SeniorIntent, TaskClassification } from './contract';
+import { BOOKING_CATEGORIES, TASK_KINDS, classifyTask } from './heuristics/tasks';
+import type { BookingCategory, TaskActionKind } from '../../shared/types';
 import { BANNED_HEALTH_WORDS, enforceBpWarning, questionCategory, assistArtifact as hAssist, answerFamily as hAnswer, botReply as hBot, draftGathering as hDraft, isBirthdayContext, BIRTHDAY_RE } from './heuristics/family';
 import { composeReport as hReport, planItinerary as hPlan, proactiveMessage as hProactive, recallReply as hRecall, seniorChat as hChat, shareSummary as hShare, suggestTrip as hSuggest } from './heuristics/compose';
 import { extractFromState, planNext, startTurn, SLOT_QUESTION } from './heuristics/interview';
@@ -218,8 +220,8 @@ export function createBrain(): Brain {
       return { text, quickReplies: qr.length ? qr : h.quickReplies };
     }),
 
-    composeReport: ({ sessions, privacy, moodToday, now }) => {
-      const h = hReport(sessions, privacy, moodToday, now);
+    composeReport: ({ sessions, privacy, moodToday, now, openTasks, people }) => {
+      const h = hReport(sessions, privacy, moodToday, now, openTasks, people);
       if (!h.sessions.length) return Promise.resolve(rule(h));
       return run('composeReport', () => h, async (opt, c) => {
         const j = await ask(opt, P.reportHighlightPrompt(h.sessions, h.moodLabel), 400);
@@ -271,6 +273,27 @@ export function createBrain(): Brain {
       if (!newTasks.length) throw new Error('no tasks');
       return { message: str(j.message, 160) ?? '빠지기 쉬운 준비를 제안했어요.', newTasks };
     }),
+
+    classifyTasks: input => {
+      const heur = (): Record<string, TaskClassification> => Object.fromEntries(input.tasks.map(t => [t.id, classifyTask(t.text)]));
+      if (!input.tasks.length) return Promise.resolve(rule(heur()));
+      return run<Record<string, TaskClassification>>('classifyTasks', heur, async (opt, c) => {
+        const j = await ask(opt, P.taskClassifyPrompt(input), 600);
+        const rows = Array.isArray(j.tasks) ? (j.tasks as J[]) : [];
+        const h = heur();
+        const out: Record<string, TaskClassification> = {};
+        for (const t of input.tasks) {
+          const r = rows.find(x => x && x.id === t.id);
+          const kind = r && TASK_KINDS.includes(r.kind as TaskActionKind) ? (r.kind as TaskActionKind) : undefined;
+          if (!kind) { c.sub(); out[t.id] = h[t.id]; continue; }
+          const category = BOOKING_CATEGORIES.includes(r!.category as BookingCategory) ? (r!.category as BookingCategory) : undefined;
+          out[t.id] = kind === 'booking_link'
+            ? { kind, category: category ?? h[t.id].category ?? 'other', query: str(r!.query, 20) ?? h[t.id].query }
+            : { kind };
+        }
+        return out;
+      });
+    },
 
     parseAvailability: (text, slots) => {
       const h = availability(text, slots);
