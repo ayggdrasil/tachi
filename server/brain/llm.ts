@@ -2,9 +2,9 @@ import { readFileSync, statSync } from 'node:fs';
 import { extname } from 'node:path';
 import type { ModelOption } from '../../shared/types';
 import type { ChatTurn } from './contract';
-import { LLMStopError, anthropicComplete } from './providers/anthropic';
-import { openaiComplete } from './providers/openai';
-import type { LLMImage, LLMRequest } from './providers/types';
+import { LLMStopError, anthropicComplete, anthropicToolTurn } from './providers/anthropic';
+import { openaiComplete, openaiToolTurn } from './providers/openai';
+import type { LLMImage, LLMRequest, LLMToolRequest, LLMToolResponse } from './providers/types';
 
 export const llmTimeoutMs = (): number => {
   const n = Number(process.env.TACHI_LLM_TIMEOUT_MS);
@@ -56,6 +56,30 @@ export async function complete(option: ModelOption, input: CompleteInput): Promi
     recordFailure(option.provider, e);
     throw e;
   } finally { clearTimeout(timer); }
+}
+
+/**
+ * One tool-use turn against the option's provider, with a per-call timeout (and an optional outer signal for the loop deadline).
+ * Shares the circuit breaker with `complete()`, so a dead provider also stops the agent loop.
+ */
+export async function completeToolTurn(option: ModelOption, req: LLMToolRequest, opts: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<LLMToolResponse> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? llmTimeoutMs());
+  const onOuter = () => ctrl.abort();
+  if (opts.signal) { if (opts.signal.aborted) ctrl.abort(); else opts.signal.addEventListener('abort', onOuter, { once: true }); }
+  try {
+    let out: LLMToolResponse;
+    if (option.provider === 'anthropic') out = await anthropicToolTurn(option.modelId, req, ctrl.signal);
+    else if (option.provider === 'openai') out = await openaiToolTurn(option.modelId, req, ctrl.signal);
+    else throw new Error('no provider');
+    breakers.delete(option.provider);
+    return out;
+  } catch (e) {
+    if (e instanceof LLMStopError) console.warn(`[brain] ${option.provider} ${e.reason}: ${e.message}`);
+    // a refusal is a policy answer, not an outage: it must not trip the breaker for every other feature
+    if (!(e instanceof LLMStopError && e.reason === 'refusal')) recordFailure(option.provider, e);
+    throw e;
+  } finally { clearTimeout(timer); opts.signal?.removeEventListener('abort', onOuter); }
 }
 
 export function loadImage(path?: string): LLMImage | undefined {
