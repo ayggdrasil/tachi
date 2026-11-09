@@ -11,6 +11,7 @@ import path from 'node:path';
 import { nanoid } from 'nanoid';
 import { ctx } from '../orchestrator/ctx';
 import { warn, ymd } from '../util/misc';
+import { seedCalendar } from '../tools/calendar';
 
 function at(daysAgo: number, hhmm: string): Date {
   const [h, m] = hhmm.split(':').map(Number);
@@ -157,6 +158,7 @@ export async function seed(): Promise<void> {
     proactiveSchedule: PROACTIVE_SCHEDULE.map(p => ({ ...p })), lanUrls: ctx.lanUrls, scenarioStep: 0,
   };
   db.kv.set('demo', demo);
+  seedCalendar(db);
 
   try {
     for (const m of memories) await graph.upsertMemory(m);
