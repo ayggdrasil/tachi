@@ -1,6 +1,6 @@
 // Gathering to-dos as real actions (booking link / assignee reminder) + polite follow-up tracking.
 import {
-  DIRECTOR_ID, FAMILY_ROOM_ID, SENIOR_ID, SENIOR_ROOM_ID, TACHI_ID, TASK_DUE, TASK_FOLLOWUP, dateLabel, koreanTime, pad2,
+  DIRECTOR_ID, FAMILY_ROOM_ID, SENIOR_ID, SENIOR_ROOM_ID, TACHI_ID, TASK_DUE, TASK_FOLLOWUP,
 } from '../../shared/constants';
 import type {
   Artifact, ArtifactTask, CardAction, ID, Message, ReportOpenTask, Room, TaskActionKind, TaskCardPayload, TaskFollowUp, TaskStatus,
@@ -13,6 +13,8 @@ import { emitArtifact } from './artifacts';
 import { buildBookingLinks } from '../data/booking';
 import { TASK_KINDS, classifyTask } from '../brain/heuristics/tasks';
 import { nowIso, uid, warn } from '../util/misc';
+import { st } from '../i18n';
+import { dateL, isKo, timeL } from './locale';
 
 const MIN = 60_000;
 export const TASK_ACTIONS = new Set(['task_done', 'task_help', 'task_later', 'task_booked', 'task_take']);
@@ -21,10 +23,15 @@ export interface TaskResult { ok: boolean; error?: string; message?: string }
 
 export const isOpen = (t: ArtifactTask): boolean => !t.done && t.status !== 'done';
 const name = (id?: ID): string => (id ? getUser(id)?.shortName ?? id : '');
-const honor = (id?: ID): string => (id === SENIOR_ID ? '어머님' : `${name(id)}님`);
-const dueText = (iso?: string): string => { if (!iso) return ''; const d = new Date(iso); return `${dateLabel(d)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
-/** Korean object particle for the task text ('…예약을' / '…준비를'). */
-const eul = (s: string): string => { const c = s.trim().replace(/\s*\(.*\)$/, '').slice(-1).charCodeAt(0); return c >= 0xac00 && c <= 0xd7a3 && (c - 0xac00) % 28 ? '을' : '를'; };
+/** 'Mom' / '어머님', 'Jieun' / '지은님' (server locale). */
+const honor = (id?: ID): string => (id === SENIOR_ID ? st('task.honor.senior') : st('task.honor.member', { name: name(id) }));
+const dueText = (iso?: string): string => { if (!iso) return ''; const d = new Date(iso); return `${dateL(d)} ${timeL(d)}`; };
+/** Korean object particle for the task text ('…예약을' / '…준비를'); empty in English. */
+const eul = (s: string): string => {
+  if (!isKo()) return '';
+  const c = s.trim().replace(/\s*\(.*\)$/, '').slice(-1).charCodeAt(0);
+  return c >= 0xac00 && c <= 0xd7a3 && (c - 0xac00) % 28 ? '을' : '를';
+};
 const short = (t: ArtifactTask): string => t.text.replace(/\s*\(.*?\)\s*/g, ' ').trim();
 
 // ── normalization (sync, heuristic) ─────────────────────────────────────────
@@ -89,13 +96,13 @@ export function completeTask(t: ArtifactTask, by: ID, note?: string): void {
 
 /** Explicit status change (socket artifact:task:status / checkbox toggle). */
 export function setTaskStatus(t: ArtifactTask, status: TaskStatus, by: ID): void {
-  if (status === 'done') { completeTask(t, by); record(t, { kind: 'status', by, note: '완료로 표시' }); return; }
+  if (status === 'done') { completeTask(t, by); record(t, { kind: 'status', by, note: st('task.note.marked', { status: st('task.status.done') }) }); return; }
   const wasDone = !isOpen(t);
   t.done = false;
   t.status = status;
   delete t.completedAt; delete t.completedBy;
   if (wasDone) { t.followUpLevel = 0; delete t.nextFollowUpAt; }
-  record(t, { kind: 'status', by, note: `${status === 'blocked' ? '도움 필요' : status === 'in_progress' ? '진행 중' : '할 일'}로 표시` });
+  record(t, { kind: 'status', by, note: st('task.note.marked', { status: st(`task.status.${status}`) }) });
 }
 
 /** After an owner change: the follow-up ladder starts over for the new owner. */
@@ -138,7 +145,7 @@ export function taskRoomFor(userId: ID, title: string): Room {
   if (userId === SENIOR_ID) return ctx.db.rooms.get(SENIOR_ROOM_ID)!;
   const existing = ctx.db.rooms.all().find(r => r.type === 'side' && r.memberIds.includes(userId) && r.memberIds.length === 2);
   if (existing) return existing;
-  const room: Room = { id: uid('room-side'), type: 'side', title: `할 일 · ${title}`, memberIds: [TACHI_ID, userId], createdBy: TACHI_ID, createdAt: nowIso() };
+  const room: Room = { id: uid('room-side'), type: 'side', title: st('task.roomTitle', { title }), memberIds: [TACHI_ID, userId], createdBy: TACHI_ID, createdAt: nowIso() };
   ctx.db.rooms.put(room);
   joinRoomSockets(room);
   emitRoomTo(room);
@@ -156,9 +163,9 @@ function settleCards(taskId: ID): void {
 }
 
 const replyActions = (a: Artifact, t: ArtifactTask): CardAction[] => [
-  { id: 'task_done', label: '완료했어요', style: 'primary', data: { artifactId: a.id, taskId: t.id } },
-  { id: 'task_help', label: '도움이 필요해요', data: { artifactId: a.id, taskId: t.id } },
-  { id: 'task_later', label: '나중에 할게요', data: { artifactId: a.id, taskId: t.id } },
+  { id: 'task_done', label: st('task.btn.done'), style: 'primary', data: { artifactId: a.id, taskId: t.id } },
+  { id: 'task_help', label: st('task.btn.help'), data: { artifactId: a.id, taskId: t.id } },
+  { id: 'task_later', label: st('task.btn.later'), data: { artifactId: a.id, taskId: t.id } },
 ];
 
 const cardFor = (a: Artifact, t: ArtifactTask, stage: TaskCardPayload['stage'], extra: Partial<TaskCardPayload> = {}): TaskCardPayload => ({
@@ -170,13 +177,13 @@ const cardFor = (a: Artifact, t: ArtifactTask, stage: TaskCardPayload['stage'], 
 
 /** Remind the assignee in their 1:1 room. `stage` 'reminder' (first), 'nudge' (second) or a manual '리마인드'. */
 export async function remindAssignee(a: Artifact, t: ArtifactTask, by: ID | 'auto', stage: 'reminder' | 'nudge' = 'reminder'): Promise<TaskResult> {
-  if (!t.assigneeId || !getUser(t.assigneeId)) return { ok: false, error: 'no assignee', message: '담당자를 먼저 정해 주세요.' };
-  if (!isOpen(t)) return { ok: false, error: 'done', message: '이미 끝난 일이에요.' };
+  if (!t.assigneeId || !getUser(t.assigneeId)) return { ok: false, error: 'no assignee', message: st('task.err.noAssignee') };
+  if (!isOpen(t)) return { ok: false, error: 'done', message: st('task.err.done') };
   const room = taskRoomFor(t.assigneeId, a.title);
-  const due = t.dueAt ? ` ${dueText(t.dueAt)}까지 부탁드려요.` : '';
+  const due = t.dueAt ? st('task.due', { due: dueText(t.dueAt) }) : '';
   const text = stage === 'nudge'
-    ? `${honor(t.assigneeId)}, ‘${short(t)}’ 아직 남아 있어서 한 번 더 여쭤봐요. 어려우시면 ‘도움이 필요해요’를 눌러 주세요.`
-    : `${honor(t.assigneeId)}, ‘${a.title}’ 준비 중 ‘${short(t)}’${eul(t.text)} 맡아 주셨어요.${due}`;
+    ? st('task.nudge', { who: honor(t.assigneeId), task: short(t), help: st('task.btn.help') })
+    : st('task.remind', { who: honor(t.assigneeId), title: a.title, task: short(t), eul: eul(t.text), due });
   await tachiSay(room.id, { kind: 'task_card', text, payload: cardFor(a, t, stage), actions: replyActions(a, t) });
   const fresh = ctx.db.artifacts.get(a.id);
   const ft = fresh?.tasks.find(x => x.id === t.id);
@@ -185,7 +192,7 @@ export async function remindAssignee(a: Artifact, t: ArtifactTask, by: ID | 'aut
   const level = auto ? (stage === 'nudge' ? 2 : 1) : Math.max(1, ft.followUpLevel ?? 0);
   ft.followUpLevel = Math.max(ft.followUpLevel ?? 0, level);
   ft.executedAt = ft.executedAt ?? nowIso();
-  record(ft, { kind: auto ? stage : 'manual', by, level: ft.followUpLevel, roomId: room.id, note: `${name(ft.assigneeId)}님께 ${stage === 'nudge' ? '한 번 더 ' : ''}알림` });
+  record(ft, { kind: auto ? stage : 'manual', by, level: ft.followUpLevel, roomId: room.id, note: st(stage === 'nudge' ? 'task.note.nudge' : 'task.note.remind', { name: name(ft.assigneeId) }) });
   const gap = ft.followUpLevel >= 2 ? TASK_FOLLOWUP.escalateAfterMin : TASK_FOLLOWUP.repeatAfterMin;
   ft.nextFollowUpAt = new Date(now().getTime() + gap * MIN).toISOString();
   save(fresh, auto ? TACHI_ID : by);
@@ -195,13 +202,13 @@ export async function remindAssignee(a: Artifact, t: ArtifactTask, by: ID | 'aut
 /** Tell the family room the task is still open (or that the owner asked for help) and offer to take it over. */
 export async function escalateTask(a: Artifact, t: ArtifactTask, by: ID | 'auto', reason: 'timeout' | 'help'): Promise<void> {
   const text = reason === 'help'
-    ? `${honor(t.assigneeId)}이 ‘${short(t)}’에 도움이 필요하대요. 함께 맡아 주실 분 계세요?`
-    : `‘${short(t)}’ 할 일이 아직 남아 있어요.${t.assigneeId ? ` ${honor(t.assigneeId)}이 바쁘시면` : ''} 다른 분이 맡아 주실래요?`;
+    ? st('task.escalate.help', { who: honor(t.assigneeId), task: short(t) })
+    : st('task.escalate.timeout', { task: short(t), busy: t.assigneeId ? st('task.escalate.busy', { who: honor(t.assigneeId) }) : '' });
   await tachiSay(a.roomId, {
     kind: 'task_card', text, payload: cardFor(a, t, 'escalate'),
     actions: [
-      { id: 'task_take', label: '제가 맡을게요', style: 'primary', data: { artifactId: a.id, taskId: t.id } },
-      { id: 'task_done', label: '이미 끝났어요', data: { artifactId: a.id, taskId: t.id } },
+      { id: 'task_take', label: st('task.btn.take'), style: 'primary', data: { artifactId: a.id, taskId: t.id } },
+      { id: 'task_done', label: st('task.btn.alreadyDone'), data: { artifactId: a.id, taskId: t.id } },
     ],
   });
   const fresh = ctx.db.artifacts.get(a.id);
@@ -210,7 +217,7 @@ export async function escalateTask(a: Artifact, t: ArtifactTask, by: ID | 'auto'
   ft.followUpLevel = TASK_FOLLOWUP.maxLevel;
   if (reason === 'help') ft.status = 'blocked';
   delete ft.nextFollowUpAt;
-  record(ft, { kind: 'escalate', by, level: ft.followUpLevel, roomId: a.roomId, note: reason === 'help' ? '가족방에 도움 요청' : '가족방에 아직 남았다고 알림' });
+  record(ft, { kind: 'escalate', by, level: ft.followUpLevel, roomId: a.roomId, note: st(reason === 'help' ? 'task.note.escHelp' : 'task.note.escTimeout') });
   save(fresh);
 }
 
@@ -219,22 +226,23 @@ export async function shareBooking(a: Artifact, t: ArtifactTask, by: ID): Promis
   const cls = t.action?.kind === 'booking_link' ? t.action : { ...classifyTask(t.text), kind: 'booking_link' as const };
   const plan = buildBookingLinks({ category: cls.category ?? 'other', taskText: t.text, place: a.place, query: cls.query, date: a.slot ? new Date(a.slot.startsAt) : undefined });
   // '숙소·식당 예약': one task, two bookings → restaurant links follow the lodging ones
-  if (cls.category === 'lodging' && /식당|맛집|한정식/.test(t.text)) {
-    const food = buildBookingLinks({ category: 'restaurant', taskText: t.text, place: a.place, query: /한정식/.test(t.text) ? '한정식' : '식당' });
+  if (cls.category === 'lodging' && /식당|맛집|한정식|restaurant|dining|meal|lunch|dinner/i.test(t.text)) {
+    const food = buildBookingLinks({ category: 'restaurant', taskText: t.text, place: a.place, query: /한정식|hanjeongsik|set[- ]menu/i.test(t.text) ? '한정식' : '식당' });
     plan.links.push(...food.links);
   }
-  t.action = { ...t.action, ...cls, kind: 'booking_link', query: plan.query, links: plan.links, classifiedBy: t.action?.classifiedBy ?? 'heuristic' };
+  // keep the classifier's search noun in `query` (re-sharing must not prefix the area twice: '경주 경주 숙소')
+  t.action = { ...t.action, ...cls, kind: 'booking_link', links: plan.links, classifiedBy: t.action?.classifiedBy ?? 'heuristic' };
   t.link = plan.links[0]?.url;
   t.executedAt = nowIso();
   if (t.status === 'todo') t.status = 'in_progress';
-  record(t, { kind: 'booking', by, note: `예약 링크 공유 · ${plan.query}` });
+  record(t, { kind: 'booking', by, note: st('task.note.booking', { query: plan.query }) });
   save(a, by === TACHI_ID ? TACHI_ID : by);
-  const who = t.assigneeId ? `${honor(t.assigneeId)}이 맡아 주세요.` : '맡아 주실 분을 정해 주세요.';
+  const who = t.assigneeId ? st('task.booking.owner', { who: honor(t.assigneeId) }) : st('task.booking.noOwner');
   await tachiSay(a.roomId, {
     kind: 'task_card',
-    text: `‘${short(t)}’ 예약 링크를 준비했어요 (${plan.query}). ${who}`,
+    text: st('task.booking.card', { task: short(t), query: plan.query, who }),
     payload: cardFor(a, t, 'booking', { links: plan.links }),
-    actions: [{ id: 'task_booked', label: '예약 완료', style: 'primary', data: { artifactId: a.id, taskId: t.id } }],
+    actions: [{ id: 'task_booked', label: st('task.btn.booked'), style: 'primary', data: { artifactId: a.id, taskId: t.id } }],
   });
   return { ok: true };
 }
@@ -269,7 +277,7 @@ export async function executeTask(userId: ID, artifactId: ID, taskId: ID, kind?:
   switch (t.action?.kind) {
     case 'booking_link': return shareBooking(a, t, by);
     case 'reminder': return remindAssignee(a, t, by);
-    default: return { ok: false, error: 'no action', message: '타치가 대신 할 수 있는 일이 없어요.' };
+    default: return { ok: false, error: 'no action', message: st('task.err.noAction') };
   }
 }
 
@@ -281,29 +289,29 @@ export async function applyTaskReply(actor: ID, artifactId: ID, taskId: ID, repl
   const t = a?.tasks.find(x => x.id === taskId);
   if (!a || !t) return { ok: false, error: 'unknown task' };
   const by = actor === DIRECTOR_ID ? (t.assigneeId ?? TACHI_ID) : actor;
-  if (!isOpen(t) && reply !== 'done') { settleCards(t.id); await tachiSay(roomId, { text: `‘${short(t)}’ 할 일은 이미 끝났어요. 고마워요!` }); return { ok: true }; }
+  if (!isOpen(t) && reply !== 'done') { settleCards(t.id); await tachiSay(roomId, { text: st('task.reply.alreadyDone', { task: short(t) }) }); return { ok: true }; }
   settleCards(t.id);
   if (reply === 'done') {
     const wasOpen = isOpen(t);
-    completeTask(t, by, t.result ?? `완료 · ${name(by)}`);
-    record(t, { kind: 'reply', by, reply, roomId, note: '완료했어요' });
+    completeTask(t, by, t.result ?? st('task.result.done', { name: name(by) }));
+    record(t, { kind: 'reply', by, reply, roomId, note: st('task.btn.done') });
     save(a, by);
-    await tachiSay(roomId, { kind: roomId === a.roomId ? 'task_card' : 'text', text: `고마워요! ‘${short(t)}’ 완료로 표시했어요.`, ...(roomId === a.roomId ? { payload: cardFor(a, t, 'done') } : {}) });
+    await tachiSay(roomId, { kind: roomId === a.roomId ? 'task_card' : 'text', text: st('task.reply.done', { task: short(t) }), ...(roomId === a.roomId ? { payload: cardFor(a, t, 'done') } : {}) });
     if (wasOpen && roomId !== a.roomId) {
-      await tachiSay(a.roomId, { kind: 'task_card', text: `${honor(by)}이 ‘${short(t)}’${eul(t.text)} 마쳤어요.`, payload: cardFor(a, t, 'done') });
+      await tachiSay(a.roomId, { kind: 'task_card', text: st('task.reply.doneFamily', { who: honor(by), task: short(t), eul: eul(t.text) }), payload: cardFor(a, t, 'done') });
     }
   } else if (reply === 'later') {
     const next = new Date(now().getTime() + TASK_FOLLOWUP.snoozeMin * MIN);
     t.nextFollowUpAt = next.toISOString();
     t.status = t.status === 'blocked' ? 'todo' : t.status;
-    record(t, { kind: 'reply', by, reply, roomId, note: `나중에 · ${koreanTime(next)}에 다시` });
+    record(t, { kind: 'reply', by, reply, roomId, note: st('task.note.later', { time: timeL(next) }) });
     save(a, by);
-    await tachiSay(roomId, { text: `알겠어요. ${koreanTime(next)}쯤 다시 여쭤볼게요.` });
+    await tachiSay(roomId, { text: st('task.reply.later', { time: timeL(next) }) });
   } else {
     t.status = 'blocked';
-    record(t, { kind: 'reply', by, reply, roomId, note: '도움이 필요해요' });
+    record(t, { kind: 'reply', by, reply, roomId, note: st('task.btn.help') });
     save(a, by);
-    await tachiSay(roomId, { text: '알겠어요. 가족방에 함께 맡아 줄 분을 찾아볼게요.' });
+    await tachiSay(roomId, { text: st('task.reply.help') });
     await escalateTask(ctx.db.artifacts.get(a.id) ?? a, t, by, 'help');
   }
   return { ok: true };
@@ -331,20 +339,20 @@ export async function handleTaskAction(userId: ID, msg: Message, actionId: strin
     markActionDone(msg, undefined, actionId);
     t.assigneeId = userId;
     resetFollowUps(t);
-    record(t, { kind: 'status', by: userId, note: `${name(userId)}님이 맡음` });
+    record(t, { kind: 'status', by: userId, note: st('task.note.took', { name: name(userId) }) });
     save(a, userId);
-    await tachiSay(room.id, { kind: 'task_card', text: `${honor(userId)}이 ‘${short(t)}’${eul(t.text)} 맡아 주셨어요. 고마워요!`, payload: cardFor(a, t, 'reminder') });
+    await tachiSay(room.id, { kind: 'task_card', text: st('task.take', { who: honor(userId), task: short(t), eul: eul(t.text) }), payload: cardFor(a, t, 'reminder') });
     return { ok: true };
   }
   if (actionId === 'task_booked') {
     markActionDone(msg, undefined, actionId);
     const by = director ? (t.assigneeId ?? TACHI_ID) : userId;
     if (isOpen(t)) {
-      completeTask(t, by, `예약 완료 · ${name(by)}`);
-      record(t, { kind: 'reply', by, reply: 'done', roomId: room.id, note: '예약 완료' });
+      completeTask(t, by, st('task.result.booked', { name: name(by) }));
+      record(t, { kind: 'reply', by, reply: 'done', roomId: room.id, note: st('task.btn.booked') });
       save(a, by);
       settleCards(t.id);
-      await tachiSay(room.id, { kind: 'task_card', text: `‘${short(t)}’ 예약 완료로 표시했어요. 고마워요, ${honor(by)}!`, payload: cardFor(a, t, 'done') });
+      await tachiSay(room.id, { kind: 'task_card', text: st('task.booked', { task: short(t), who: honor(by) }), payload: cardFor(a, t, 'done') });
     }
     return { ok: true };
   }
@@ -356,9 +364,10 @@ export async function handleTaskAction(userId: ID, msg: Message, actionId: strin
   return applyTaskReply(userId, a.id, t.id, reply, room.id);
 }
 
-const DONE_RE = /완료|다\s*했|했어요|했어|끝났|끝냈|마쳤|예약\s*했/;
-const HELP_RE = /도움|도와|못\s*하겠|어려워|힘들|못 할/;
-const LATER_RE = /나중에|이따|내일|조금\s*있다|좀\s*있다/;
+// Typed replies (Korean and English) to a reminder card.
+const DONE_RE = /완료|다\s*했|했어요|했어|끝났|끝냈|마쳤|예약\s*했|\b(?:done|finished|booked|completed|taken care of|all set)\b|\bi did it\b/i;
+const HELP_RE = /도움|도와|못\s*하겠|어려워|힘들|못 할|\bhelp\b|\bcan'?t\b|\bcannot\b|\bunable\b|\bstuck\b|too (?:hard|busy)/i;
+const LATER_RE = /나중에|이따|내일|조금\s*있다|좀\s*있다|\blater\b|\btomorrow\b|\bnot (?:yet|now)\b|\bin a (?:bit|while)\b|\bsnooze\b/i;
 
 /** Typed reply in a 1:1 room to the latest pending reminder card. Returns true when handled. */
 export async function tryTaskReply(room: Room, userId: ID, text: string): Promise<boolean> {
@@ -371,7 +380,7 @@ export async function tryTaskReply(room: Room, userId: ID, text: string): Promis
   const reply: TaskReply | undefined = HELP_RE.test(text) ? 'help' : LATER_RE.test(text) ? 'later' : DONE_RE.test(text) ? 'done' : undefined;
   if (!reply) {
     if (room.pollId && ctx.db.polls.get(room.pollId)?.status === 'open') return false; // an availability answer
-    await tachiSay(room.id, { text: `‘${short(t)}’ 말씀이시죠? 완료했어요 / 도움이 필요해요 / 나중에 할게요 중에서 골라 주세요.` });
+    await tachiSay(room.id, { text: st('task.reply.unclear', { task: short(t), done: st('task.btn.done'), help: st('task.btn.help'), later: st('task.btn.later') }) });
     return true;
   }
   markActionDone(card);

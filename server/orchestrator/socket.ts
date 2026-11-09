@@ -295,7 +295,7 @@ export function attachSocketHandlers(io: IO): void {
       if (!requireDirector(sock)) return;
       safe('demo:followups', async () => {
         const n = await runFollowUps();
-        sock.emit('toast', { text: n ? `할 일 ${n}건을 챙겼어요.` : '지금 챙길 할 일이 없어요.' });
+        sock.emit('toast', { text: n ? st('task.followups.done', { n, s: n === 1 ? '' : 's' }) : st('task.followups.none') });
       }, sock);
     });
     sock.on('demo:say', p => {
