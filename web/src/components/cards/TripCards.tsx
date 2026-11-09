@@ -5,17 +5,29 @@ import type { ItineraryPayload, TripSuggestionPayload } from '../../../../shared
 import type { CardProps } from './types';
 import './cards.css';
 
-export function TripSuggestionCard({ message }: CardProps) {
+export function TripSuggestionCard({ message, actionSlot }: CardProps) {
   const p = message.payload as TripSuggestionPayload;
   return (
-    <article className="cd" aria-label={p.title}>
+    <article className="cd" aria-label={message.text || p.title}>
       <div className="cd-row cd-between"><h3 className="cd-title">{p.title}</h3><span className="badge">{p.durationLabel}</span></div>
       <p className="cd-warm">{p.reason}</p>
       <ul className="cd-list">
         {p.highlights.map(h => <li key={h}><MapPin size={14} />{h}</li>)}
       </ul>
+      {actionSlot}
     </article>
   );
+}
+
+/** '서울역 출발' + '신경주역 도착, 점심' → one-line route; null when the day does not open with a departure and an arrival. */
+function routeSummary(stops: ItineraryPayload['days'][number]['stops']) {
+  const [a, b] = stops;
+  if (!a || !b || !/출발/.test(a.title) || !/도착/.test(b.title)) return null;
+  const from = a.title.replace(/\s*출발.*$/, '').trim();
+  const to = b.title.replace(/\s*도착.*$/, '').trim();
+  if (!from || !to) return null;
+  const mode = (a.travel ?? '').match(/KTX|SRT|버스|기차|택시|자가용/)?.[0];
+  return { from, to, depart: a.time, arrive: b.time, mode };
 }
 
 export function ItineraryCard({ message, variant, actionSlot }: CardProps) {
@@ -25,8 +37,11 @@ export function ItineraryCard({ message, variant, actionSlot }: CardProps) {
   const [tips, setTips] = useState(false);
   const di = Math.min(day, p.days.length - 1);
   const d = p.days[di];
-  const stops = d ? (all ? d.stops : d.stops.slice(0, 2)) : [];
-  const hidden = d ? d.stops.length - 2 : 0;
+  const route = d ? routeSummary(d.stops) : null;
+  // Preview: one-line route + the first stop after it (the memory-linked place); everything else is behind the toggle.
+  const previewCount = route ? 3 : 2;
+  const stops = d ? (all ? d.stops : d.stops.slice(route ? 2 : 0, previewCount)) : [];
+  const hidden = d ? d.stops.length - previewCount : 0;
   const senior = variant === 'senior';
   const readText = d ? `${p.title}. ${d.label}. ` + d.stops.map(s => `${s.time}, ${s.title}. ${s.description}`).join(' ') : p.title;
   return (
@@ -39,6 +54,7 @@ export function ItineraryCard({ message, variant, actionSlot }: CardProps) {
         </div>
       )}
       {p.days.length === 1 && <p className="cd-label">{p.days[0].label}</p>}
+      {d && route && !all && <p className="cd-route"><b>{route.from}</b> {route.depart}<span aria-hidden> → </span><span className="sr-only"> 에서 </span><b>{route.to}</b> {route.arrive}{route.mode ? ` · ${route.mode}` : ''}</p>}
       {d && (
         <ol className="cd-tl">
           {stops.map((s, i) => (

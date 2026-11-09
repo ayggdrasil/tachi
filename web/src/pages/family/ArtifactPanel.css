@@ -15,7 +15,7 @@
 .ap-live { min-height: 20px; }
 .ap-actions { display: flex; flex-wrap: wrap; gap: var(--space-8); margin: var(--space-8) 0 var(--space-4); }
 .ap-sec { margin-top: var(--space-16); }
-.ap-h { font-size: var(--text-caption); font-weight: var(--weight-semibold); color: var(--text-2); margin-bottom: var(--space-6); }
+.ap-h { font-size: var(--text-small); font-weight: var(--weight-medium); color: var(--text-2); margin-bottom: var(--space-6); }
 .is-flash { animation: ap-flash 1.5s var(--ease-out); }
 @keyframes ap-flash { 0%, 30% { background: var(--press); } 100% { background: transparent; } }
 

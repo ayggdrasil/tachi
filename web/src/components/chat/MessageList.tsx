@@ -13,8 +13,8 @@ interface Props { roomId: string; variant: 'senior' | 'family'; onOpenArtifact?:
 
 const CARD_KINDS = new Set(['memory_card', 'recall_card', 'trip_suggestion', 'itinerary', 'share_card', 'artifact', 'schedule_request', 'schedule_result', 'health_card', 'report']);
 /** Cards that render their own actions inside (right under the primary content) so they stay above the fold. */
-const INLINE_ACTIONS = new Set(['memory_card', 'itinerary']);
-const TEXT_ABOVE = new Set(['recall_card', 'trip_suggestion']);
+const INLINE_ACTIONS = new Set(['memory_card', 'itinerary', 'trip_suggestion']);
+const TEXT_ABOVE = new Set(['recall_card']);
 
 function ModelLine({ message, variant }: { message: Message; variant: 'senior' | 'family' }) {
   // Seniors never see technical provenance; the family variant shows what actually produced the text.

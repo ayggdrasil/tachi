@@ -3,7 +3,7 @@ import { Check, Loader2 } from 'lucide-react';
 import type { CardAction, Message } from '../../../../shared/types';
 import { tachi } from '../../lib/store';
 
-type Phase = 'pending' | 'sent' | 'failed';
+type Phase = 'pending' | 'sent' | 'failed' | 'refused';
 
 /** Card actions: idle → pending (spinner) → sent (stays disabled until the server marks it done) → or failed (retry). */
 export function ActionBar({ message, onOpenArtifact, inline, senior }: {
@@ -23,7 +23,12 @@ export function ActionBar({ message, onOpenArtifact, inline, senior }: {
     }
     setPhase(s => ({ ...s, [a.id]: 'pending' }));
     tachi.action(message.roomId, message.id, a.id, a.data).then(
-      r => { if (alive.current) setPhase(s => ({ ...s, [a.id]: r.ok ? 'sent' : 'failed' })); },
+      r => {
+        if (!alive.current) return;
+        // A refusal is a deliberate "not yet": the decision stays pending, so the button is usable again and never 'sent'.
+        const next: Phase = r.ok ? 'sent' : r.error === 'refused' ? 'refused' : 'failed';
+        setPhase(s => ({ ...s, [a.id]: next }));
+      },
       () => { if (alive.current) setPhase(s => ({ ...s, [a.id]: 'failed' })); },
     );
   };

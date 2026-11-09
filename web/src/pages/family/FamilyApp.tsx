@@ -1,5 +1,5 @@
 import { useCallback, useRef, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, CalendarClock, Home, HeartHandshake, MoreHorizontal, UserPlus, X } from 'lucide-react';
 import { FAMILY_ROOM_ID } from '../../../../shared/constants';
 import { initTachi, isEmbedded, rememberPersona, resolvePersona, useTachi } from '../../lib/store';
@@ -30,6 +30,7 @@ export default function FamilyApp() {
   const users = useTachi(s => s.users);
   const rooms = useTachi(s => s.rooms);
   const messages = useTachi(s => s.messages);
+  const bootError = useTachi(s => s.error);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [view, setView] = useState<'list' | 'chat'>(embedded ? 'chat' : 'list');
@@ -133,11 +134,24 @@ export default function FamilyApp() {
     return () => window.removeEventListener('keydown', k);
   }, [panel]);
 
+  if (status === 'error') {
+    return (
+      <div className="fam-boot" role="alert">
+        <span className="fam-mark">타치</span>
+        <p className="fam-boot-title">연결하지 못했어요</p>
+        <p className="caption muted fam-boot-msg">{bootError || '서버가 켜져 있는지 확인해 주세요.'}</p>
+        <div className="fam-boot-actions">
+          <button className="btn btn-primary" onClick={() => initTachi(personaId, true)}>다시 시도</button>
+          <Link to="/" className="btn">다른 가족으로 들어가기</Link>
+        </div>
+      </div>
+    );
+  }
   if (status !== 'ready' || !me) {
     return (
       <div className="fam-boot" role="status">
         <span className="fam-mark">타치</span>
-        <p className="caption muted">{status === 'error' ? '연결하지 못했어요. 서버가 켜져 있는지 확인해 주세요.' : '가족방에 연결하는 중…'}</p>
+        <p className="caption muted">가족방에 연결하는 중…</p>
       </div>
     );
   }
@@ -214,6 +228,7 @@ export default function FamilyApp() {
             <>
               <div className="fam-thread">
                 <div className="fam-thread-inner">
+                  <h2 className="sr-only">대화</h2>
                   <MessageList roomId={room.id} variant="family"
                     onOpenArtifact={id => { setPanel({ kind: 'artifact', id }); }}
                     onOpenRoom={id => openRoom(id)} />

@@ -25,12 +25,13 @@ export function MemoryCard({ message, variant, actionSlot }: CardProps) {
   const live = useTachi(s => s.memories.find(m => m.id === p.memoryId));
   const meId = useTachi(s => s.meId);
   const m = live ?? p.memory;
-  const when = [m.era, m.year ? `${m.year}년` : '', m.season].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(' ');
-  const rows: [string, string | undefined][] = [
+  // Exact year + season ('1984년 봄'); the decade is only a fallback when there is no year.
+  const when = [m.year ? `${m.year}년` : m.era, m.season].filter(Boolean).join(' ');
+  const rows: [string, string | undefined, boolean?][] = [
     ['시기', when],
     ['장소', m.place],
-    ['함께한 사람', m.people.map(x => x.name).join(', ')],
-    ['감정', m.emotions.join(', ')],
+    ['함께한 사람', m.people.map(x => x.name).join(', '), true],
+    ['감정', m.emotions.join(', '), true],
   ];
   const nodes = p.graphDelta?.nodes ?? [];
   const edges = p.graphDelta?.edges ?? [];
@@ -44,14 +45,15 @@ export function MemoryCard({ message, variant, actionSlot }: CardProps) {
       <div className="cd-row cd-between"><h3 className="cd-title">{m.title}</h3>
         {senior && <SpeakButton text={`${m.title}. ${m.story}`} />}</div>
       <dl className="cd-dl cd-dl-2 cd-facts">
-        {rows.filter(([, v]) => v).map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}
+        {rows.filter(([, v]) => v).map(([k, v, wide]) => <div key={k} className={wide ? 'cd-wide' : undefined}><dt>{k}</dt><dd>{v}</dd></div>)}
       </dl>
+      {actionSlot}
       {nodes.length > 0 && (
-        <div className="cd-graph cd-graph-c" aria-label={`기억 그래프에 저장됨 · 노드 ${nodes.length} · 연결 ${edges.length}`}>
-          <MemoryGraph nodes={nodes} edges={edges} highlightIds={[...nodes.map(n => n.id), ...edges.map(e => e.id)]} compact height={170} />
+        <div className="cd-graph cd-graph-c" role="group" aria-label={`기억 그래프에 저장됨 · 노드 ${nodes.length} · 연결 ${edges.length}`}>
+          <span className="cd-label">기억 그래프</span>
+          <MemoryGraph nodes={nodes} edges={edges} highlightIds={[...nodes.map(n => n.id), ...edges.map(e => e.id)]} compact height={110} />
         </div>
       )}
-      {actionSlot}
       {(m.story || m.tags.length > 0) && (
         <details className="cd-disc">
           <summary>이야기 보기</summary>
@@ -103,7 +105,7 @@ export function RecallCard({ message, variant }: CardProps) {
         <div className="cd-path" aria-label="그래프 경로">
           {hops.map(h => (
             <span key={h.id} className="cd-hop">
-              <span className="cd-hop-n">{h.a}</span><b>{senior ? REL_SENIOR[h.t] ?? h.t : `—${h.t}→`}</b><span className="cd-hop-n">{h.b}</span>
+              <span className="cd-hop-n">{h.a}</span><b>{senior ? REL_SENIOR[h.t] ?? h.t : `-${h.t}→`}</b><span className="cd-hop-n">{h.b}</span>
             </span>
           ))}
         </div>

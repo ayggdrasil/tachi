@@ -53,7 +53,7 @@ export function ScheduleRequestCard({ message, variant }: CardProps) {
   const none = () => { setSel([]); send([]); };
   return (
     <article className="cd" aria-label="가능한 시간 선택">
-      <h3 className="cd-title">{p.artifactTitle} — 가능한 시간을 골라 주세요</h3>
+      <h3 className="cd-title">{p.artifactTitle}, 가능한 시간을 골라 주세요</h3>
       <div className={`cd-slots ${senior ? 'cd-slots-s' : ''}`}>
         {p.slots.map(s => (
           <button key={s.id} type="button" className="chip cd-slot" aria-pressed={chosen.includes(s.id)} disabled={answered || busy}

@@ -283,7 +283,7 @@ export function MemoryGraph({ nodes, edges, highlightIds, height, interactive, c
         })()}
       </svg>
       <ul className="sr-only mg-text" aria-label="기억 그래프 목록">
-        {edges.map(e => <li key={e.id}>{byId.get(e.source)?.name ?? e.source} — {REL_KO[e.type] ?? e.type} → {byId.get(e.target)?.name ?? e.target}</li>)}
+        {edges.map(e => <li key={e.id}>{byId.get(e.source)?.name ?? e.source}, {REL_KO[e.type] ?? e.type} → {byId.get(e.target)?.name ?? e.target}</li>)}
       </ul>
       {nodes.length === 0 && <div className="mg-empty">아직 연결된 기억이 없어요</div>}
       {!compact && (

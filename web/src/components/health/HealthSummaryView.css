@@ -16,8 +16,11 @@
 .hs-med { display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); }
 .hs-med-name { font-size: var(--text-caption); }
 .hs-dots { display: inline-flex; gap: 6px; }
-.hs-dot { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid var(--text-3); display: inline-block; }
-.hs-dot-on { background: var(--text); border-color: var(--text); }
+.hs-dot { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid var(--text); display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; }
+.hs-dot svg { width: 100%; height: 100%; stroke: var(--text); stroke-width: 1.6; fill: none; stroke-linecap: round; }
+.hs-dot-on { background: var(--text); }
+.hs-dot-miss { background: transparent; }
+.hs-dot-none { border: 1px dashed var(--text-3); opacity: .6; }
 .hs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--space-16); }
 .hs-grid .hs-head { flex-direction: column; align-items: flex-start; gap: 2px; }
 .hs-grid .hs-head h4 { white-space: nowrap; }
@@ -29,3 +32,6 @@
 .hs-senior .hs-big { font-size: 26px; }
 .hs-senior .hs-big small, .hs-senior .hs-sub, .hs-senior .hs-axis, .hs-senior .hs-key { font-size: var(--senior-caption); }
 .hs-senior .hs-dot { width: 16px; height: 16px; }
+.hs-senior .hs-key-med { font-size: var(--senior-caption); }
+.hs-key .hs-dot { width: 10px; height: 10px; margin-left: var(--space-8); }
+.hs-key .hs-dot:first-child { margin-left: 0; }

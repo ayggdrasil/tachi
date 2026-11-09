@@ -52,6 +52,7 @@
 .dc-phone-status { height: 28px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: var(--weight-medium); color: var(--text-2); background: var(--surface); border-bottom: 1px solid var(--border); }
 .dc-iframe { flex: 1; width: 100%; border: 0; background: var(--surface); }
 .dc-graph { flex: none; }
+.dc-graph.is-overlay { position: absolute; right: 16px; top: 52px; z-index: 3; background: var(--bg); border-radius: 24px; }
 .dc-graph-box { position: relative; border: 1px solid var(--border-strong); border-radius: 24px; overflow: hidden; background: var(--bg-chrome); }
 .dc-graph-stats { position: absolute; left: 16px; bottom: 12px; }
 .dc-qr { display: flex; flex-direction: column; align-items: center; gap: var(--space-8); text-align: center; padding-bottom: var(--space-8); }
@@ -73,7 +74,7 @@
 .dc-cap { text-align: center; margin-top: var(--space-4); }
 
 .dc-replay { white-space: nowrap; }
-.dc-stale { margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: var(--accent-soft, rgba(200,120,40,.12)); }
+.dc-stale { margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: var(--bg-chrome); border: 1px solid var(--border); }
 .dc-link { background: none; border: 0; padding: 0 0 0 6px; color: inherit; text-decoration: underline; cursor: pointer; font: inherit; }
 .dc-cursor { display: flex; align-items: center; gap: 4px; margin: 4px 0; }
 .dc-models { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
@@ -83,12 +84,12 @@
 .dc-model.is-on { font-weight: 600; }
 .dc-model-check { width: 14px; display: inline-flex; }
 .dc-model-label { flex: 1; }
-.dc-ok { color: #2e8b57; }
-.dc-bad { color: #c0392b; }
+.dc-ok { color: var(--text); font-weight: var(--weight-medium); }
+.dc-bad { color: var(--text-2); font-weight: var(--weight-semibold); }
 .dc-recall { margin-top: 8px; padding: 8px 10px; border: 1px solid rgba(127,127,127,.25); border-radius: 8px; display: grid; gap: 6px; font-size: 13px; }
 .dc-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .dc-chip-wrap { display: inline-flex; align-items: center; gap: 4px; }
 .dc-chip { padding: 1px 8px; border-radius: 999px; background: rgba(127,127,127,.16); font-size: 12px; }
-.dc-chip.is-node { background: rgba(200,120,40,.18); }
+.dc-chip.is-node { background: var(--inverse-bg); color: var(--inverse-text); font-weight: var(--weight-medium); }
 .dc-cypher { margin: 0; padding: 6px 8px; border-radius: 6px; background: rgba(127,127,127,.12); font-size: 11px; white-space: pre-wrap; word-break: break-all; max-height: 64px; overflow: auto; }
 .dc-run-row{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0}

@@ -6,7 +6,7 @@
 .mp-pane { padding: var(--space-16); display: flex; flex-direction: column; gap: var(--space-16); }
 .mp-empty { padding: var(--space-8) 0; }
 .mp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-8); }
-.mp-h { font-size: var(--text-caption); font-weight: var(--weight-semibold); color: var(--text-2); margin-bottom: var(--space-8); }
+.mp-h { font-size: var(--text-small); font-weight: var(--weight-medium); color: var(--text-2); margin-bottom: var(--space-8); }
 .mp-graph-box { border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; background: var(--bg-chrome); }
 .mp-photo { width: 100%; max-height: 300px; object-fit: cover; border-radius: var(--radius-lg); margin-bottom: var(--space-12); }
 .mp-meta { margin-bottom: var(--space-6); }

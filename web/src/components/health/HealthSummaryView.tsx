@@ -34,7 +34,10 @@ export function HealthSummaryView({ summary, variant }: { summary: HealthSummary
   const lastSteps = summary.steps[summary.steps.length - 1];
   const maxSteps = Math.max(1, ...summary.steps.map(s => s.count));
   const maxSleep = Math.max(1, ...summary.sleepHours.map(s => s.hours));
+  // Only recorded doses count: taken = true, missed = an explicit record with taken = false, anything else is "no record".
+  const recorded = summary.medications.length;
   const taken = summary.medications.filter(m => m.taken).length;
+  const missed = recorded - taken;
 
   return (
     <div className={`hs hs-${variant}`}>
@@ -51,19 +54,23 @@ export function HealthSummaryView({ summary, variant }: { summary: HealthSummary
       </section>
 
       <section className="hs-block">
-        <div className="hs-head"><h4>복약 (최근 7일)</h4><span className="hs-sub">{taken}/{summary.medications.length}회 복용</span></div>
+        <div className="hs-head"><h4>복약 (최근 7일)</h4><span className="hs-sub">{taken}/{recorded}회 복용{missed > 0 ? ` · 거름 ${missed}회` : ''}</span></div>
         {names.map(name => (
           <div className="hs-med" key={name}>
             <span className="hs-med-name">{name}</span>
-            <span className="hs-dots" role="img" aria-label={`${name} 복용 기록`}>
+            <span className="hs-dots" role="list" aria-label={`${name} 복용 기록`}>
               {dates.map(d => {
                 const items = summary.medications.filter(m => m.name === name && m.date === d);
-                const ok = items.length > 0 && items.every(m => m.taken);
-                return <i key={d} className={ok ? 'hs-dot hs-dot-on' : 'hs-dot'} title={`${md(d)} ${ok ? '복용' : '거름'}`} />;
+                const state = items.length === 0 ? 'none' : items.every(m => m.taken) ? 'on' : 'miss';
+                const t = new Date(d); const label = isNaN(+t) ? d : `${t.getMonth() + 1}월 ${t.getDate()}일`;
+                const when = items.map(m => m.time).join('·');
+                const word = state === 'on' ? '복용' : state === 'miss' ? '거름' : '기록 없음';
+                return <i key={d} role="listitem" className={`hs-dot hs-dot-${state}`} aria-label={`${label}${when ? ' ' + when : ''} ${name}: ${word}`} title={`${md(d)} ${word}`}>{state === 'miss' ? <svg viewBox="0 0 12 12" aria-hidden><path d="M3 3l6 6M9 3l-6 6" /></svg> : null}</i>;
               })}
             </span>
           </div>
         ))}
+        {names.length > 0 && <div className="hs-key hs-key-med" aria-hidden><span className="hs-dot hs-dot-on" />복용<span className="hs-dot hs-dot-miss"><svg viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6" /></svg></span>거름<span className="hs-dot hs-dot-none" />기록 없음</div>}
         {names.length === 0 && <p className="faint caption">기록이 아직 없어요</p>}
       </section>
 

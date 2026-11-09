@@ -30,7 +30,7 @@ export function PrivacySettings() {
       <section className="sa-preview">
         <h3 className="sa-priv-t">지금 가족이 볼 수 있는 것</h3>
         {shared.length === 0 ? <p className="sa-priv-d">지금은 가족에게 보이는 정보가 없어요.</p> : (
-          <ul>{shared.map(c => <li key={c}><b>{PRIVACY_LABELS[c].label}</b> — {PRIVACY_LABELS[c].description}</li>)}</ul>
+          <ul>{shared.map(c => <li key={c}><b>{PRIVACY_LABELS[c].label}</b>, {PRIVACY_LABELS[c].description}</li>)}</ul>
         )}
       </section>
     </div>

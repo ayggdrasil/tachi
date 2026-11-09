@@ -14,7 +14,6 @@ import './DirectorConsole.css';
 const PHONE_W = 390;
 const PHONE_H = 844;
 const LABEL_H = 28;
-const GRAPH_W = 560;
 const GAP = 24;
 const PAD = 24;
 
@@ -73,6 +72,7 @@ export default function DirectorConsole() {
   const [manualStage, setManualStage] = useState(false);
   const [engine, setEngine] = useState<string | null>(null);
   const [staleDismissed, setStaleDismissed] = useState(false);
+  const [skip, setSkip] = useState<Record<string, string>>({});
 
   const [theme, setTheme] = useState<'light' | 'dark'>(() => new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light');
   useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
@@ -102,10 +102,11 @@ export default function DirectorConsole() {
     if (step.director === 'model') {
       const ms = getState().models;
       const opts = ms?.options ?? [];
-      const pick = opts.find(o => o.key === step.modelKey && o.available && o.key !== 'demo')
-        ?? opts.find(o => o.available && o.key !== ms?.active && o.key !== 'demo');
+      // a live, healthy (or unknown) provider that differs from the active one — otherwise the beat shows nothing
+      const cands = opts.filter(o => o.available && o.key !== 'demo' && o.key !== ms?.active && o.healthy !== false);
+      const pick = cands.find(o => o.key === step.modelKey) ?? cands[0];
       if (!pick) {
-        // no live provider available: skip instead of switching to the built-in demo brain
+        setSkip(d => ({ ...d, [step.id]: '바꿀 수 있는 다른 모델이 없어 건너뛰어요' }));
         setStat(d => ({ ...d, [step.id]: 'skipped' }));
         setCursor(c => Math.max(c, i + 1));
         setDwell(true);
@@ -115,11 +116,22 @@ export default function DirectorConsole() {
       const key: ModelKey = pick.key;
       setModelTarget(pick.label);
       const roomOf = step.room === 'senior' ? SENIOR_ROOM_ID : FAMILY_ROOM_ID;
-      if (key !== ms?.active) tachi.setModel(key);
+      tachi.setModel(key);
       void (async () => {
         const t0 = Date.now();
-        while (Date.now() - t0 < 3000 && getState().models?.active !== key) await new Promise(r => setTimeout(r, 100));
-        if (step.as) tachi.demo.say(step.as, roomOf, step.text, step.photo);
+        while (Date.now() - t0 < 4000 && getState().models?.active !== key) await new Promise(r => setTimeout(r, 100));
+        if (getState().models?.active === key) {
+          if (step.as) tachi.demo.say(step.as, roomOf, step.text, step.photo);
+          return;
+        }
+        // switch never observed: do not ask the question under the old model
+        setSkip(d => ({ ...d, [step.id]: '모델 교체가 확인되지 않아 건너뛰어요' }));
+        setStat(d => ({ ...d, [step.id]: 'skipped' }));
+        runningRef.current = null;
+        setRunning(null);
+        setModelTarget(null);
+        setDwell(true);
+        if (i === total - 1) setEndedAt(Date.now());
       })();
     } else if (step.director === 'invite') tachi.demo.invite(FAMILY_ROOM_ID, step.contactId ?? 'c-harin');
     else if (step.director === 'proactive') tachi.demo.proactive(step.kind);
@@ -202,7 +214,7 @@ export default function DirectorConsole() {
     startedRef.current = null;
     setRunning(null); setCursor(0); setStat({}); setAuto(false); setDwell(false);
     setStartedAt(null); setEndedAt(null); setModelTarget(null);
-    setManualStage(false); manualRef.current = false; setShowGraph(false); setShowSide(false); setStaleDismissed(false);
+    setSkip({}); setManualStage(false); manualRef.current = false; setShowGraph(false); setShowSide(false); setStaleDismissed(false);
   }, []);
 
   // keyboard
@@ -306,10 +318,16 @@ export default function DirectorConsole() {
   const third = showGraph ? 'graph' : showSide ? 'side' : null;
   const engineLabel = engine === 'kuzu' ? 'Kùzu 그래프 DB' : engine === 'memory' ? '메모리 그래프 (대체 모드)' : engine ? engine : '그래프 엔진 확인 중…';
   const phones = 2 + (third === 'side' ? 1 : 0);
-  const slots = phones + (third === 'graph' ? 1 : 0);
   const availH = box.h - PAD * 2 - 40 - LABEL_H;
-  const availW = box.w - PAD * 2 - GAP * (slots - 1) - (third === 'graph' ? GRAPH_W : 0);
-  const scale = Math.max(0.3, Math.min(1, availH / PHONE_H, availW / (phones * PHONE_W)));
+  const fitScale = (w: number) => Math.min(1, availH / PHONE_H, w / (phones * PHONE_W));
+  const graphW = Math.round(Math.min(520, Math.max(320, box.w * 0.36)));
+  const minScale = box.w >= 1100 ? 0.72 : 0.62;
+  const colScale = fitScale(box.w - PAD * 2 - GAP * phones - graphW);
+  // three columns only while phones stay readable; otherwise the graph floats over the stage's right side
+  const graphOverlay = third === 'graph' && colScale < minScale;
+  const scale = Math.max(0.3, third === 'graph' && !graphOverlay ? colScale : fitScale(box.w - PAD * 2 - GAP * (phones - 1)));
+  const graphBoxH = graphOverlay ? Math.max(360, box.h - 88 - LABEL_H) : PHONE_H * scale;
+  const overlayW = Math.min(graphW, Math.max(280, box.w - 32));
 
   const statusLabel = status === 'ready' ? '연결됨' : status === 'error' ? '연결 오류' : '연결 중';
   const modelLabel = models?.options.find(o => o.key === models.active)?.label ?? '—';
@@ -336,6 +354,7 @@ export default function DirectorConsole() {
     <div className="dc">
       <aside className="dc-rail" aria-label="컨트롤 레일">
         <header className="dc-status">
+          <h1 className="sr-only">타치 디렉터 콘솔</h1>
           <div className="dc-status-top">
             <Link to="/" className="dc-brand">타치 · 디렉터</Link>
             <span className="dc-conn"><span className={`dc-dot ${status === 'ready' ? 'is-on' : ''}`} aria-hidden />{statusLabel}</span>
@@ -418,7 +437,7 @@ export default function DirectorConsole() {
                       <span className="dc-step-main">
                         <span className="dc-step-label">{s.label}{isSkipped && <span className="caption faint"> · 건너뜀</span>}</span>
                         {(isNext || st === 'running' || st === 'timeout' || isSkipped) && (
-                          <span className="dc-step-hint">{st === 'running' ? (s.director === 'model' && modelTarget ? `→ ${modelTarget} · 응답 기다리는 중…` : '응답 기다리는 중…') : st === 'timeout' ? '시간 초과 · 다시 눌러 재시도' : isSkipped ? 'API 키가 없어 모델 교체를 건너뛰어요' : s.hint}</span>
+                          <span className="dc-step-hint">{st === 'running' ? (s.director === 'model' && modelTarget ? `→ ${modelTarget} · 응답 기다리는 중…` : '응답 기다리는 중…') : st === 'timeout' ? '시간 초과 · 다시 눌러 재시도' : isSkipped ? (skip[s.id] ?? '건너뛰었어요') : s.hint}</span>
                         )}
                       </span>
                     </button>
@@ -493,10 +512,10 @@ export default function DirectorConsole() {
               caption={sideRoomId ? undefined : '일정 조율이 시작되면 사이드 챗이 열려요'} />
           )}
           {third === 'graph' && (
-            <section className="dc-graph" style={{ width: GRAPH_W, height: PHONE_H * scale + LABEL_H }} aria-label="기억 그래프">
+            <section className={`dc-graph ${graphOverlay ? 'is-overlay' : ''}`} style={graphOverlay ? { width: overlayW, height: graphBoxH + LABEL_H } : { width: graphW, height: graphBoxH + LABEL_H }} aria-label="기억 그래프">
               <div className="dc-label">기억 그래프 · {engineLabel}</div>
-              <div className="dc-graph-box" style={{ height: PHONE_H * scale }}>
-                <MemoryGraph nodes={nodes} edges={edges} highlightIds={fresh} height={Math.max(160, PHONE_H * scale - 56 - (recall ? 150 : 0))} interactive />
+              <div className="dc-graph-box" style={{ height: graphBoxH }}>
+                <MemoryGraph nodes={nodes} edges={edges} highlightIds={fresh} height={Math.max(160, graphBoxH - 56 - (recall ? 150 : 0))} interactive />
                 {recall ? (
                   <div className="dc-recall" aria-label="회상 근거">
                     <div className="dc-recall-h"><b>회상 근거</b><span className="caption muted"> · {recall.memory?.title}</span></div>
